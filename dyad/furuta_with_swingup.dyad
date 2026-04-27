@@ -1,0 +1,246 @@
+component FurutaSwingup
+  swingup = DiscreteComponents.Examples.Swingup() {^swingup}
+  qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
+  zeroorderhold = DiscreteComponents.ZeroOrderHold() {^zeroorderhold}
+  elbow_sampler = DiscreteComponents.SampleWithADEffects() {^elbow_sampler}
+  shoulder_sampler = DiscreteComponents.SampleWithADEffects() {^shoulder_sampler}
+relations
+  connect(swingup.u, zeroorderhold.u) {^id6}
+  connect(zeroorderhold.y, qubependulum.torque) {^id7}
+  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id8}
+  connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id9}
+  connect(elbow_sampler.y, swingup.elbow_angle) {^id10}
+  connect(shoulder_sampler.y, swingup.shoulder_angle) {^id11}
+metadata {
+  "_links": {
+    "swingup": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 300, "y1": 440, "x2": 400, "y2": 340, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "qubependulum": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 620, "y1": 340, "x2": 720, "y2": 440, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "zeroorderhold": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 460, "y1": 340, "x2": 560, "y2": 440, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "elbow_sampler": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 720, "y1": 500, "x2": 620, "y2": 600, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "shoulder_sampler": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 720, "y1": 640, "x2": 620, "y2": 740, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "id6": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id7": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id8": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 750, "y": 411}, {"x": 750, "y": 550}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    },
+    "id9": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 780, "y": 366}, {"x": 780, "y": 690}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    },
+    "id10": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 260, "y": 550}, {"x": 260, "y": 419}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    },
+    "id11": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 230, "y": 690}, {"x": 230, "y": 372}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    }
+  }
+}
+end
+
+component QubePendulum
+  world = MultibodyComponents.World() {^world}
+  torquesource = RotationalComponents.Sources.TorqueSource() {^torquesource}
+  torque = Dyad.RealInput() {^torque}
+  shoulder_joint = MultibodyComponents.Revolute(rooted = RootedFrame.FrameA()) {^shoulder_joint}
+  elbow_joint = MultibodyComponents.Revolute(rooted = RootedFrame.FrameA()) {^elbow_joint}
+  upper_arm = MultibodyComponents.BodyCylinder(diameter = 0.005) {^upper_arm}
+  lower_arm = MultibodyComponents.BodyCylinder(r = [0, 0.1, 0], diameter = 0.005) {^lower_arm}
+  elbow_sensor = RotationalComponents.Sensors.AngleSensor() {^elbow_sensor}
+  shoulder_sensor = RotationalComponents.Sensors.AngleSensor() {^shoulder_sensor}
+  shoulder_angle = Dyad.RealOutput() {^shoulder_angle}
+  elbow_angle = Dyad.RealOutput() {^elbow_angle}
+relations
+  connect(world.frame_b, shoulder_joint.frame_a) {^id12}
+  connect(shoulder_joint.frame_b, upper_arm.frame_a) {^id13}
+  connect(upper_arm.frame_b, elbow_joint.frame_a) {^id14}
+  connect(elbow_joint.frame_b, lower_arm.frame_a) {^id15}
+  connect(torquesource.support, shoulder_joint.support) {^id16}
+  connect(torque, torquesource.tau) {^id17}
+  connect(elbow_joint.axis, elbow_sensor.spline) {^id18}
+  connect(torquesource.spline, shoulder_joint.axis, shoulder_sensor.spline) {^id19}
+  connect(shoulder_angle, shoulder_sensor.phi) {^id20}
+  connect(elbow_sensor.phi, elbow_angle) {^id21}
+metadata {
+  "_links": {
+    "world": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 140, "y1": 290, "x2": 240, "y2": 390, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "torquesource": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 220, "y1": 160, "x2": 320, "y2": 260, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "torque": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": -40, "y1": 460, "x2": 40, "y2": 540, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "shoulder_joint": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 300, "y1": 390, "x2": 400, "y2": 290, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "elbow_joint": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 570, "y1": 470, "x2": 670, "y2": 370, "rot": 90}
+        },
+        "tags": []
+      }
+    },
+    "upper_arm": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 440, "y1": 290, "x2": 540, "y2": 390, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "lower_arm": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 570, "y1": 500, "x2": 670, "y2": 600, "rot": 90}
+        },
+        "tags": []
+      }
+    },
+    "elbow_sensor": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 770, "y1": 370, "x2": 870, "y2": 470, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "shoulder_sensor": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 770, "y1": 160, "x2": 870, "y2": 260, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "shoulder_angle": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 970, "y1": 220, "x2": 1050, "y2": 300, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "elbow_angle": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 970, "y1": 670, "x2": 1050, "y2": 750, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id13": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id14": {
+      "Dyad": {
+        "renderStyle": "standard",
+        "edges": [{"S": 1, "M": [{"x": 620, "y": 340}], "E": 2}]
+      }
+    },
+    "id15": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id16": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 270, "y": 300}, {"x": 325, "y": 300}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    },
+    "id17": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 0, "y": 210}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    },
+    "id18": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id19": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [{"x": 350, "y": 210}], "E": 2},
+          {"S": 3, "M": [], "E": -1}
+        ],
+        "junctions": [{"x": 350, "y": 210}],
+        "renderStyle": "standard"
+      }
+    },
+    "id20": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 910, "y": 260}, {"x": 910, "y": 210}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    },
+    "id21": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 910, "y": 420}, {"x": 910, "y": 710}], "E": 2}],
+        "renderStyle": "standard"
+      }
+    }
+  }
+}
+end
