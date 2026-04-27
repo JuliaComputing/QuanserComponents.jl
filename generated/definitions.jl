@@ -19,8 +19,8 @@ end
 import DyadInterface
 import RotationalComponents
 import BlockComponents
-import DiscreteComponents
 import MultibodyComponents
+import DiscreteComponents
 @doc Markdown.doc"""
 This connector represents an electrical pin with voltage and current as the potential and flow variables, respectively.
 """

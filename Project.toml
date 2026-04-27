@@ -18,6 +18,7 @@ OrdinaryDiffEqDefault = "50262376-6c5a-4cf5-baba-aaf4f84d72d7"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 RotationalComponents = "824fa3ed-d7dc-4365-8bdf-ac77a1ac2011"
 RuntimeGeneratedFunctions = "7e49a35a-f44a-4d26-94aa-eba1b4ca6b47"
+SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 
 [compat]
 BlockComponents = "4.0.2"
@@ -26,6 +27,7 @@ LinearAlgebra = "1.12.0"
 Markdown = "1"
 OrdinaryDiffEq = "6.111.0"
 RotationalComponents = "2.0.0"
+SynchToolkit = "0.4.4"
 
 [dyad]
 kernel = "2.3.0"

@@ -70,11 +70,11 @@
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = Dict(Symbol(replace(string(k), r"^shoulder_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_joint__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_joint__"), __overrides)
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(rooted=RootedFrame.FrameA(), shoulder_joint_overrides...))
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(rooted=MultibodyComponents.RootedFrame.FrameA(), shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = Dict(Symbol(replace(string(k), r"^elbow_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_joint__"))
   filter!(p -> !startswith(string(first(p)), "elbow_joint__"), __overrides)
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(rooted=RootedFrame.FrameA(), elbow_joint_overrides...))
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(rooted=MultibodyComponents.RootedFrame.FrameA(), elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyCylinder
   upper_arm_overrides = Dict(Symbol(replace(string(k), r"^upper_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "upper_arm__"))
   filter!(p -> !startswith(string(first(p)), "upper_arm__"), __overrides)
