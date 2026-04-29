@@ -99,7 +99,7 @@
   push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
   push!(__eqs, connect(swingup.u, gain.u))
   push!(__eqs, connect(gain.y, zeroorderhold.u))
-  push!(__eqs, connect(zeroorderhold.y, qubependulum.torque))
+  push!(__eqs, connect(zeroorderhold.y, qubependulum.voltage))
   push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
 
   # Return completely constructed System
