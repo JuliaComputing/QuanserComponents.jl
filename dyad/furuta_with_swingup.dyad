@@ -1,25 +1,26 @@
 component FurutaSwingup
   swingup = DiscreteComponents.Examples.Swingup() {^swingup}
   qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
-  zeroorderhold = DiscreteComponents.ZeroOrderHold() {^zeroorderhold}
-  elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false) {^elbow_sampler}
-  shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false) {^shoulder_sampler}
+  zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
+  elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
+  shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^shoulder_sampler}
   periodicclock = DiscreteComponents.PeriodicClock(dt = 0.01) {^periodicclock}
-  world = MultibodyComponents.World(default_body_color = [0.9, 0.9, 0.9, 1], default_rod_color = [0.9, 0.9, 0.9, 1], default_joint_color = [0.9, 0.9, 0.9, 1], nominal_length = 0.1) {^world}
-  constant1 = BlockComponents.Sources.Constant() {^constant1}
+  world = MultibodyComponents.World(default_body_color = [0.9, 0.9, 0.9, 1], default_rod_color = [0.9, 0.9, 0.9, 1], default_joint_color = [0.9, 0.9, 0.9, 1], nominal_length = 0.1, render = false) {^world}
+  gain = BlockComponents.Math.Gain(k = -1) {^gain}
 relations
-  connect(swingup.u, zeroorderhold.u) {^id9}
-  connect(elbow_sampler.y, swingup.elbow_angle) {^id10}
-  connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y) {^id11}
-  connect(constant1.y, qubependulum.torque) {^id12}
-  connect(constant1.y, elbow_sampler.u) {^id13}
-  connect(constant1.y, shoulder_sampler.u) {^id14}
+  connect(elbow_sampler.y, swingup.elbow_angle) {^id9}
+  connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y) {^id10}
+  connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id11}
+  connect(swingup.u, gain.u) {^id12}
+  connect(gain.y, zeroorderhold.u) {^id13}
+  connect(zeroorderhold.y, qubependulum.torque) {^id14}
+  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id15}
 metadata {
   "_links": {
     "swingup": {
       "Dyad": {
         "placement": {
-          "diagram": {"iconName": "default", "x1": 300, "y1": 440, "x2": 400, "y2": 340, "rot": 0}
+          "diagram": {"iconName": "default", "x1": 190, "y1": 440, "x2": 290, "y2": 340, "rot": 0}
         },
         "tags": []
       }
@@ -27,7 +28,7 @@ metadata {
     "qubependulum": {
       "Dyad": {
         "placement": {
-          "diagram": {"iconName": "default", "x1": 620, "y1": 280, "x2": 850, "y2": 490, "rot": 0}
+          "diagram": {"iconName": "default", "x1": 620, "y1": 280, "x2": 840, "y2": 500, "rot": 0}
         },
         "tags": []
       }
@@ -72,48 +73,50 @@ metadata {
         "tags": []
       }
     },
-    "constant1": {
+    "gain": {
       "Dyad": {
         "placement": {
-          "diagram": {"iconName": "default", "x1": 460, "y1": 40, "x2": 560, "y2": 140, "rot": 0}
+          "diagram": {"iconName": "default", "x1": 320, "y1": 340, "x2": 420, "y2": 440, "rot": 0}
         },
         "tags": []
       }
     },
-    "id9": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id10": {
+    "id9": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 260, "y": 630}, {"x": 260, "y": 419}], "E": 2}],
+        "edges": [{"S": 1, "M": [{"x": 160, "y": 630}, {"x": 160, "y": 419}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id11": {
+    "id10": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
-          {"S": -1, "M": [{"x": 230, "y": 760}, {"x": 230, "y": 372}], "E": 2},
+          {"S": -1, "M": [{"x": 130, "y": 760}, {"x": 130, "y": 372}], "E": 2},
           {"S": 3, "M": [{"x": 520, "y": 910}], "E": -1}
         ],
         "junctions": [{"x": 520, "y": 760}],
         "renderStyle": "standard"
       }
     },
-    "id12": {
+    "id11": {
       "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 598.25, "y": 90}, {"x": 598.25, "y": 385}], "E": 2}]
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 734.4, "y": 220}, {"x": 970, "y": 220}, {"x": 970, "y": 760}],
+            "E": 2
+          }
+        ],
+        "renderStyle": "standard"
       }
     },
-    "id13": {
+    "id12": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id13": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id15": {
       "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 645, "y": 90}, {"x": 645, "y": 630}], "E": 2}]
-      }
-    },
-    "id14": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 645, "y": 90}, {"x": 645, "y": 760}], "E": 2}]
+        "edges": [{"S": 1, "M": [{"x": 880, "y": 387.8}, {"x": 880, "y": 630}], "E": 2}],
+        "renderStyle": "standard"
       }
     }
   }
@@ -121,18 +124,38 @@ metadata {
 end
 
 component QubePendulum
+
+  parameter Rm = 8.4
+  parameter kt = 0.042
+  parameter km = 0.042
+
+  parameter mr = 0.095
+  parameter r  = 0.085
+  parameter Jr = mr*r^2/3
+  parameter br = 0.05e-3
+
+  parameter mp = 0.024
+  parameter Lp = 0.129
+  parameter l  = Lp/2
+
+  parameter Jp = mp*Lp^2/3
+  parameter bp = 0.05*5e-5
+
+
+
+
   torquesource = RotationalComponents.Sources.TorqueSource() {^torquesource}
   torque = Dyad.RealInput() {^torque}
-  shoulder_joint = MultibodyComponents.Revolute(rooted = RootedFrame.FrameA(), n = [0, 1, 0]) {^shoulder_joint}
-  elbow_joint = MultibodyComponents.Revolute(rooted = RootedFrame.FrameA(), n = [1, 0, 0]) {^elbow_joint}
-  upper_arm = MultibodyComponents.BodyCylinder(diameter = 0.006, color = [0.9, 0.9, 0.9, 1]) {^upper_arm}
-  lower_arm = MultibodyComponents.BodyCylinder(r = [0, 0.1, 0], diameter = 0.01, color = [1, 0, 0, 1]) {^lower_arm}
+  shoulder_joint = MultibodyComponents.Revolute(phi = initial 0.1, w = initial 0, rooted = RootedFrame.FrameA(), n = [0, 1, 0]) {^shoulder_joint}
+  elbow_joint = MultibodyComponents.Revolute(phi = initial 0.1, w = initial 0, rooted = RootedFrame.FrameA(), n = [1, 0, 0]) {^elbow_joint}
+  upper_arm = MultibodyComponents.BodyCylinder(r = [0.1, 0, 0], diameter = 0.006, color = [0.9, 0.9, 0.9, 1], specular_coefficient = 10, density = 2700) {^upper_arm}
+  lower_arm = MultibodyComponents.BodyCylinder(r = [0, -0.129, 0], diameter = 0.0096, color = [1, 0, 0, 1], density = 2700) {^lower_arm}
   elbow_sensor = RotationalComponents.Sensors.AngleSensor() {^elbow_sensor}
   shoulder_sensor = RotationalComponents.Sensors.AngleSensor() {^shoulder_sensor}
   shoulder_angle = Dyad.RealOutput() {^shoulder_angle}
   elbow_angle = Dyad.RealOutput() {^elbow_angle}
-  damper = RotationalComponents.Components.Damper(d = 0.07) {^damper}
-  damper1 = RotationalComponents.Components.Damper(d = 0.07) {^damper1}
+  damper = RotationalComponents.Components.Damper(d = 0.007) {^damper}
+  damper1 = RotationalComponents.Components.Damper(d = 0.007) {^damper1}
   fixed = MultibodyComponents.Fixed() {^fixed}
 relations
   connect(shoulder_joint.frame_b, upper_arm.frame_a) {^id14}

@@ -9,6 +9,5 @@ if isfile(joinpath((@__DIR__) |> Base.dirname, "dyad", "experiments.jl"))
 end
 
 
-include("FurutaPendulum_experiment.jl")
 include("FurutaSwingup_experiment.jl")
 include("QubePendulum_experiment.jl")

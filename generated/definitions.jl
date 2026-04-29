@@ -146,6 +146,5 @@ ModelingToolkit.IsFrame => true,
   return System(Equation[], t, __vars, __params; name, metadata = __metadata)
 end
 
-include("FurutaPendulum_definition.jl")
 include("FurutaSwingup_definition.jl")
 include("QubePendulum_definition.jl")

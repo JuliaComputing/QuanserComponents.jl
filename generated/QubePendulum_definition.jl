@@ -66,19 +66,19 @@
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = Dict(Symbol(replace(string(k), r"^shoulder_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_joint__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_joint__"), __overrides)
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(rooted=RootedFrame.FrameA(), n=[0, 1, 0], shoulder_joint_overrides...))
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[0, 1, 0], shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = Dict(Symbol(replace(string(k), r"^elbow_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_joint__"))
   filter!(p -> !startswith(string(first(p)), "elbow_joint__"), __overrides)
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(rooted=RootedFrame.FrameA(), n=[1, 0, 0], elbow_joint_overrides...))
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[1, 0, 0], elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyCylinder
   upper_arm_overrides = Dict(Symbol(replace(string(k), r"^upper_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "upper_arm__"))
   filter!(p -> !startswith(string(first(p)), "upper_arm__"), __overrides)
-  push!(__systems, @named upper_arm = MultibodyComponents.BodyCylinder(diameter=0.006, color=[0.9, 0.9, 0.9, 1], upper_arm_overrides...))
+  push!(__systems, @named upper_arm = MultibodyComponents.BodyCylinder(r=[0.1, 0, 0], diameter=0.006, color=[0.9, 0.9, 0.9, 1], specular_coefficient=10, density=2700, upper_arm_overrides...))
   # Subcomponent lower_arm of type MultibodyComponents.BodyCylinder
   lower_arm_overrides = Dict(Symbol(replace(string(k), r"^lower_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "lower_arm__"))
   filter!(p -> !startswith(string(first(p)), "lower_arm__"), __overrides)
-  push!(__systems, @named lower_arm = MultibodyComponents.BodyCylinder(r=[0, 0.1, 0], diameter=0.01, color=[1, 0, 0, 1], lower_arm_overrides...))
+  push!(__systems, @named lower_arm = MultibodyComponents.BodyCylinder(r=[0, -0.1, 0], diameter=0.0096, color=[1, 0, 0, 1], density=2700, lower_arm_overrides...))
   # Subcomponent elbow_sensor of type RotationalComponents.Sensors.AngleSensor
   elbow_sensor_overrides = Dict(Symbol(replace(string(k), r"^elbow_sensor__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_sensor__"))
   filter!(p -> !startswith(string(first(p)), "elbow_sensor__"), __overrides)
@@ -90,11 +90,11 @@
   # Subcomponent damper of type RotationalComponents.Components.Damper
   damper_overrides = Dict(Symbol(replace(string(k), r"^damper__" => "")) => v for (k, v) in __overrides if startswith(string(k), "damper__"))
   filter!(p -> !startswith(string(first(p)), "damper__"), __overrides)
-  push!(__systems, @named damper = RotationalComponents.Components.Damper(d=0.07, damper_overrides...))
+  push!(__systems, @named damper = RotationalComponents.Components.Damper(d=0.007, damper_overrides...))
   # Subcomponent damper1 of type RotationalComponents.Components.Damper
   damper1_overrides = Dict(Symbol(replace(string(k), r"^damper1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "damper1__"))
   filter!(p -> !startswith(string(first(p)), "damper1__"), __overrides)
-  push!(__systems, @named damper1 = RotationalComponents.Components.Damper(d=0.07, damper1_overrides...))
+  push!(__systems, @named damper1 = RotationalComponents.Components.Damper(d=0.007, damper1_overrides...))
   # Subcomponent fixed of type MultibodyComponents.Fixed
   fixed_overrides = Dict(Symbol(replace(string(k), r"^fixed__" => "")) => v for (k, v) in __overrides if startswith(string(k), "fixed__"))
   filter!(p -> !startswith(string(first(p)), "fixed__"), __overrides)
