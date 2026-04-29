@@ -16,6 +16,7 @@ end
 
 
 @testset "`QuanserComponents`" begin
+include("FurutaPendulum_test.jl")
 include("FurutaSwingup_test.jl")
 include("QubePendulum_test.jl")
 end

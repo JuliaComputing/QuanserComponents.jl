@@ -59,10 +59,6 @@
   __constants = Any[]
 
   ### Components
-  # Subcomponent world of type MultibodyComponents.World
-  world_overrides = Dict(Symbol(replace(string(k), r"^world__" => "")) => v for (k, v) in __overrides if startswith(string(k), "world__"))
-  filter!(p -> !startswith(string(first(p)), "world__"), __overrides)
-  push!(__systems, @named world = MultibodyComponents.World(world_overrides...))
   # Subcomponent torquesource of type RotationalComponents.Sources.TorqueSource
   torquesource_overrides = Dict(Symbol(replace(string(k), r"^torquesource__" => "")) => v for (k, v) in __overrides if startswith(string(k), "torquesource__"))
   filter!(p -> !startswith(string(first(p)), "torquesource__"), __overrides)
@@ -70,19 +66,19 @@
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = Dict(Symbol(replace(string(k), r"^shoulder_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_joint__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_joint__"), __overrides)
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(rooted=MultibodyComponents.RootedFrame.FrameA(), shoulder_joint_overrides...))
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(rooted=RootedFrame.FrameA(), n=[0, 1, 0], shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = Dict(Symbol(replace(string(k), r"^elbow_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_joint__"))
   filter!(p -> !startswith(string(first(p)), "elbow_joint__"), __overrides)
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(rooted=MultibodyComponents.RootedFrame.FrameA(), elbow_joint_overrides...))
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(rooted=RootedFrame.FrameA(), n=[1, 0, 0], elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyCylinder
   upper_arm_overrides = Dict(Symbol(replace(string(k), r"^upper_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "upper_arm__"))
   filter!(p -> !startswith(string(first(p)), "upper_arm__"), __overrides)
-  push!(__systems, @named upper_arm = MultibodyComponents.BodyCylinder(diameter=0.005, upper_arm_overrides...))
+  push!(__systems, @named upper_arm = MultibodyComponents.BodyCylinder(diameter=0.006, color=[0.9, 0.9, 0.9, 1], upper_arm_overrides...))
   # Subcomponent lower_arm of type MultibodyComponents.BodyCylinder
   lower_arm_overrides = Dict(Symbol(replace(string(k), r"^lower_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "lower_arm__"))
   filter!(p -> !startswith(string(first(p)), "lower_arm__"), __overrides)
-  push!(__systems, @named lower_arm = MultibodyComponents.BodyCylinder(r=[0, 0.1, 0], diameter=0.005, lower_arm_overrides...))
+  push!(__systems, @named lower_arm = MultibodyComponents.BodyCylinder(r=[0, 0.1, 0], diameter=0.01, color=[1, 0, 0, 1], lower_arm_overrides...))
   # Subcomponent elbow_sensor of type RotationalComponents.Sensors.AngleSensor
   elbow_sensor_overrides = Dict(Symbol(replace(string(k), r"^elbow_sensor__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_sensor__"))
   filter!(p -> !startswith(string(first(p)), "elbow_sensor__"), __overrides)
@@ -91,6 +87,18 @@
   shoulder_sensor_overrides = Dict(Symbol(replace(string(k), r"^shoulder_sensor__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_sensor__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_sensor__"), __overrides)
   push!(__systems, @named shoulder_sensor = RotationalComponents.Sensors.AngleSensor(shoulder_sensor_overrides...))
+  # Subcomponent damper of type RotationalComponents.Components.Damper
+  damper_overrides = Dict(Symbol(replace(string(k), r"^damper__" => "")) => v for (k, v) in __overrides if startswith(string(k), "damper__"))
+  filter!(p -> !startswith(string(first(p)), "damper__"), __overrides)
+  push!(__systems, @named damper = RotationalComponents.Components.Damper(d=0.07, damper_overrides...))
+  # Subcomponent damper1 of type RotationalComponents.Components.Damper
+  damper1_overrides = Dict(Symbol(replace(string(k), r"^damper1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "damper1__"))
+  filter!(p -> !startswith(string(first(p)), "damper1__"), __overrides)
+  push!(__systems, @named damper1 = RotationalComponents.Components.Damper(d=0.07, damper1_overrides...))
+  # Subcomponent fixed of type MultibodyComponents.Fixed
+  fixed_overrides = Dict(Symbol(replace(string(k), r"^fixed__" => "")) => v for (k, v) in __overrides if startswith(string(k), "fixed__"))
+  filter!(p -> !startswith(string(first(p)), "fixed__"), __overrides)
+  push!(__systems, @named fixed = MultibodyComponents.Fixed(fixed_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -103,16 +111,17 @@
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(world.frame_b, shoulder_joint.frame_a))
   push!(__eqs, connect(shoulder_joint.frame_b, upper_arm.frame_a))
   push!(__eqs, connect(upper_arm.frame_b, elbow_joint.frame_a))
   push!(__eqs, connect(elbow_joint.frame_b, lower_arm.frame_a))
   push!(__eqs, connect(torquesource.support, shoulder_joint.support))
   push!(__eqs, connect(torque, torquesource.tau))
-  push!(__eqs, connect(elbow_joint.axis, elbow_sensor.spline))
-  push!(__eqs, connect(torquesource.spline, shoulder_joint.axis, shoulder_sensor.spline))
+  push!(__eqs, connect(elbow_joint.axis, elbow_sensor.spline, damper1.spline_b))
+  push!(__eqs, connect(torquesource.spline, shoulder_sensor.spline, shoulder_joint.axis, damper.spline_b, damper.spline_a))
   push!(__eqs, connect(shoulder_angle, shoulder_sensor.phi))
   push!(__eqs, connect(elbow_sensor.phi, elbow_angle))
+  push!(__eqs, connect(damper1.spline_a, elbow_joint.support))
+  push!(__eqs, connect(fixed.frame_b, shoulder_joint.frame_a))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

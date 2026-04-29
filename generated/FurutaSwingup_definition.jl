@@ -65,11 +65,23 @@
   # Subcomponent elbow_sampler of type DiscreteComponents.SampleWithADEffects
   elbow_sampler_overrides = Dict(Symbol(replace(string(k), r"^elbow_sampler__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_sampler__"))
   filter!(p -> !startswith(string(first(p)), "elbow_sampler__"), __overrides)
-  push!(__systems, @named elbow_sampler = DiscreteComponents.SampleWithADEffects(elbow_sampler_overrides...))
+  push!(__systems, @named elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized=false, elbow_sampler_overrides...))
   # Subcomponent shoulder_sampler of type DiscreteComponents.SampleWithADEffects
   shoulder_sampler_overrides = Dict(Symbol(replace(string(k), r"^shoulder_sampler__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_sampler__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_sampler__"), __overrides)
-  push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(shoulder_sampler_overrides...))
+  push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized=false, shoulder_sampler_overrides...))
+  # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
+  periodicclock_overrides = Dict(Symbol(replace(string(k), r"^periodicclock__" => "")) => v for (k, v) in __overrides if startswith(string(k), "periodicclock__"))
+  filter!(p -> !startswith(string(first(p)), "periodicclock__"), __overrides)
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(dt=0.01, periodicclock_overrides...))
+  # Subcomponent world of type MultibodyComponents.World
+  world_overrides = Dict(Symbol(replace(string(k), r"^world__" => "")) => v for (k, v) in __overrides if startswith(string(k), "world__"))
+  filter!(p -> !startswith(string(first(p)), "world__"), __overrides)
+  push!(__systems, @named world = MultibodyComponents.World(default_body_color=[0.9, 0.9, 0.9, 1], default_rod_color=[0.9, 0.9, 0.9, 1], default_joint_color=[0.9, 0.9, 0.9, 1], nominal_length=0.1, world_overrides...))
+  # Subcomponent constant1 of type BlockComponents.Sources.Constant
+  constant1_overrides = Dict(Symbol(replace(string(k), r"^constant1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "constant1__"))
+  filter!(p -> !startswith(string(first(p)), "constant1__"), __overrides)
+  push!(__systems, @named constant1 = BlockComponents.Sources.Constant(constant1_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -83,11 +95,11 @@
 
   ### Equations
   push!(__eqs, connect(swingup.u, zeroorderhold.u))
-  push!(__eqs, connect(zeroorderhold.y, qubependulum.torque))
-  push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
-  push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
   push!(__eqs, connect(elbow_sampler.y, swingup.elbow_angle))
-  push!(__eqs, connect(shoulder_sampler.y, swingup.shoulder_angle))
+  push!(__eqs, connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y))
+  push!(__eqs, connect(constant1.y, qubependulum.torque))
+  push!(__eqs, connect(constant1.y, elbow_sampler.u))
+  push!(__eqs, connect(constant1.y, shoulder_sampler.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
