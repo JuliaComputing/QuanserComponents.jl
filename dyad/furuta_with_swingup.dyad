@@ -9,9 +9,9 @@ relations
   connect(swingup.u, zeroorderhold.u) {^id7}
   connect(elbow_sampler.y, swingup.elbow_angle) {^id8}
   connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y) {^id9}
-  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id10}
+  connect(qubependulum.torque, zeroorderhold.y) {^id10}
   connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id11}
-  connect(zeroorderhold.y, qubependulum.torque) {^id12}
+  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id12}
 metadata {
   "_links": {
     "swingup": {
@@ -25,7 +25,7 @@ metadata {
     "qubependulum": {
       "Dyad": {
         "placement": {
-          "diagram": {"iconName": "default", "x1": 590, "y1": 260, "x2": 850, "y2": 510, "rot": 0}
+          "diagram": {"iconName": "default", "x1": 620, "y1": 280, "x2": 850, "y2": 490, "rot": 0}
         },
         "tags": []
       }
@@ -82,7 +82,7 @@ metadata {
     },
     "id10": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 870, "y": 350}, {"x": 870, "y": 630}], "E": 2}],
+        "edges": [{"S": 1, "M": [{"x": 611.75, "y": 385}, {"x": 611.75, "y": 390}], "E": 2}],
         "renderStyle": "standard"
       }
     },
@@ -91,7 +91,7 @@ metadata {
         "edges": [
           {
             "S": 1,
-            "M": [{"x": 720, "y": 290}, {"x": 950, "y": 290}, {"x": 950, "y": 760}],
+            "M": [{"x": 739.6, "y": 260}, {"x": 940, "y": 260}, {"x": 940, "y": 760}],
             "E": 2
           }
         ],
@@ -100,7 +100,7 @@ metadata {
     },
     "id12": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 582, "y": 390}, {"x": 582, "y": 385}], "E": 2}],
+        "edges": [{"S": 1, "M": [{"x": 850, "y": 382.9}, {"x": 850, "y": 630}], "E": 2}],
         "renderStyle": "standard"
       }
     }
@@ -132,7 +132,7 @@ relations
   connect(shoulder_joint.frame_a, world.frame_b) {^id20}
   connect(elbow_sensor.phi, elbow_angle) {^id21}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://QuanserComponents/QubePendulum4.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/QubePendulum.svg"}},
   "_links": {
     "world": {
       "Dyad": {
@@ -209,7 +209,7 @@ metadata {
     "shoulder_angle": {
       "Dyad": {
         "placement": {
-          "diagram": {"iconName": "default", "x1": 460, "y1": 190, "x2": 540, "y2": 270, "rot": 270}
+          "diagram": {"iconName": "default", "x1": 480, "y1": 260, "x2": 560, "y2": 340, "rot": 270}
         },
         "tags": []
       }
@@ -217,7 +217,7 @@ metadata {
     "elbow_angle": {
       "Dyad": {
         "placement": {
-          "diagram": {"iconName": "default", "x1": 910, "y1": 320, "x2": 990, "y2": 400, "rot": 0}
+          "diagram": {"iconName": "default", "x1": 790, "y1": 450, "x2": 870, "y2": 530, "rot": 0}
         },
         "tags": []
       }
@@ -261,7 +261,7 @@ metadata {
     },
     "id19": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 700, "y": 230}, {"x": 700, "y": 380}], "E": 2}],
+        "edges": [{"S": 1, "M": [{"x": 700, "y": 300}, {"x": 700, "y": 380}], "E": 2}],
         "renderStyle": "standard"
       }
     },
@@ -273,7 +273,7 @@ metadata {
     },
     "id21": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 890, "y": 360}], "E": 2}],
+        "edges": [{"S": 1, "M": [{"x": 890, "y": 490}], "E": 2}],
         "renderStyle": "standard"
       }
     }
