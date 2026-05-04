@@ -14,7 +14,7 @@
 | `Rm`         | Motor armature resistance                         | Ω  |   8.4 |
 | `kt`         | Motor current-to-torque constant                         | N.m/A  |   0.042 |
 | `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   0.042 |
-| `mr`         | Rotary arm (rod) mass                         | kg  |   0.095 |
+| `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   0.095 |
 | `r`         | Rotary arm (rod) length                         | m  |   0.085 |
 | `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.00005 |
 | `mp`         | Pendulum mass                         | kg  |   0.024 |
@@ -75,7 +75,7 @@
   append!(__params, @parameters (km::Real), [description = "Motor back-EMF (speed) constant"])
   __initial_conditions[km] = __local__km
   __local__mr = mr
-  append!(__params, @parameters (mr::Real), [description = "Rotary arm (rod) mass", bounds = (0, Inf)])
+  append!(__params, @parameters (mr::Real), [description = "Rotary arm (rod) mass (including rotary encoder)", bounds = (0, Inf)])
   __initial_conditions[mr] = __local__mr
   __local__r = r
   append!(__params, @parameters (r::Real), [description = "Rotary arm (rod) length"])
@@ -131,7 +131,7 @@
   # Subcomponent upper_arm of type MultibodyComponents.BodyShape
   upper_arm_overrides = Dict(Symbol(replace(string(k), r"^upper_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "upper_arm__"))
   filter!(p -> !startswith(string(first(p)), "upper_arm__"), __overrides)
-  push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(radius=0.003, color=[0.9, 0.9, 0.9, 1], upper_arm_overrides...))
+  push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(radius=0.0025, color=[0.9, 0.9, 0.9, 1], upper_arm_overrides...))
   __bindings[upper_arm.m] = mr
   __bindings[upper_arm.r] = [r, 0, 0]
   __bindings[upper_arm.r_cm] = [r / 2, 0, 0]
@@ -156,7 +156,7 @@
   # Subcomponent lower_arm of type MultibodyComponents.BodyShape
   lower_arm_overrides = Dict(Symbol(replace(string(k), r"^lower_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "lower_arm__"))
   filter!(p -> !startswith(string(first(p)), "lower_arm__"), __overrides)
-  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(radius=0.0048, color=[1, 0, 0, 1], lower_arm_overrides...))
+  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(radius=0.00986 / 2, color=[1, 0, 0, 1], lower_arm_overrides...))
   __bindings[lower_arm.m] = mp
   __bindings[lower_arm.r] = [0, -Lp, 0]
   __bindings[lower_arm.r_cm] = [0, -l, 0]
@@ -225,15 +225,17 @@
   push!(__eqs, connect(shoulder_joint.frame_b, upper_arm.frame_a))
   push!(__eqs, connect(upper_arm.frame_b, elbow_joint.frame_a))
   push!(__eqs, connect(elbow_joint.frame_b, lower_arm.frame_a))
-  push!(__eqs, connect(torquesource.support, shoulder_joint.support, damper.spline_a))
-  push!(__eqs, connect(voltage, voltage_to_torque.u))
-  push!(__eqs, connect(voltage_to_torque.y, torquesource.tau))
   push!(__eqs, connect(elbow_joint.axis, elbow_sensor.spline, damper1.spline_b))
-  push!(__eqs, connect(torquesource.spline, shoulder_sensor.spline, shoulder_joint.axis, damper.spline_b))
-  push!(__eqs, connect(shoulder_angle, shoulder_sensor.phi))
   push!(__eqs, connect(elbow_sensor.phi, elbow_angle))
-  push!(__eqs, connect(damper1.spline_a, elbow_joint.support))
   push!(__eqs, connect(fixed.frame_b, shoulder_joint.frame_a))
+  push!(__eqs, connect(voltage_to_torque.u, voltage))
+  push!(__eqs, connect(voltage_to_torque.y, torquesource.tau))
+  push!(__eqs, connect(damper.spline_a, shoulder_joint.support))
+  push!(__eqs, connect(damper.spline_b, shoulder_joint.axis))
+  push!(__eqs, connect(damper1.spline_b, elbow_joint.support))
+  push!(__eqs, connect(shoulder_joint.support, torquesource.support))
+  push!(__eqs, connect(shoulder_sensor.spline, torquesource.spline, shoulder_joint.axis))
+  push!(__eqs, connect(shoulder_sensor.phi, shoulder_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
