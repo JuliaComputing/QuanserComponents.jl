@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   QubePendulum(; name, Rm, kt, km, mr, r, br, mp, Lp, bp)
+   QubePendulum(; name, Rm, kt, km, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
 
 ## Parameters: 
 
@@ -16,10 +16,14 @@
 | `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   0.042 |
 | `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   0.095 |
 | `r`         | Rotary arm (rod) length                         | m  |   0.085 |
+| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   mr * r ^ 2 / 3 |
 | `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.00005 |
 | `mp`         | Pendulum mass                         | kg  |   0.024 |
 | `Lp`         | Pendulum length                         | m  |   0.129 |
+| `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   Lp / 2 |
+| `Jp`         | Pendulum moment of inertia about the elbow pivot                         | kg.m2  |   mp * Lp ^ 2 / 3 |
 | `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 0.00005 |
+| `base_size`         | Edge length of the cubic base box (visualization only)                         | m  |   0.1 |
 
 ## Connectors
 
@@ -27,7 +31,7 @@
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, kwargs...)
+@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, Jr=mr * r ^ 2 / 3, br=0.00005, mp=0.024, Lp=0.129, l=Lp / 2, Jp=mp * Lp ^ 2 / 3, bp=0.05 * 0.00005, base_size=0.1, kwargs...)
   isnothing(name) && throw(ArgumentError("""
         The `name` keyword must be provided. Please consider using the `@named` macro,
         like so:
@@ -53,14 +57,8 @@
   ### Path Parameters (non-final)
 
   ### Final Parameters (declarations)
-  append!(__params, @parameters (Jr::Real), [description = "Rotary arm (rod) moment of inertia about the shoulder pivot", misc = "final"])
-  append!(__params, @parameters (l::Real), [description = "Distance from elbow pivot to pendulum center of mass", misc = "final"])
-  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot", misc = "final"])
 
   ### Final Parameters (assignments)
-  __bindings[Jr] = mr * r ^ 2 / 3
-  __bindings[l] = Lp / 2
-  __bindings[Jp] = mp * Lp ^ 2 / 3
 
   ### Deferred assignment (default values that depend on final parameters)
 
@@ -80,6 +78,9 @@
   __local__r = r
   append!(__params, @parameters (r::Real), [description = "Rotary arm (rod) length"])
   __initial_conditions[r] = __local__r
+  __local__Jr = Jr
+  append!(__params, @parameters (Jr::Real), [description = "Rotary arm (rod) moment of inertia about the shoulder pivot"])
+  __initial_conditions[Jr] = __local__Jr
   __local__br = br
   append!(__params, @parameters (br::Real), [description = "Rotary arm (rod) viscous damping coefficient"])
   __initial_conditions[br] = __local__br
@@ -89,9 +90,18 @@
   __local__Lp = Lp
   append!(__params, @parameters (Lp::Real), [description = "Pendulum length"])
   __initial_conditions[Lp] = __local__Lp
+  __local__l = l
+  append!(__params, @parameters (l::Real), [description = "Distance from elbow pivot to pendulum center of mass"])
+  __initial_conditions[l] = __local__l
+  __local__Jp = Jp
+  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot"])
+  __initial_conditions[Jp] = __local__Jp
   __local__bp = bp
   append!(__params, @parameters (bp::Real), [description = "Pendulum viscous damping coefficient"])
   __initial_conditions[bp] = __local__bp
+  __local__base_size = base_size
+  append!(__params, @parameters (base_size::Real), [description = "Edge length of the cubic base box (visualization only)"])
+  __initial_conditions[base_size] = __local__base_size
 
   ### Final Path Parameters
   append!(__vars, @variables (voltage(t)::Real), [input = true])
@@ -123,7 +133,7 @@
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = Dict(Symbol(replace(string(k), r"^shoulder_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_joint__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_joint__"), __overrides)
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[0, 1, 0], shoulder_joint_overrides...))
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[0, 1, 0], color=[1, 0, 0, 1], shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = Dict(Symbol(replace(string(k), r"^elbow_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_joint__"))
   filter!(p -> !startswith(string(first(p)), "elbow_joint__"), __overrides)
@@ -161,7 +171,7 @@
   __bindings[lower_arm.r] = [0, -Lp, 0]
   __bindings[lower_arm.r_cm] = [0, -l, 0]
   __bindings[lower_arm.I_11] = Jp - mp * l ^ 2
-  __bindings[lower_arm.I_22] = 1e-9
+  __bindings[lower_arm.I_22] = Jp - mp * l ^ 2
   __bindings[lower_arm.I_33] = Jp - mp * l ^ 2
   # Now remove initial conditions in lower_arm that correspond to the bindings just added
   __lower_arm_ics = ModelingToolkit.get_initial_conditions(lower_arm)
@@ -210,6 +220,14 @@
   fixed_overrides = Dict(Symbol(replace(string(k), r"^fixed__" => "")) => v for (k, v) in __overrides if startswith(string(k), "fixed__"))
   filter!(p -> !startswith(string(first(p)), "fixed__"), __overrides)
   push!(__systems, @named fixed = MultibodyComponents.Fixed(fixed_overrides...))
+  # Subcomponent base_box of type MultibodyComponents.BoxVisualizer
+  base_box_overrides = Dict(Symbol(replace(string(k), r"^base_box__" => "")) => v for (k, v) in __overrides if startswith(string(k), "base_box__"))
+  filter!(p -> !startswith(string(first(p)), "base_box__"), __overrides)
+  push!(__systems, @named base_box = MultibodyComponents.BoxVisualizer(length_direction=[0, -1, 0], width_direction=[1, 0, 0], length=base_size, width=base_size, height=base_size, r_shape=[0, -0.015, 0], color=[0.1, 0.1, 0.1, 1], base_box_overrides...))
+  # Subcomponent shoulder_cylinder of type MultibodyComponents.CylinderVisualizer
+  shoulder_cylinder_overrides = Dict(Symbol(replace(string(k), r"^shoulder_cylinder__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_cylinder__"))
+  filter!(p -> !startswith(string(first(p)), "shoulder_cylinder__"), __overrides)
+  push!(__systems, @named shoulder_cylinder = MultibodyComponents.CylinderVisualizer(length_direction=[1, 0, 0], length=0.04, radius=0.025 / 2, r_shape=[-0.02, 0, 0], color=[1, 0, 0, 1], shoulder_cylinder_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -225,17 +243,20 @@
   push!(__eqs, connect(shoulder_joint.frame_b, upper_arm.frame_a))
   push!(__eqs, connect(upper_arm.frame_b, elbow_joint.frame_a))
   push!(__eqs, connect(elbow_joint.frame_b, lower_arm.frame_a))
-  push!(__eqs, connect(elbow_joint.axis, elbow_sensor.spline, damper1.spline_b))
   push!(__eqs, connect(elbow_sensor.phi, elbow_angle))
   push!(__eqs, connect(fixed.frame_b, shoulder_joint.frame_a))
   push!(__eqs, connect(voltage_to_torque.u, voltage))
   push!(__eqs, connect(voltage_to_torque.y, torquesource.tau))
   push!(__eqs, connect(damper.spline_a, shoulder_joint.support))
   push!(__eqs, connect(damper.spline_b, shoulder_joint.axis))
-  push!(__eqs, connect(damper1.spline_b, elbow_joint.support))
   push!(__eqs, connect(shoulder_joint.support, torquesource.support))
   push!(__eqs, connect(shoulder_sensor.spline, torquesource.spline, shoulder_joint.axis))
   push!(__eqs, connect(shoulder_sensor.phi, shoulder_angle))
+  push!(__eqs, connect(elbow_joint.support, damper1.spline_a))
+  push!(__eqs, connect(damper1.spline_b, elbow_joint.axis))
+  push!(__eqs, connect(elbow_sensor.spline, damper1.spline_b))
+  push!(__eqs, connect(base_box.frame_a, fixed.frame_b))
+  push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

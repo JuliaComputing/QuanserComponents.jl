@@ -73,7 +73,7 @@
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = Dict(Symbol(replace(string(k), r"^periodicclock__" => "")) => v for (k, v) in __overrides if startswith(string(k), "periodicclock__"))
   filter!(p -> !startswith(string(first(p)), "periodicclock__"), __overrides)
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(dt=0.01, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(dt=0.005, periodicclock_overrides...))
   # Subcomponent world of type MultibodyComponents.World
   world_overrides = Dict(Symbol(replace(string(k), r"^world__" => "")) => v for (k, v) in __overrides if startswith(string(k), "world__"))
   filter!(p -> !startswith(string(first(p)), "world__"), __overrides)
@@ -81,7 +81,7 @@
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = Dict(Symbol(replace(string(k), r"^gain__" => "")) => v for (k, v) in __overrides if startswith(string(k), "gain__"))
   filter!(p -> !startswith(string(first(p)), "gain__"), __overrides)
-  push!(__systems, @named gain = BlockComponents.Math.Gain(k=-1, gain_overrides...))
+  push!(__systems, @named gain = BlockComponents.Math.Gain(k=1, gain_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -94,13 +94,16 @@
   __assertions = []
 
   ### Equations
+  push!(__eqs, connect(zeroorderhold.y, :u_plant, qubependulum.voltage))
+  push!(__eqs, connect(qubependulum.elbow_angle, :elbow_y, elbow_sampler.u))
+  push!(__eqs, connect(qubependulum.shoulder_angle, :shoulder_y, shoulder_sampler.u))
   push!(__eqs, connect(elbow_sampler.y, swingup.elbow_angle))
   push!(__eqs, connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y))
   push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
-  push!(__eqs, connect(swingup.u, gain.u))
-  push!(__eqs, connect(gain.y, zeroorderhold.u))
   push!(__eqs, connect(zeroorderhold.y, qubependulum.voltage))
   push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
+  push!(__eqs, connect(swingup.u, gain.u))
+  push!(__eqs, connect(gain.y, zeroorderhold.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
