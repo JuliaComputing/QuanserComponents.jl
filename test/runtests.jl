@@ -54,7 +54,19 @@ using OrdinaryDiffEqLowOrderRK
 @assert !all(isnan, sol[ssys.swingup.elbow_angle])
 
 import GLMakie
-render(model, sol, 0.0)[1]
+using GLMakie: Makie, AmbientLight, SpotLight, PointLight, RGBf, Vec3f, Vec2f
+
+# Spotlight rig — primary key light from above-front-right with a small cone,
+# soft blue rim from behind, low ambient for contrast.
+qube_lights = [
+    AmbientLight(RGBf(0.12, 0.12, 0.12)),
+    SpotLight(RGBf(2.2, 2.2, 2.2),
+              Vec3f(0.4, 0.6, 0.4),
+              Vec3f(0, 0, 0) - Vec3f(0.4, 0.6, 0.4),
+              Vec2f(deg2rad(15), deg2rad(35))),
+    PointLight(RGBf(0.45, 0.45, 0.6), Vec3f(-0.3, 0.4, -0.3)),
+]
+render(model, sol, 0.0; lights=qube_lights)[1]
 
 ##
 using Plots
