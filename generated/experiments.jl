@@ -9,5 +9,15 @@ if isfile(joinpath((@__DIR__) |> Base.dirname, "dyad", "experiments.jl"))
 end
 
 
+include("AngleNormalization_experiment.jl")
+include("Cos_experiment.jl")
+include("EnergySwingup_experiment.jl")
+include("Energy_experiment.jl")
 include("FurutaSwingup_experiment.jl")
+include("LQRstabilizer_experiment.jl")
+include("NearTop_experiment.jl")
 include("QubePendulum_experiment.jl")
+include("Sign_experiment.jl")
+include("StabilizationSwitch_experiment.jl")
+include("Swingup_experiment.jl")
+include("VelocityEstimator_experiment.jl")

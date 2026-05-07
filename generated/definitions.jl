@@ -17,9 +17,9 @@ if isfile(joinpath((@__DIR__) |> Base.dirname, "dyad", "definitions.jl"))
 end
 
 import DyadInterface
+import MultibodyComponents
 import RotationalComponents
 import BlockComponents
-import MultibodyComponents
 import DiscreteComponents
 @doc Markdown.doc"""
 This connector represents an electrical pin with voltage and current as the potential and flow variables, respectively.
@@ -146,5 +146,15 @@ ModelingToolkit.IsFrame => true,
   return System(Equation[], t, __vars, __params; name, metadata = __metadata)
 end
 
+include("AngleNormalization_definition.jl")
+include("Cos_definition.jl")
+include("EnergySwingup_definition.jl")
+include("Energy_definition.jl")
 include("FurutaSwingup_definition.jl")
+include("LQRstabilizer_definition.jl")
+include("NearTop_definition.jl")
 include("QubePendulum_definition.jl")
+include("Sign_definition.jl")
+include("StabilizationSwitch_definition.jl")
+include("Swingup_definition.jl")
+include("VelocityEstimator_definition.jl")

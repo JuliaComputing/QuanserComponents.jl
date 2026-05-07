@@ -2,7 +2,7 @@ using QuanserComponents
 using Test
 using ModelingToolkit
 using MultibodyComponents
-using DiscreteComponents
+# using DiscreteComponents
 using SynchToolkit
 using ControlSystemsMTK
 using ControlSystemsBase
@@ -18,9 +18,10 @@ ssys = multibody(model, additional_passes=[SynchToolkit.compile_lustre])
 k = ModelingToolkit.ShiftIndex()
 ##
 prob = ODEProblem(ssys, [
-    ssys.qubependulum.shoulder_joint.radius => 0.01
-    ssys.qubependulum.shoulder_joint.color => [0.8, 0.8, 0.8, 1]
-    ssys.qubependulum.shoulder_joint.cylinder_length => 0.03
+    ssys.qubependulum.shoulder_joint.render => false
+    # ssys.qubependulum.shoulder_joint.radius => 0.01
+    # ssys.qubependulum.shoulder_joint.color => [0.8, 0.8, 0.8, 1]
+    # ssys.qubependulum.shoulder_joint.cylinder_length => 0.03
     ssys.qubependulum.elbow_joint.phi => 0+deg2rad(0.15)
     ssys.qubependulum.shoulder_joint.phi => 0.0
     ssys.gain.k => 1.0
@@ -36,6 +37,13 @@ prob = ODEProblem(ssys, [
     ssys.swingup.energyswingup.arm_centering.k => -1.0
     # ssys.qubependulum.base_box.color => [0.1, 0.1, 0.1, 1]
     # ssys.qubependulum.base_box.shape.specular_coefficient => 1.5
+
+    # ssys.qubependulum.base_box.shape_transform => MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi/2, 0, -pi / 2), [0, -0.075, 0])
+    # ssys.qubependulum.motor_front_mesh.shape_transform => MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0])
+
+
+    # ssys.qubependulum.lower_arm.shape_transform => MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0])
+
 ], (0.0, 10.0))
 
 
@@ -45,18 +53,16 @@ using OrdinaryDiffEqLowOrderRK
 @time "solve" sol = solve(prob, BS3(), dt=0.005)
 @assert !all(isnan, sol[ssys.swingup.elbow_angle])
 
+import GLMakie
+render(model, sol, 0.0)[1]
+
+##
 using Plots
-# plot(sol)
-# hline!([pi], l=(:dash, :black), primary=false)|> display
-
-
 f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.swingup.u, ssys.swingup.neartop.y])
 hline!([pi], l=(:dash, :black), primary=false)
 f2 = plot(sol, idxs=ssys.qubependulum.shoulder_joint.phi)
 plot(f1, f2) |> display
-##
-import GLMakie
-render(model, sol, 0.0)[1]
+
 ##
 
 

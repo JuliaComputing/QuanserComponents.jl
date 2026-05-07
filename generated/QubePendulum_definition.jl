@@ -133,7 +133,7 @@
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = Dict(Symbol(replace(string(k), r"^shoulder_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_joint__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_joint__"), __overrides)
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[0, 1, 0], color=[1, 0, 0, 1], shoulder_joint_overrides...))
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[0, 1, 0], color=[0.8, 0.8, 0.8, 1], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = Dict(Symbol(replace(string(k), r"^elbow_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_joint__"))
   filter!(p -> !startswith(string(first(p)), "elbow_joint__"), __overrides)
@@ -141,7 +141,7 @@
   # Subcomponent upper_arm of type MultibodyComponents.BodyShape
   upper_arm_overrides = Dict(Symbol(replace(string(k), r"^upper_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "upper_arm__"))
   filter!(p -> !startswith(string(first(p)), "upper_arm__"), __overrides)
-  push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(radius=0.0025, color=[0.9, 0.9, 0.9, 1], upper_arm_overrides...))
+  push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(radius=0.0025, color=[0.9, 0.9, 0.9, 1], shapefile=joinpath("assets", "qube", "qube_arm.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0]), upper_arm_overrides...))
   __bindings[upper_arm.m] = mr
   __bindings[upper_arm.r] = [r, 0, 0]
   __bindings[upper_arm.r_cm] = [r / 2, 0, 0]
@@ -166,7 +166,7 @@
   # Subcomponent lower_arm of type MultibodyComponents.BodyShape
   lower_arm_overrides = Dict(Symbol(replace(string(k), r"^lower_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "lower_arm__"))
   filter!(p -> !startswith(string(first(p)), "lower_arm__"), __overrides)
-  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(radius=0.00986 / 2, color=[1, 0, 0, 1], lower_arm_overrides...))
+  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(radius=0.00986 / 2, color=[1, 0, 0, 1], shapefile=joinpath("assets", "qube", "qube_pole.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0]), lower_arm_overrides...))
   __bindings[lower_arm.m] = mp
   __bindings[lower_arm.r] = [0, -Lp, 0]
   __bindings[lower_arm.r_cm] = [0, -l, 0]
@@ -220,14 +220,26 @@
   fixed_overrides = Dict(Symbol(replace(string(k), r"^fixed__" => "")) => v for (k, v) in __overrides if startswith(string(k), "fixed__"))
   filter!(p -> !startswith(string(first(p)), "fixed__"), __overrides)
   push!(__systems, @named fixed = MultibodyComponents.Fixed(fixed_overrides...))
-  # Subcomponent base_box of type MultibodyComponents.BoxVisualizer
+  # Subcomponent base_box of type MultibodyComponents.ShapefileVisualizer
   base_box_overrides = Dict(Symbol(replace(string(k), r"^base_box__" => "")) => v for (k, v) in __overrides if startswith(string(k), "base_box__"))
   filter!(p -> !startswith(string(first(p)), "base_box__"), __overrides)
-  push!(__systems, @named base_box = MultibodyComponents.BoxVisualizer(length_direction=[0, -1, 0], width_direction=[1, 0, 0], length=base_size, width=base_size, height=base_size, r_shape=[0, -0.015, 0], color=[0.1, 0.1, 0.1, 1], base_box_overrides...))
-  # Subcomponent shoulder_cylinder of type MultibodyComponents.CylinderVisualizer
+  push!(__systems, @named base_box = MultibodyComponents.ShapefileVisualizer(color=[0.1, 0.1, 0.1, 1], shapefile=joinpath("assets", "qube", "qube_block.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0]), base_box_overrides...))
+  # Subcomponent shoulder_cylinder of type MultibodyComponents.ShapefileVisualizer
   shoulder_cylinder_overrides = Dict(Symbol(replace(string(k), r"^shoulder_cylinder__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_cylinder__"))
   filter!(p -> !startswith(string(first(p)), "shoulder_cylinder__"), __overrides)
-  push!(__systems, @named shoulder_cylinder = MultibodyComponents.CylinderVisualizer(length_direction=[1, 0, 0], length=0.04, radius=0.025 / 2, r_shape=[-0.02, 0, 0], color=[1, 0, 0, 1], shoulder_cylinder_overrides...))
+  push!(__systems, @named shoulder_cylinder = MultibodyComponents.ShapefileVisualizer(color=[0.7, 0.7, 0.7, 1], shapefile=joinpath("assets", "qube", "qube_motor_drive.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, -0.015, 0]), shoulder_cylinder_overrides...))
+  # Subcomponent motor_main_mesh of type MultibodyComponents.ShapefileVisualizer
+  motor_main_mesh_overrides = Dict(Symbol(replace(string(k), r"^motor_main_mesh__" => "")) => v for (k, v) in __overrides if startswith(string(k), "motor_main_mesh__"))
+  filter!(p -> !startswith(string(first(p)), "motor_main_mesh__"), __overrides)
+  push!(__systems, @named motor_main_mesh = MultibodyComponents.ShapefileVisualizer(color=[0.6, 0, 0, 1], shapefile=joinpath("assets", "qube", "qube_motor_main.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, 0, 0]), motor_main_mesh_overrides...))
+  # Subcomponent motor_front_mesh of type MultibodyComponents.ShapefileVisualizer
+  motor_front_mesh_overrides = Dict(Symbol(replace(string(k), r"^motor_front_mesh__" => "")) => v for (k, v) in __overrides if startswith(string(k), "motor_front_mesh__"))
+  filter!(p -> !startswith(string(first(p)), "motor_front_mesh__"), __overrides)
+  push!(__systems, @named motor_front_mesh = MultibodyComponents.ShapefileVisualizer(color=[0.1, 0.1, 0.1, 1], shapefile=joinpath("assets", "qube", "qube_motor_front.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0]), motor_front_mesh_overrides...))
+  # Subcomponent motor_part_mesh of type MultibodyComponents.ShapefileVisualizer
+  motor_part_mesh_overrides = Dict(Symbol(replace(string(k), r"^motor_part_mesh__" => "")) => v for (k, v) in __overrides if startswith(string(k), "motor_part_mesh__"))
+  filter!(p -> !startswith(string(first(p)), "motor_part_mesh__"), __overrides)
+  push!(__systems, @named motor_part_mesh = MultibodyComponents.ShapefileVisualizer(color=[0.5, 0.5, 0.5, 1], shapefile=joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0]), motor_part_mesh_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -256,7 +268,7 @@
   push!(__eqs, connect(damper1.spline_b, elbow_joint.axis))
   push!(__eqs, connect(elbow_sensor.spline, damper1.spline_b))
   push!(__eqs, connect(base_box.frame_a, fixed.frame_b))
-  push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b))
+  push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b, motor_main_mesh.frame_a, motor_front_mesh.frame_a, motor_part_mesh.frame_a))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

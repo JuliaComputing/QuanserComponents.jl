@@ -1,4 +1,5 @@
 [deps]
+BlockComponents = "1ef5d832-be8e-447f-9f2c-8b5d17d15fd3"
 ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
 ControlSystemsMTK = "687d7614-c7e5-45fc-bfc3-9ee385575c88"
 DiscreteComponents = "b5590941-51af-4a5a-9bca-5ae7cd448b75"
