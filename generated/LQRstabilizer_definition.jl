@@ -4,10 +4,12 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    LQRstabilizer(; name, L1, L2, L3, L4, umax)
 
-## Parameters: 
+## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
@@ -15,7 +17,7 @@
 | `L2`         |                          | --  |   394.43972658274106 |
 | `L3`         |                          | --  |   -7.461418005226849 |
 | `L4`         |                          | --  |   84.42279971138271 |
-| `umax`         |                          | --  |   3 |
+| `umax`         |                          | --  |   3.0 |
 
 ## Connectors
 
@@ -28,21 +30,22 @@
 ## Variables
 
 | Name         | Description                         | Units  | 
-| ------------ | ----------------------------------- | ------ | 
-| `e1`         |                          | --  | 
-| `e2`         |                          | --  | 
-| `e3`         |                          | --  | 
-| `e4`         |                          | --  | 
-| `uraw`         |                          | --  | 
+| ------------ | ----------------------------------- | ------ |
+| `e1`         |                          | --  |
+| `e2`         |                          | --  |
+| `e3`         |                          | --  |
+| `e4`         |                          | --  |
+| `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L1=-9.625743176817387, L2=394.43972658274106, L3=-7.461418005226849, L4=84.42279971138271, umax=Float64(3), kwargs...)
+@component function LQRstabilizer(; name = nothing, L1=-9.625743176817387, L2=394.43972658274106, L3=-7.461418005226849, L4=84.42279971138271, umax=Float64(3.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = LQRstabilizer()
+  """))
 
-        @named model = LQRstabilizer()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -62,8 +65,6 @@
 
   ### Final Parameters (declarations)
 
-  ### Final Parameters (assignments)
-
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
@@ -82,6 +83,8 @@
   __local__umax = umax
   append!(__params, @parameters (umax::Real))
   __initial_conditions[umax] = __local__umax
+
+  ### Final Parameters (assignments)
 
   ### Final Path Parameters
   append!(__vars, @variables (shoulder_angle(t)::Real), [input = true])
@@ -125,10 +128,10 @@
   __assertions = []
 
   ### Equations
-  push!(__eqs, e1 ~ 0 - shoulder_angle)
+  push!(__eqs, e1 ~ 0.0 - shoulder_angle)
   push!(__eqs, e2 ~ pi - elbow_angle)
-  push!(__eqs, e3 ~ 0 - shoulder_velocity)
-  push!(__eqs, e4 ~ 0 - elbow_velocity)
+  push!(__eqs, e3 ~ 0.0 - shoulder_velocity)
+  push!(__eqs, e4 ~ 0.0 - elbow_velocity)
   push!(__eqs, uraw ~ L1 * e1 + L2 * e2 + L3 * e3 + L4 * e4)
   push!(__eqs, u ~ clamp(uraw, -umax, umax))
 

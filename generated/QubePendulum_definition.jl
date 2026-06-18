@@ -4,10 +4,12 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    QubePendulum(; name, Rm, kt, km, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
 
-## Parameters: 
+## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
@@ -17,12 +19,12 @@
 | `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   0.095 |
 | `r`         | Rotary arm (rod) length                         | m  |   0.085 |
 | `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   mr * r ^ 2 / 3 |
-| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.00005 |
+| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.05e-3 |
 | `mp`         | Pendulum mass                         | kg  |   0.024 |
 | `Lp`         | Pendulum length                         | m  |   0.129 |
 | `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   Lp / 2 |
 | `Jp`         | Pendulum moment of inertia about the elbow pivot                         | kg.m2  |   mp * Lp ^ 2 / 3 |
-| `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 0.00005 |
+| `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 5e-5 |
 | `base_size`         | Edge length of the cubic base box (visualization only)                         | m  |   0.1 |
 
 ## Connectors
@@ -31,14 +33,15 @@
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, Jr=mr * r ^ 2 / 3, br=0.00005, mp=0.024, Lp=0.129, l=Lp / 2, Jp=mp * Lp ^ 2 / 3, bp=0.05 * 0.00005, base_size=0.1, kwargs...)
+@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, Jr=mr * r ^ 2 / 3, l=Lp / 2, Jp=mp * Lp ^ 2 / 3, kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = QubePendulum()
+  """))
 
-        @named model = QubePendulum()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -57,8 +60,6 @@
   ### Path Parameters (non-final)
 
   ### Final Parameters (declarations)
-
-  ### Final Parameters (assignments)
 
   ### Deferred assignment (default values that depend on final parameters)
 
@@ -103,6 +104,8 @@
   append!(__params, @parameters (base_size::Real), [description = "Edge length of the cubic base box (visualization only)"])
   __initial_conditions[base_size] = __local__base_size
 
+  ### Final Parameters (assignments)
+
   ### Final Path Parameters
   append!(__vars, @variables (voltage(t)::Real), [input = true])
   append!(__vars, @variables (shoulder_angle(t)::Real), [output = true])
@@ -117,13 +120,11 @@
 
   ### Components
   # Subcomponent torquesource of type RotationalComponents.Sources.TorqueSource
-  torquesource_overrides = Dict(Symbol(replace(string(k), r"^torquesource__" => "")) => v for (k, v) in __overrides if startswith(string(k), "torquesource__"))
-  filter!(p -> !startswith(string(first(p)), "torquesource__"), __overrides)
-  push!(__systems, @named torquesource = RotationalComponents.Sources.TorqueSource(torquesource_overrides...))
+  torquesource_overrides = __pop_subcomponent_overrides!(__overrides, "torquesource")
+  push!(__systems, @named torquesource = RotationalComponents.Sources.TorqueSource(; torquesource_overrides...))
   # Subcomponent voltage_to_torque of type BlockComponents.Math.Gain
-  voltage_to_torque_overrides = Dict(Symbol(replace(string(k), r"^voltage_to_torque__" => "")) => v for (k, v) in __overrides if startswith(string(k), "voltage_to_torque__"))
-  filter!(p -> !startswith(string(first(p)), "voltage_to_torque__"), __overrides)
-  push!(__systems, @named voltage_to_torque = BlockComponents.Math.Gain(voltage_to_torque_overrides...))
+  voltage_to_torque_overrides = __pop_subcomponent_overrides!(__overrides, "voltage_to_torque")
+  push!(__systems, @named voltage_to_torque = BlockComponents.Math.Gain(; voltage_to_torque_overrides...))
   __bindings[voltage_to_torque.k] = kt / Rm
   # Now remove initial conditions in voltage_to_torque that correspond to the bindings just added
   __voltage_to_torque_ics = ModelingToolkit.get_initial_conditions(voltage_to_torque)
@@ -131,20 +132,17 @@
   __voltage_to_torque_k = Symbolics.unwrap(__no_namespace_voltage_to_torque.k)::Symbolics.SymbolicT
   delete!(__voltage_to_torque_ics, __voltage_to_torque_k)
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
-  shoulder_joint_overrides = Dict(Symbol(replace(string(k), r"^shoulder_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_joint__"))
-  filter!(p -> !startswith(string(first(p)), "shoulder_joint__"), __overrides)
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[0, 1, 0], color=[0.8, 0.8, 0.8, 1], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
+  shoulder_joint_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_joint")
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(0), Float64(1), Float64(0)], color=[0.8, 0.8, 0.8, Float64(1)], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
-  elbow_joint_overrides = Dict(Symbol(replace(string(k), r"^elbow_joint__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_joint__"))
-  filter!(p -> !startswith(string(first(p)), "elbow_joint__"), __overrides)
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[1, 0, 0], elbow_joint_overrides...))
+  elbow_joint_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_joint")
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(1), Float64(0), Float64(0)], elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyShape
-  upper_arm_overrides = Dict(Symbol(replace(string(k), r"^upper_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "upper_arm__"))
-  filter!(p -> !startswith(string(first(p)), "upper_arm__"), __overrides)
-  push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(radius=0.0025, color=[0.9, 0.9, 0.9, 1], shapefile=joinpath("assets", "qube", "qube_arm.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0]), upper_arm_overrides...))
+  upper_arm_overrides = __pop_subcomponent_overrides!(__overrides, "upper_arm")
+  push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(; radius=0.0025, color=[0.9, 0.9, 0.9, Float64(1)], shapefile=joinpath("assets", "qube", "qube_arm.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0]), upper_arm_overrides...))
   __bindings[upper_arm.m] = mr
-  __bindings[upper_arm.r] = [r, 0, 0]
-  __bindings[upper_arm.r_cm] = [r / 2, 0, 0]
+  __bindings[upper_arm.r] = [r, Float64(0), Float64(0)]
+  __bindings[upper_arm.r_cm] = [r / 2, Float64(0), Float64(0)]
   __bindings[upper_arm.I_11] = 1e-9
   __bindings[upper_arm.I_22] = Jr - mr * (r / 2) ^ 2
   __bindings[upper_arm.I_33] = Jr - mr * (r / 2) ^ 2
@@ -164,12 +162,11 @@
   __upper_arm_I_33 = Symbolics.unwrap(__no_namespace_upper_arm.I_33)::Symbolics.SymbolicT
   delete!(__upper_arm_ics, __upper_arm_I_33)
   # Subcomponent lower_arm of type MultibodyComponents.BodyShape
-  lower_arm_overrides = Dict(Symbol(replace(string(k), r"^lower_arm__" => "")) => v for (k, v) in __overrides if startswith(string(k), "lower_arm__"))
-  filter!(p -> !startswith(string(first(p)), "lower_arm__"), __overrides)
-  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(radius=0.00986 / 2, color=[1, 0, 0, 1], shapefile=joinpath("assets", "qube", "qube_pole.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0]), lower_arm_overrides...))
+  lower_arm_overrides = __pop_subcomponent_overrides!(__overrides, "lower_arm")
+  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(; radius=0.00986 / 2, color=[Float64(1), Float64(0), Float64(0), Float64(1)], shapefile=joinpath("assets", "qube", "qube_pole.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0]), lower_arm_overrides...))
   __bindings[lower_arm.m] = mp
-  __bindings[lower_arm.r] = [0, -Lp, 0]
-  __bindings[lower_arm.r_cm] = [0, -l, 0]
+  __bindings[lower_arm.r] = [Float64(0), -Lp, Float64(0)]
+  __bindings[lower_arm.r_cm] = [Float64(0), -l, Float64(0)]
   __bindings[lower_arm.I_11] = Jp - mp * l ^ 2
   __bindings[lower_arm.I_22] = Jp - mp * l ^ 2
   __bindings[lower_arm.I_33] = Jp - mp * l ^ 2
@@ -189,17 +186,14 @@
   __lower_arm_I_33 = Symbolics.unwrap(__no_namespace_lower_arm.I_33)::Symbolics.SymbolicT
   delete!(__lower_arm_ics, __lower_arm_I_33)
   # Subcomponent elbow_sensor of type RotationalComponents.Sensors.AngleSensor
-  elbow_sensor_overrides = Dict(Symbol(replace(string(k), r"^elbow_sensor__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_sensor__"))
-  filter!(p -> !startswith(string(first(p)), "elbow_sensor__"), __overrides)
-  push!(__systems, @named elbow_sensor = RotationalComponents.Sensors.AngleSensor(elbow_sensor_overrides...))
+  elbow_sensor_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_sensor")
+  push!(__systems, @named elbow_sensor = RotationalComponents.Sensors.AngleSensor(; elbow_sensor_overrides...))
   # Subcomponent shoulder_sensor of type RotationalComponents.Sensors.AngleSensor
-  shoulder_sensor_overrides = Dict(Symbol(replace(string(k), r"^shoulder_sensor__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_sensor__"))
-  filter!(p -> !startswith(string(first(p)), "shoulder_sensor__"), __overrides)
-  push!(__systems, @named shoulder_sensor = RotationalComponents.Sensors.AngleSensor(shoulder_sensor_overrides...))
+  shoulder_sensor_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_sensor")
+  push!(__systems, @named shoulder_sensor = RotationalComponents.Sensors.AngleSensor(; shoulder_sensor_overrides...))
   # Subcomponent damper of type RotationalComponents.Components.Damper
-  damper_overrides = Dict(Symbol(replace(string(k), r"^damper__" => "")) => v for (k, v) in __overrides if startswith(string(k), "damper__"))
-  filter!(p -> !startswith(string(first(p)), "damper__"), __overrides)
-  push!(__systems, @named damper = RotationalComponents.Components.Damper(damper_overrides...))
+  damper_overrides = __pop_subcomponent_overrides!(__overrides, "damper")
+  push!(__systems, @named damper = RotationalComponents.Components.Damper(; damper_overrides...))
   __bindings[damper.d] = br + kt * km / Rm
   # Now remove initial conditions in damper that correspond to the bindings just added
   __damper_ics = ModelingToolkit.get_initial_conditions(damper)
@@ -207,9 +201,8 @@
   __damper_d = Symbolics.unwrap(__no_namespace_damper.d)::Symbolics.SymbolicT
   delete!(__damper_ics, __damper_d)
   # Subcomponent damper1 of type RotationalComponents.Components.Damper
-  damper1_overrides = Dict(Symbol(replace(string(k), r"^damper1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "damper1__"))
-  filter!(p -> !startswith(string(first(p)), "damper1__"), __overrides)
-  push!(__systems, @named damper1 = RotationalComponents.Components.Damper(damper1_overrides...))
+  damper1_overrides = __pop_subcomponent_overrides!(__overrides, "damper1")
+  push!(__systems, @named damper1 = RotationalComponents.Components.Damper(; damper1_overrides...))
   __bindings[damper1.d] = bp
   # Now remove initial conditions in damper1 that correspond to the bindings just added
   __damper1_ics = ModelingToolkit.get_initial_conditions(damper1)
@@ -217,29 +210,26 @@
   __damper1_d = Symbolics.unwrap(__no_namespace_damper1.d)::Symbolics.SymbolicT
   delete!(__damper1_ics, __damper1_d)
   # Subcomponent fixed of type MultibodyComponents.Fixed
-  fixed_overrides = Dict(Symbol(replace(string(k), r"^fixed__" => "")) => v for (k, v) in __overrides if startswith(string(k), "fixed__"))
-  filter!(p -> !startswith(string(first(p)), "fixed__"), __overrides)
-  push!(__systems, @named fixed = MultibodyComponents.Fixed(fixed_overrides...))
+  fixed_overrides = __pop_subcomponent_overrides!(__overrides, "fixed")
+  push!(__systems, @named fixed = MultibodyComponents.Fixed(; fixed_overrides...))
   # Subcomponent base_box of type MultibodyComponents.ShapefileVisualizer
-  base_box_overrides = Dict(Symbol(replace(string(k), r"^base_box__" => "")) => v for (k, v) in __overrides if startswith(string(k), "base_box__"))
-  filter!(p -> !startswith(string(first(p)), "base_box__"), __overrides)
-  push!(__systems, @named base_box = MultibodyComponents.ShapefileVisualizer(color=[0.1, 0.1, 0.1, 1], shapefile=joinpath("assets", "qube", "qube_block.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0]), base_box_overrides...))
+  base_box_overrides = __pop_subcomponent_overrides!(__overrides, "base_box")
+  push!(__systems, @named base_box = MultibodyComponents.ShapefileVisualizer(; color=[0.1, 0.1, 0.1, Float64(1)], shapefile=joinpath("assets", "qube", "qube_block.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0]), base_box_overrides...))
+  # Subcomponent floor of type MultibodyComponents.TexturedPlaneVisualizer
+  floor_overrides = __pop_subcomponent_overrides!(__overrides, "floor")
+  push!(__systems, @named floor = MultibodyComponents.TexturedPlaneVisualizer(; texturefile=joinpath("assets", "textures", "sand_02_diff_2k.jpg"), tile=Float64(6), length=0.5, width=0.5, length_direction=[1, 0, 0], width_direction=[0, 0, 1], r_shape=[0, -0.11, 0], specular_coefficient=0.5, floor_overrides...))
   # Subcomponent shoulder_cylinder of type MultibodyComponents.ShapefileVisualizer
-  shoulder_cylinder_overrides = Dict(Symbol(replace(string(k), r"^shoulder_cylinder__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_cylinder__"))
-  filter!(p -> !startswith(string(first(p)), "shoulder_cylinder__"), __overrides)
-  push!(__systems, @named shoulder_cylinder = MultibodyComponents.ShapefileVisualizer(color=[0.7, 0.7, 0.7, 1], shapefile=joinpath("assets", "qube", "qube_motor_drive.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, -0.015, 0]), shoulder_cylinder_overrides...))
+  shoulder_cylinder_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_cylinder")
+  push!(__systems, @named shoulder_cylinder = MultibodyComponents.ShapefileVisualizer(; color=[0.7, 0.7, 0.7, Float64(1)], shapefile=joinpath("assets", "qube", "qube_motor_drive.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, -0.015, 0]), shoulder_cylinder_overrides...))
   # Subcomponent motor_main_mesh of type MultibodyComponents.ShapefileVisualizer
-  motor_main_mesh_overrides = Dict(Symbol(replace(string(k), r"^motor_main_mesh__" => "")) => v for (k, v) in __overrides if startswith(string(k), "motor_main_mesh__"))
-  filter!(p -> !startswith(string(first(p)), "motor_main_mesh__"), __overrides)
-  push!(__systems, @named motor_main_mesh = MultibodyComponents.ShapefileVisualizer(color=[0.6, 0, 0, 1], shapefile=joinpath("assets", "qube", "qube_motor_main.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, 0, 0]), motor_main_mesh_overrides...))
+  motor_main_mesh_overrides = __pop_subcomponent_overrides!(__overrides, "motor_main_mesh")
+  push!(__systems, @named motor_main_mesh = MultibodyComponents.ShapefileVisualizer(; color=[0.6, Float64(0.0), Float64(0.0), Float64(1)], shapefile=joinpath("assets", "qube", "qube_motor_main.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, 0, 0]), motor_main_mesh_overrides...))
   # Subcomponent motor_front_mesh of type MultibodyComponents.ShapefileVisualizer
-  motor_front_mesh_overrides = Dict(Symbol(replace(string(k), r"^motor_front_mesh__" => "")) => v for (k, v) in __overrides if startswith(string(k), "motor_front_mesh__"))
-  filter!(p -> !startswith(string(first(p)), "motor_front_mesh__"), __overrides)
-  push!(__systems, @named motor_front_mesh = MultibodyComponents.ShapefileVisualizer(color=[0.1, 0.1, 0.1, 1], shapefile=joinpath("assets", "qube", "qube_motor_front.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0]), motor_front_mesh_overrides...))
+  motor_front_mesh_overrides = __pop_subcomponent_overrides!(__overrides, "motor_front_mesh")
+  push!(__systems, @named motor_front_mesh = MultibodyComponents.ShapefileVisualizer(; color=[0.1, 0.1, 0.1, Float64(1)], shapefile=joinpath("assets", "qube", "qube_motor_front.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0]), motor_front_mesh_overrides...))
   # Subcomponent motor_part_mesh of type MultibodyComponents.ShapefileVisualizer
-  motor_part_mesh_overrides = Dict(Symbol(replace(string(k), r"^motor_part_mesh__" => "")) => v for (k, v) in __overrides if startswith(string(k), "motor_part_mesh__"))
-  filter!(p -> !startswith(string(first(p)), "motor_part_mesh__"), __overrides)
-  push!(__systems, @named motor_part_mesh = MultibodyComponents.ShapefileVisualizer(color=[0.5, 0.5, 0.5, 1], shapefile=joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0]), motor_part_mesh_overrides...))
+  motor_part_mesh_overrides = __pop_subcomponent_overrides!(__overrides, "motor_part_mesh")
+  push!(__systems, @named motor_part_mesh = MultibodyComponents.ShapefileVisualizer(; color=[0.5, 0.5, 0.5, Float64(1)], shapefile=joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0]), motor_part_mesh_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -267,7 +257,7 @@
   push!(__eqs, connect(elbow_joint.support, damper1.spline_a))
   push!(__eqs, connect(damper1.spline_b, elbow_joint.axis))
   push!(__eqs, connect(elbow_sensor.spline, damper1.spline_b))
-  push!(__eqs, connect(base_box.frame_a, fixed.frame_b))
+  push!(__eqs, connect(base_box.frame_a, floor.frame_a, fixed.frame_b))
   push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b, motor_main_mesh.frame_a, motor_front_mesh.frame_a, motor_part_mesh.frame_a))
 
   # Return completely constructed System

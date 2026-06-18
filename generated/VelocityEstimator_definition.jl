@@ -4,10 +4,12 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    VelocityEstimator(; name, filter_param)
 
-## Parameters: 
+## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
@@ -20,12 +22,13 @@
 """
 @component function VelocityEstimator(; name = nothing, filter_param=0.5, kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = VelocityEstimator()
+  """))
 
-        @named model = VelocityEstimator()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -45,14 +48,14 @@
 
   ### Final Parameters (declarations)
 
-  ### Final Parameters (assignments)
-
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
   __local__filter_param = filter_param
   append!(__params, @parameters (filter_param::Real), [bounds = (0, 1)])
   __initial_conditions[filter_param] = __local__filter_param
+
+  ### Final Parameters (assignments)
 
   ### Final Path Parameters
   append!(__vars, @variables (pos(t)::Real), [input = true])
@@ -67,13 +70,11 @@
 
   ### Components
   # Subcomponent discretederivative of type DiscreteComponents.DiscreteDerivative
-  discretederivative_overrides = Dict(Symbol(replace(string(k), r"^discretederivative__" => "")) => v for (k, v) in __overrides if startswith(string(k), "discretederivative__"))
-  filter!(p -> !startswith(string(first(p)), "discretederivative__"), __overrides)
-  push!(__systems, @named discretederivative = DiscreteComponents.DiscreteDerivative(discretederivative_overrides...))
+  discretederivative_overrides = __pop_subcomponent_overrides!(__overrides, "discretederivative")
+  push!(__systems, @named discretederivative = DiscreteComponents.DiscreteDerivative(; discretederivative_overrides...))
   # Subcomponent exponentialfilter of type DiscreteComponents.ExponentialFilter
-  exponentialfilter_overrides = Dict(Symbol(replace(string(k), r"^exponentialfilter__" => "")) => v for (k, v) in __overrides if startswith(string(k), "exponentialfilter__"))
-  filter!(p -> !startswith(string(first(p)), "exponentialfilter__"), __overrides)
-  push!(__systems, @named exponentialfilter = DiscreteComponents.ExponentialFilter(a=filter_param, exponentialfilter_overrides...))
+  exponentialfilter_overrides = __pop_subcomponent_overrides!(__overrides, "exponentialfilter")
+  push!(__systems, @named exponentialfilter = DiscreteComponents.ExponentialFilter(; a=filter_param, exponentialfilter_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))

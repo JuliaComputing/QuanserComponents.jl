@@ -4,23 +4,26 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    FurutaSwingup(; name, gray)
 
-## Parameters: 
+## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `gray`         |                          | --  |   [0.9, 0.9, 0.9, 1] |
 """
-@component function FurutaSwingup(; name = nothing, gray=[0.9, 0.9, 0.9, 1], kwargs...)
+@component function FurutaSwingup(; name = nothing, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = FurutaSwingup()
+  """))
 
-        @named model = FurutaSwingup()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -40,14 +43,14 @@
 
   ### Final Parameters (declarations)
 
-  ### Final Parameters (assignments)
-
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
   __local__gray = gray
   append!(__params, @parameters (gray[1:4]::Real))
   __initial_conditions[gray] = __local__gray
+
+  ### Final Parameters (assignments)
 
   ### Final Path Parameters
 
@@ -60,37 +63,29 @@
 
   ### Components
   # Subcomponent swingup of type QuanserComponents.Swingup
-  swingup_overrides = Dict(Symbol(replace(string(k), r"^swingup__" => "")) => v for (k, v) in __overrides if startswith(string(k), "swingup__"))
-  filter!(p -> !startswith(string(first(p)), "swingup__"), __overrides)
-  push!(__systems, @named swingup = QuanserComponents.Swingup(swingup_overrides...))
+  swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
+  push!(__systems, @named swingup = QuanserComponents.Swingup(; swingup_overrides...))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
-  qubependulum_overrides = Dict(Symbol(replace(string(k), r"^qubependulum__" => "")) => v for (k, v) in __overrides if startswith(string(k), "qubependulum__"))
-  filter!(p -> !startswith(string(first(p)), "qubependulum__"), __overrides)
-  push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(qubependulum_overrides...))
+  qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
+  push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; qubependulum_overrides...))
   # Subcomponent zeroorderhold of type DiscreteComponents.ZeroOrderHold
-  zeroorderhold_overrides = Dict(Symbol(replace(string(k), r"^zeroorderhold__" => "")) => v for (k, v) in __overrides if startswith(string(k), "zeroorderhold__"))
-  filter!(p -> !startswith(string(first(p)), "zeroorderhold__"), __overrides)
-  push!(__systems, @named zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition=0, zeroorderhold_overrides...))
+  zeroorderhold_overrides = __pop_subcomponent_overrides!(__overrides, "zeroorderhold")
+  push!(__systems, @named zeroorderhold = DiscreteComponents.ZeroOrderHold(; initial_condition=Float64(0), zeroorderhold_overrides...))
   # Subcomponent elbow_sampler of type DiscreteComponents.SampleWithADEffects
-  elbow_sampler_overrides = Dict(Symbol(replace(string(k), r"^elbow_sampler__" => "")) => v for (k, v) in __overrides if startswith(string(k), "elbow_sampler__"))
-  filter!(p -> !startswith(string(first(p)), "elbow_sampler__"), __overrides)
-  push!(__systems, @named elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized=false, sigma=0.00001, elbow_sampler_overrides...))
+  elbow_sampler_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_sampler")
+  push!(__systems, @named elbow_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, elbow_sampler_overrides...))
   # Subcomponent shoulder_sampler of type DiscreteComponents.SampleWithADEffects
-  shoulder_sampler_overrides = Dict(Symbol(replace(string(k), r"^shoulder_sampler__" => "")) => v for (k, v) in __overrides if startswith(string(k), "shoulder_sampler__"))
-  filter!(p -> !startswith(string(first(p)), "shoulder_sampler__"), __overrides)
-  push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized=false, sigma=0.00001, shoulder_sampler_overrides...))
+  shoulder_sampler_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_sampler")
+  push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, shoulder_sampler_overrides...))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
-  periodicclock_overrides = Dict(Symbol(replace(string(k), r"^periodicclock__" => "")) => v for (k, v) in __overrides if startswith(string(k), "periodicclock__"))
-  filter!(p -> !startswith(string(first(p)), "periodicclock__"), __overrides)
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(dt=0.005, periodicclock_overrides...))
+  periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=0.005, periodicclock_overrides...))
   # Subcomponent world of type MultibodyComponents.World
-  world_overrides = Dict(Symbol(replace(string(k), r"^world__" => "")) => v for (k, v) in __overrides if startswith(string(k), "world__"))
-  filter!(p -> !startswith(string(first(p)), "world__"), __overrides)
-  push!(__systems, @named world = MultibodyComponents.World(default_body_color=gray, default_rod_color=gray, default_joint_color=gray, nominal_length=0.1, render=false, world_overrides...))
+  world_overrides = __pop_subcomponent_overrides!(__overrides, "world")
+  push!(__systems, @named world = MultibodyComponents.World(; default_body_color=gray, default_rod_color=gray, default_joint_color=gray, nominal_length=0.1, render=false, world_overrides...))
   # Subcomponent gain of type BlockComponents.Math.Gain
-  gain_overrides = Dict(Symbol(replace(string(k), r"^gain__" => "")) => v for (k, v) in __overrides if startswith(string(k), "gain__"))
-  filter!(p -> !startswith(string(first(p)), "gain__"), __overrides)
-  push!(__systems, @named gain = BlockComponents.Math.Gain(k=1, gain_overrides...))
+  gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
+  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))

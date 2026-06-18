@@ -145,6 +145,7 @@ component QubePendulum
   damper1 = RotationalComponents.Components.Damper(final d = bp) {^damper1}
   fixed = MultibodyComponents.Fixed() {^fixed}
   base_box = MultibodyComponents.ShapefileVisualizer(color = [0.1, 0.1, 0.1, 1], shapefile = joinpath("assets", "qube", "qube_block.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0])) {^base_box}
+  floor = MultibodyComponents.TexturedPlaneVisualizer(texturefile = joinpath("assets", "textures", "sand_02_diff_2k.jpg"), tile = 6, length = 0.5, width = 0.5, length_direction = [1, 0, 0], width_direction = [0, 0, 1], r_shape = [0, -0.11, 0], specular_coefficient = 0.5) {^floor}
   shoulder_cylinder = MultibodyComponents.ShapefileVisualizer(color = [0.7, 0.7, 0.7, 1], shapefile = joinpath("assets", "qube", "qube_motor_drive.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, -0.015, 0])) {^shoulder_cylinder}
   motor_main_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.6, 0.0, 0.0, 1], shapefile = joinpath("assets", "qube", "qube_motor_main.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, 0, 0])) {^motor_main_mesh}
   motor_front_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.1, 0.1, 0.1, 1], shapefile = joinpath("assets", "qube", "qube_motor_front.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0])) {^motor_front_mesh}
@@ -191,7 +192,7 @@ relations
   connect(elbow_joint.support, damper1.spline_a) {^id32}
   connect(damper1.spline_b, elbow_joint.axis) {^id33}
   connect(elbow_sensor.spline, damper1.spline_b) {^id34}
-  connect(base_box.frame_a, fixed.frame_b) {^id35}
+  connect(base_box.frame_a, floor.frame_a, fixed.frame_b) {^id35}
   connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b, motor_main_mesh.frame_a, motor_front_mesh.frame_a, motor_part_mesh.frame_a) {^id36}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/QubePendulum.svg"}},

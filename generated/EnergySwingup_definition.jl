@@ -4,10 +4,12 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    EnergySwingup(; name, umax)
 
-## Parameters: 
+## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
@@ -23,12 +25,13 @@
 """
 @component function EnergySwingup(; name = nothing, umax=Float64(2), kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = EnergySwingup()
+  """))
 
-        @named model = EnergySwingup()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -48,14 +51,14 @@
 
   ### Final Parameters (declarations)
 
-  ### Final Parameters (assignments)
-
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "maximum control signal during swingup", bounds = (0.1, 50)])
   __initial_conditions[umax] = __local__umax
+
+  ### Final Parameters (assignments)
 
   ### Final Path Parameters
   append!(__vars, @variables (elbow_angle(t)::Real), [input = true])
@@ -73,65 +76,50 @@
 
   ### Components
   # Subcomponent energy of type QuanserComponents.Energy
-  energy_overrides = Dict(Symbol(replace(string(k), r"^energy__" => "")) => v for (k, v) in __overrides if startswith(string(k), "energy__"))
-  filter!(p -> !startswith(string(first(p)), "energy__"), __overrides)
-  push!(__systems, @named energy = QuanserComponents.Energy(energy_overrides...))
+  energy_overrides = __pop_subcomponent_overrides!(__overrides, "energy")
+  push!(__systems, @named energy = QuanserComponents.Energy(; energy_overrides...))
   # Subcomponent sub_pi of type BlockComponents.Math.Add
-  sub_pi_overrides = Dict(Symbol(replace(string(k), r"^sub_pi__" => "")) => v for (k, v) in __overrides if startswith(string(k), "sub_pi__"))
-  filter!(p -> !startswith(string(first(p)), "sub_pi__"), __overrides)
-  push!(__systems, @named sub_pi = BlockComponents.Math.Add(k2=-1, sub_pi_overrides...))
+  sub_pi_overrides = __pop_subcomponent_overrides!(__overrides, "sub_pi")
+  push!(__systems, @named sub_pi = BlockComponents.Math.Add(; k2=-1, sub_pi_overrides...))
   # Subcomponent constant1 of type BlockComponents.Sources.Constant
-  constant1_overrides = Dict(Symbol(replace(string(k), r"^constant1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "constant1__"))
-  filter!(p -> !startswith(string(first(p)), "constant1__"), __overrides)
-  push!(__systems, @named constant1 = BlockComponents.Sources.Constant(k=pi, constant1_overrides...))
+  constant1_overrides = __pop_subcomponent_overrides!(__overrides, "constant1")
+  push!(__systems, @named constant1 = BlockComponents.Sources.Constant(; k=pi, constant1_overrides...))
   # Subcomponent energy1 of type QuanserComponents.Energy
-  energy1_overrides = Dict(Symbol(replace(string(k), r"^energy1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "energy1__"))
-  filter!(p -> !startswith(string(first(p)), "energy1__"), __overrides)
-  push!(__systems, @named energy1 = QuanserComponents.Energy(energy1_overrides...))
+  energy1_overrides = __pop_subcomponent_overrides!(__overrides, "energy1")
+  push!(__systems, @named energy1 = QuanserComponents.Energy(; energy1_overrides...))
   # Subcomponent constant2 of type BlockComponents.Sources.Constant
-  constant2_overrides = Dict(Symbol(replace(string(k), r"^constant2__" => "")) => v for (k, v) in __overrides if startswith(string(k), "constant2__"))
-  filter!(p -> !startswith(string(first(p)), "constant2__"), __overrides)
-  push!(__systems, @named constant2 = BlockComponents.Sources.Constant(k=0, constant2_overrides...))
+  constant2_overrides = __pop_subcomponent_overrides!(__overrides, "constant2")
+  push!(__systems, @named constant2 = BlockComponents.Sources.Constant(; k=Float64(0), constant2_overrides...))
   # Subcomponent gain of type BlockComponents.Math.Gain
-  gain_overrides = Dict(Symbol(replace(string(k), r"^gain__" => "")) => v for (k, v) in __overrides if startswith(string(k), "gain__"))
-  filter!(p -> !startswith(string(first(p)), "gain__"), __overrides)
-  push!(__systems, @named gain = BlockComponents.Math.Gain(k=80, gain_overrides...))
+  gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
+  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(80), gain_overrides...))
   # Subcomponent arm_centering of type BlockComponents.Math.Gain
-  arm_centering_overrides = Dict(Symbol(replace(string(k), r"^arm_centering__" => "")) => v for (k, v) in __overrides if startswith(string(k), "arm_centering__"))
-  filter!(p -> !startswith(string(first(p)), "arm_centering__"), __overrides)
-  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(k=-0.2, arm_centering_overrides...))
+  arm_centering_overrides = __pop_subcomponent_overrides!(__overrides, "arm_centering")
+  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(; k=-0.2, arm_centering_overrides...))
   # Subcomponent add_centering of type BlockComponents.Math.Add
-  add_centering_overrides = Dict(Symbol(replace(string(k), r"^add_centering__" => "")) => v for (k, v) in __overrides if startswith(string(k), "add_centering__"))
-  filter!(p -> !startswith(string(first(p)), "add_centering__"), __overrides)
-  push!(__systems, @named add_centering = BlockComponents.Math.Add(add_centering_overrides...))
+  add_centering_overrides = __pop_subcomponent_overrides!(__overrides, "add_centering")
+  push!(__systems, @named add_centering = BlockComponents.Math.Add(; add_centering_overrides...))
   # Subcomponent sub_eref of type BlockComponents.Math.Add
-  sub_eref_overrides = Dict(Symbol(replace(string(k), r"^sub_eref__" => "")) => v for (k, v) in __overrides if startswith(string(k), "sub_eref__"))
-  filter!(p -> !startswith(string(first(p)), "sub_eref__"), __overrides)
-  push!(__systems, @named sub_eref = BlockComponents.Math.Add(k2=-1, sub_eref_overrides...))
+  sub_eref_overrides = __pop_subcomponent_overrides!(__overrides, "sub_eref")
+  push!(__systems, @named sub_eref = BlockComponents.Math.Add(; k2=-1, sub_eref_overrides...))
   # Subcomponent product of type BlockComponents.Math.Product
-  product_overrides = Dict(Symbol(replace(string(k), r"^product__" => "")) => v for (k, v) in __overrides if startswith(string(k), "product__"))
-  filter!(p -> !startswith(string(first(p)), "product__"), __overrides)
-  push!(__systems, @named product = BlockComponents.Math.Product(product_overrides...))
+  product_overrides = __pop_subcomponent_overrides!(__overrides, "product")
+  push!(__systems, @named product = BlockComponents.Math.Product(; product_overrides...))
   # Subcomponent sign of type QuanserComponents.Sign
-  sign_overrides = Dict(Symbol(replace(string(k), r"^sign__" => "")) => v for (k, v) in __overrides if startswith(string(k), "sign__"))
-  filter!(p -> !startswith(string(first(p)), "sign__"), __overrides)
-  push!(__systems, @named sign = QuanserComponents.Sign(sign_overrides...))
+  sign_overrides = __pop_subcomponent_overrides!(__overrides, "sign")
+  push!(__systems, @named sign = QuanserComponents.Sign(; sign_overrides...))
   # Subcomponent product1 of type BlockComponents.Math.Product
-  product1_overrides = Dict(Symbol(replace(string(k), r"^product1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "product1__"))
-  filter!(p -> !startswith(string(first(p)), "product1__"), __overrides)
-  push!(__systems, @named product1 = BlockComponents.Math.Product(product1_overrides...))
+  product1_overrides = __pop_subcomponent_overrides!(__overrides, "product1")
+  push!(__systems, @named product1 = BlockComponents.Math.Product(; product1_overrides...))
   # Subcomponent limiter of type BlockComponents.Nonlinear.Limiter
-  limiter_overrides = Dict(Symbol(replace(string(k), r"^limiter__" => "")) => v for (k, v) in __overrides if startswith(string(k), "limiter__"))
-  filter!(p -> !startswith(string(first(p)), "limiter__"), __overrides)
-  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(y_max=umax, limiter_overrides...))
+  limiter_overrides = __pop_subcomponent_overrides!(__overrides, "limiter")
+  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_max=umax, limiter_overrides...))
   # Subcomponent cos of type QuanserComponents.Cos
-  cos_overrides = Dict(Symbol(replace(string(k), r"^cos__" => "")) => v for (k, v) in __overrides if startswith(string(k), "cos__"))
-  filter!(p -> !startswith(string(first(p)), "cos__"), __overrides)
-  push!(__systems, @named cos = QuanserComponents.Cos(cos_overrides...))
+  cos_overrides = __pop_subcomponent_overrides!(__overrides, "cos")
+  push!(__systems, @named cos = QuanserComponents.Cos(; cos_overrides...))
   # Subcomponent gain1 of type BlockComponents.Math.Gain
-  gain1_overrides = Dict(Symbol(replace(string(k), r"^gain1__" => "")) => v for (k, v) in __overrides if startswith(string(k), "gain1__"))
-  filter!(p -> !startswith(string(first(p)), "gain1__"), __overrides)
-  push!(__systems, @named gain1 = BlockComponents.Math.Gain(k=-1, gain1_overrides...))
+  gain1_overrides = __pop_subcomponent_overrides!(__overrides, "gain1")
+  push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=-1, gain1_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))

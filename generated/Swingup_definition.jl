@@ -4,6 +4,8 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    Swingup(; name)
 
@@ -15,12 +17,13 @@
 """
 @component function Swingup(; name = nothing, kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = Swingup()
+  """))
 
-        @named model = Swingup()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -40,11 +43,11 @@
 
   ### Final Parameters (declarations)
 
-  ### Final Parameters (assignments)
-
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
+
+  ### Final Parameters (assignments)
 
   ### Final Path Parameters
   append!(__vars, @variables (shoulder_angle(t)::Real), [input = true])
@@ -60,37 +63,29 @@
 
   ### Components
   # Subcomponent velocityestimator_shoulder of type QuanserComponents.VelocityEstimator
-  velocityestimator_shoulder_overrides = Dict(Symbol(replace(string(k), r"^velocityestimator_shoulder__" => "")) => v for (k, v) in __overrides if startswith(string(k), "velocityestimator_shoulder__"))
-  filter!(p -> !startswith(string(first(p)), "velocityestimator_shoulder__"), __overrides)
-  push!(__systems, @named velocityestimator_shoulder = QuanserComponents.VelocityEstimator(velocityestimator_shoulder_overrides...))
+  velocityestimator_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator_shoulder")
+  push!(__systems, @named velocityestimator_shoulder = QuanserComponents.VelocityEstimator(; velocityestimator_shoulder_overrides...))
   # Subcomponent velocityestimator_elbow of type QuanserComponents.VelocityEstimator
-  velocityestimator_elbow_overrides = Dict(Symbol(replace(string(k), r"^velocityestimator_elbow__" => "")) => v for (k, v) in __overrides if startswith(string(k), "velocityestimator_elbow__"))
-  filter!(p -> !startswith(string(first(p)), "velocityestimator_elbow__"), __overrides)
-  push!(__systems, @named velocityestimator_elbow = QuanserComponents.VelocityEstimator(velocityestimator_elbow_overrides...))
+  velocityestimator_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator_elbow")
+  push!(__systems, @named velocityestimator_elbow = QuanserComponents.VelocityEstimator(; velocityestimator_elbow_overrides...))
   # Subcomponent energyswingup of type QuanserComponents.EnergySwingup
-  energyswingup_overrides = Dict(Symbol(replace(string(k), r"^energyswingup__" => "")) => v for (k, v) in __overrides if startswith(string(k), "energyswingup__"))
-  filter!(p -> !startswith(string(first(p)), "energyswingup__"), __overrides)
-  push!(__systems, @named energyswingup = QuanserComponents.EnergySwingup(energyswingup_overrides...))
+  energyswingup_overrides = __pop_subcomponent_overrides!(__overrides, "energyswingup")
+  push!(__systems, @named energyswingup = QuanserComponents.EnergySwingup(; energyswingup_overrides...))
   # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
-  anglenormalization_overrides = Dict(Symbol(replace(string(k), r"^anglenormalization__" => "")) => v for (k, v) in __overrides if startswith(string(k), "anglenormalization__"))
-  filter!(p -> !startswith(string(first(p)), "anglenormalization__"), __overrides)
-  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(anglenormalization_overrides...))
+  anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
+  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
   # Subcomponent lqrstabilizer of type QuanserComponents.LQRstabilizer
-  lqrstabilizer_overrides = Dict(Symbol(replace(string(k), r"^lqrstabilizer__" => "")) => v for (k, v) in __overrides if startswith(string(k), "lqrstabilizer__"))
-  filter!(p -> !startswith(string(first(p)), "lqrstabilizer__"), __overrides)
-  push!(__systems, @named lqrstabilizer = QuanserComponents.LQRstabilizer(lqrstabilizer_overrides...))
+  lqrstabilizer_overrides = __pop_subcomponent_overrides!(__overrides, "lqrstabilizer")
+  push!(__systems, @named lqrstabilizer = QuanserComponents.LQRstabilizer(; lqrstabilizer_overrides...))
   # Subcomponent neartop of type QuanserComponents.NearTop
-  neartop_overrides = Dict(Symbol(replace(string(k), r"^neartop__" => "")) => v for (k, v) in __overrides if startswith(string(k), "neartop__"))
-  filter!(p -> !startswith(string(first(p)), "neartop__"), __overrides)
-  push!(__systems, @named neartop = QuanserComponents.NearTop(neartop_overrides...))
+  neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
+  push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))
   # Subcomponent stabilizationswitch of type QuanserComponents.StabilizationSwitch
-  stabilizationswitch_overrides = Dict(Symbol(replace(string(k), r"^stabilizationswitch__" => "")) => v for (k, v) in __overrides if startswith(string(k), "stabilizationswitch__"))
-  filter!(p -> !startswith(string(first(p)), "stabilizationswitch__"), __overrides)
-  push!(__systems, @named stabilizationswitch = QuanserComponents.StabilizationSwitch(stabilizationswitch_overrides...))
+  stabilizationswitch_overrides = __pop_subcomponent_overrides!(__overrides, "stabilizationswitch")
+  push!(__systems, @named stabilizationswitch = QuanserComponents.StabilizationSwitch(; stabilizationswitch_overrides...))
   # Subcomponent gain of type BlockComponents.Math.Gain
-  gain_overrides = Dict(Symbol(replace(string(k), r"^gain__" => "")) => v for (k, v) in __overrides if startswith(string(k), "gain__"))
-  filter!(p -> !startswith(string(first(p)), "gain__"), __overrides)
-  push!(__systems, @named gain = BlockComponents.Math.Gain(k=1, gain_overrides...))
+  gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
+  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))

@@ -15,6 +15,8 @@ if isfile(joinpath((@__DIR__) |> Base.dirname, "dyad", "tests.jl"))
 end
 
 
+include("test_internals.jl")
+
 @testset "`QuanserComponents`" begin
 include("AngleNormalization_test.jl")
 include("Cos_test.jl")

@@ -4,10 +4,12 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
+import Moshi as __Ext__Moshi
+
 @doc Markdown.doc"""
    Energy(; name, mp, Lp, g)
 
-## Parameters: 
+## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
@@ -23,12 +25,13 @@
 """
 @component function Energy(; name = nothing, mp=0.024, Lp=0.129, g=9.81, kwargs...)
   isnothing(name) && throw(ArgumentError("""
-        The `name` keyword must be provided. Please consider using the `@named` macro,
-        like so:
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = Energy()
+  """))
 
-        @named model = Energy()
-        """))
-  __overrides = Dict{String, Symbolics.SymbolicT}(string(k) => v for (k, v) in kwargs)
+  __overrides = __build_overrides(kwargs)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -50,10 +53,6 @@
   append!(__params, @parameters (l::Real), [misc = "final"])
   append!(__params, @parameters (Jp_cm::Real), [misc = "final"])
 
-  ### Final Parameters (assignments)
-  __bindings[l] = Lp / 2
-  __bindings[Jp_cm] = mp * Lp ^ 2 / 12
-
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
@@ -66,6 +65,10 @@
   __local__g = g
   append!(__params, @parameters (g::Real))
   __initial_conditions[g] = __local__g
+
+  ### Final Parameters (assignments)
+  __bindings[l] = Lp / 2
+  __bindings[Jp_cm] = mp * Lp ^ 2 / 12
 
   ### Final Path Parameters
   append!(__vars, @variables (α(t)::Real), [input = true])
