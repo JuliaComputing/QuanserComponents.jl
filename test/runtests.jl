@@ -4,10 +4,10 @@ using ModelingToolkit
 using MultibodyComponents
 # using DiscreteComponents
 using SynchToolkit
-using ControlSystemsMTK
-using ControlSystemsBase
 using LinearAlgebra
-    
+using SynchJulia
+SynchJulia.backend!(:julia)
+##
 # include("../generated/tests.jl")
 
 
@@ -35,6 +35,9 @@ prob = ODEProblem(ssys, [
     ssys.swingup.energyswingup.umax => 3.0
     ssys.swingup.energyswingup.gain.k => 100.0
     ssys.swingup.energyswingup.arm_centering.k => -1.0
+
+    ssys.qubependulum.floor.r_shape => [0, -0.10, 0]
+
     # ssys.qubependulum.base_box.color => [0.1, 0.1, 0.1, 1]
     # ssys.qubependulum.base_box.shape.specular_coefficient => 1.5
 
@@ -105,7 +108,8 @@ sol[ssys.qubependulum.lower_arm.m]
 ##
 # Linearize the plant about the upright equilibrium with the controller loop
 # opened at the u_plant analysis point, then design an LQR feedback gain.
-
+using ControlSystemsMTK
+using ControlSystemsBase
 
 op = Dict(
     ssys.qubependulum.elbow_joint.phi    => π,
