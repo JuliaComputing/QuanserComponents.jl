@@ -28,6 +28,11 @@ for f in readdir(resultpath(""))
 end
 if !isempty(bconfigs)
     dfs = [CSV.read(resultpath("boundaries_1d_$c.csv"), DataFrame) for c in sort(bconfigs)]
+    # an empty file means no failure boundary was found within the sweep range
+    keep = .!isempty.(dfs)
+    dfs, bconfigs = dfs[keep], sort(bconfigs)[keep]
+end
+if !isempty(bconfigs) && !isempty(dfs)
     all_params = unique(vcat((df.parameter for df in dfs)...))
     @printf("%-10s %-6s", "parameter", "dir")
     for c in sort(bconfigs)
