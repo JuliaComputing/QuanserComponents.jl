@@ -122,8 +122,10 @@ Interpretation:
    calibrated for zero false positives on the empirical catch grids of four
    perturbed plants) with hysteresis release at `c_release`. Findings from
    the paired MC:
-   - angle-only switch (default): 93.0%
+   - angle-only switch (default): 93.0% (original LQR) / 93.7% (redesigned)
    - ellipsoid, zero-false-positive calibration (`c_engage = 1`): 79.7%
+     with the original LQR, 85.7% recalibrated for the redesigned LQR
+     (whose larger catch region makes the gate less restrictive)
    - ellipsoid, loosened (`c_engage = 2, c_release = 8`): 76.3% (threshold
      tuning on the broken/rescued subset did not generalize — selection
      bias; draws that were fine under both other configs broke)
