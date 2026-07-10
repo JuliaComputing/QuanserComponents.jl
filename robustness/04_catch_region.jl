@@ -14,12 +14,13 @@ omega_grid = range(-8.0, 8.0, length = 25)  # elbow angular velocity
 "Success = settled upright at tf, starting near the top with LQR always active."
 function catch_success(ssys, plant_kwargs, dphi, w; tf = 3.0)
     ov = vcat(
-        nominal_overrides(ssys),
+        controller_settings(ssys),
         supports_friction(ssys) ? perturbation_overrides(ssys; plant_kwargs...) : Pair[],
         Pair[
             ssys.swingup.neartop.th => 1e6
             ssys.qubependulum.elbow_joint.phi => pi + dphi
             ssys.qubependulum.elbow_joint.w => w
+            ssys.qubependulum.shoulder_joint.phi => 0.0
         ],
     )
     m = try

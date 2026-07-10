@@ -204,12 +204,14 @@ component.
 end
 
 
+include("AlphaBetaEstimator_definition.jl")
 include("AngleNormalization_definition.jl")
 include("Cos_definition.jl")
 include("EnergySwingup_definition.jl")
 include("Energy_definition.jl")
 include("ErefAdaptationTest_definition.jl")
 include("ErefAdaptation_definition.jl")
+include("EstimatorSwitch_definition.jl")
 include("FurutaSwingupDelayed_definition.jl")
 include("FurutaSwingup_definition.jl")
 include("LQRstabilizer_definition.jl")

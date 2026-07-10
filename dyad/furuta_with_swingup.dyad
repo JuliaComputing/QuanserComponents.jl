@@ -699,6 +699,55 @@ relations
   connect(era.eta, eta) {^id6}
 end
 
+"""
+Alpha-beta tracking filter estimating velocity from sampled position: the
+steady-state Kalman filter for a constant-velocity kinematic model. Compared
+to a discrete derivative followed by a low-pass filter it trades the same
+noise suppression for less phase lag. The critically matched gain pairing is
+`beta = alpha^2 / (2 - alpha)`.
+"""
+component AlphaBetaEstimator@[input clk extends Discrete]
+  "Sampled position measurement"
+  pos = RealInput@[clk]() {^pos}
+  "Estimated velocity"
+  vel = RealOutput@[clk]() {^vel}
+  structural parameter Ts::Real = SampleTime()
+  "Position correction gain in (0, 1)"
+  parameter alpha::Real = 0.5
+  "Velocity correction gain; alpha^2/(2 - alpha) is the critically matched value"
+  parameter beta::Real = 0.16666666666666666
+  "Position estimate"
+  variable x::Real
+  "Velocity estimate"
+  variable v::Real
+  "Predicted position before measurement correction"
+  variable xp::Real
+relations
+  xp = x@(clk-1) + Ts * v@(clk-1)
+  x@clk = xp + alpha * (pos@clk - xp)
+  v@clk = v@(clk-1) + (beta / Ts) * (pos@clk - xp)
+  vel = v
+  initial x@(clk-1) = pos@clk
+  initial v@(clk-1) = 0
+end
+
+"""
+Runtime-selectable switch between two velocity estimates, allowing the
+alpha-beta estimator to be enabled without a model rebuild while both
+estimators stay available for comparison in every simulation.
+"""
+component EstimatorSwitch
+  "Velocity from the original derivative + low-pass estimator"
+  v_old = Dyad.RealInput() {^v_old}
+  "Velocity from the alpha-beta estimator"
+  v_new = Dyad.RealInput() {^v_new}
+  y = Dyad.RealOutput() {^y}
+  "Select the alpha-beta estimator when true"
+  parameter use_new::Boolean = false
+relations
+  y = ifelse(use_new == true, v_new, v_old)
+end
+
 component Sign
   extends BlockComponents.Interfaces.SISO
 relations
@@ -798,23 +847,31 @@ component Swingup
   neartop = QuanserComponents.NearTop() {^neartop}
   stabilizationswitch = QuanserComponents.StabilizationSwitch() {^stabilizationswitch}
   erefadaptation = QuanserComponents.ErefAdaptation() {^erefadaptation}
+  alphabeta_shoulder = QuanserComponents.AlphaBetaEstimator() {^alphabeta_shoulder}
+  alphabeta_elbow = QuanserComponents.AlphaBetaEstimator() {^alphabeta_elbow}
+  estimatorswitch_shoulder = QuanserComponents.EstimatorSwitch() {^estimatorswitch_shoulder}
+  estimatorswitch_elbow = QuanserComponents.EstimatorSwitch() {^estimatorswitch_elbow}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
 relations
   connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle) {^id12}
-  connect(lqrstabilizer.shoulder_velocity, velocityestimator_shoulder.vel, energyswingup.shoulder_velocity) {^id13}
+  connect(lqrstabilizer.shoulder_velocity, estimatorswitch_shoulder.y, energyswingup.shoulder_velocity) {^id13}
   connect(neartop.u, anglenormalization.y) {^id14}
-  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id15}
-  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id16}
+  connect(lqrstabilizer.elbow_velocity, estimatorswitch_elbow.y, energyswingup.elbow_velocity) {^id15}
+  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, alphabeta_shoulder.pos, lqrstabilizer.shoulder_angle) {^id16}
   connect(neartop.y, stabilizationswitch.neartop) {^id17}
   connect(energyswingup.realoutput, stabilizationswitch.u_swingup) {^id18}
   connect(lqrstabilizer.u, stabilizationswitch.u_lqr) {^id19}
-  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id20}
+  connect(velocityestimator_elbow.pos, elbow_angle, alphabeta_elbow.pos, anglenormalization.u) {^id20}
   connect(stabilizationswitch.u, gain.u) {^id21}
   connect(gain.y, u) {^id22}
   connect(anglenormalization.y, erefadaptation.alpha) {^id23}
-  connect(velocityestimator_elbow.vel, erefadaptation.dalpha) {^id24}
+  connect(estimatorswitch_elbow.y, erefadaptation.dalpha) {^id24}
   connect(neartop.y, erefadaptation.neartop) {^id25}
   connect(erefadaptation.eta, energyswingup.eta_adapt) {^id26}
+  connect(velocityestimator_shoulder.vel, estimatorswitch_shoulder.v_old) {^id27}
+  connect(alphabeta_shoulder.vel, estimatorswitch_shoulder.v_new) {^id28}
+  connect(velocityestimator_elbow.vel, estimatorswitch_elbow.v_old) {^id29}
+  connect(alphabeta_elbow.vel, estimatorswitch_elbow.v_new) {^id30}
 metadata {
   "Dyad": {"icons": {"default": "dyad://DiscreteComponents/Swingup.svg"}},
   "_links": {

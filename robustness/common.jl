@@ -210,7 +210,43 @@ full controller override set; plant perturbations are appended separately.
 added in Phase 4.
 """
 function controller_overrides(ssys, config::AbstractString)
-    config == "baseline" && return nominal_overrides(ssys)
+    base = nominal_overrides(ssys)
+    config == "baseline" && return base
+    esw = ssys.swingup.energyswingup
+    # Nominal upright energy assumed by the controller; with normalize on,
+    # the gain acts on E/E_ref - 1, so rescale k by E_ref for equal authority.
+    E_ref = 2 * 0.024 * 9.81 * 0.129 / 2
+    if config == "margin"
+        # A: normalized error + static reference margin
+        return with_overrides(base, Pair[
+            esw.normalize => true,
+            esw.eta => 0.05,
+            esw.k => 100.0 * E_ref,
+        ])
+    elseif config == "adaptive"
+        # A + B: normalized error + online reference adaptation (no static margin)
+        return with_overrides(base, Pair[
+            esw.normalize => true,
+            esw.k => 100.0 * E_ref,
+            ssys.swingup.erefadaptation.gamma => 0.05,
+        ])
+    elseif config == "adaptive_ab"
+        # A + B + C: additionally the alpha-beta velocity estimator, tuned
+        # against quantization noise in phase3c_smoke.jl
+        ab_alpha = 0.85
+        ab_beta = ab_alpha^2 / (2 - ab_alpha)
+        return with_overrides(base, Pair[
+            esw.normalize => true,
+            esw.k => 100.0 * E_ref,
+            ssys.swingup.erefadaptation.gamma => 0.05,
+            ssys.swingup.estimatorswitch_shoulder.use_new => true,
+            ssys.swingup.estimatorswitch_elbow.use_new => true,
+            ssys.swingup.alphabeta_shoulder.alpha => ab_alpha,
+            ssys.swingup.alphabeta_shoulder.beta => ab_beta,
+            ssys.swingup.alphabeta_elbow.alpha => ab_alpha,
+            ssys.swingup.alphabeta_elbow.beta => ab_beta,
+        ])
+    end
     error("unknown controller config: $config")
 end
 

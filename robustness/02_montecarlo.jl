@@ -7,6 +7,7 @@ using Random, Statistics
 
 @isdefined(controller_config) || (controller_config = "baseline")
 @isdefined(N_mc) || (N_mc = 300)
+@isdefined(tf_mc) || (tf_mc = 15.0)
 
 model, ssys = build_system()
 ctrl = controller_overrides(ssys, controller_config)
@@ -34,7 +35,7 @@ for i in 1:N_mc
     )
     m = try
         ov = vcat(ctrl, perturbation_overrides(ssys; draw...))
-        metrics(simulate(ssys, ov; tf = 15.0), ssys)
+        metrics(simulate(ssys, ov; tf = tf_mc), ssys)
     catch err
         @warn "simulation crashed" i err
         metrics_failed()

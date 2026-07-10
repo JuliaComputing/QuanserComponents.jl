@@ -86,6 +86,18 @@ import Moshi as __Ext__Moshi
   # Subcomponent erefadaptation of type QuanserComponents.ErefAdaptation
   erefadaptation_overrides = __pop_subcomponent_overrides!(__overrides, "erefadaptation")
   push!(__systems, @named erefadaptation = QuanserComponents.ErefAdaptation(; erefadaptation_overrides...))
+  # Subcomponent alphabeta_shoulder of type QuanserComponents.AlphaBetaEstimator
+  alphabeta_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "alphabeta_shoulder")
+  push!(__systems, @named alphabeta_shoulder = QuanserComponents.AlphaBetaEstimator(; alphabeta_shoulder_overrides...))
+  # Subcomponent alphabeta_elbow of type QuanserComponents.AlphaBetaEstimator
+  alphabeta_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "alphabeta_elbow")
+  push!(__systems, @named alphabeta_elbow = QuanserComponents.AlphaBetaEstimator(; alphabeta_elbow_overrides...))
+  # Subcomponent estimatorswitch_shoulder of type QuanserComponents.EstimatorSwitch
+  estimatorswitch_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "estimatorswitch_shoulder")
+  push!(__systems, @named estimatorswitch_shoulder = QuanserComponents.EstimatorSwitch(; estimatorswitch_shoulder_overrides...))
+  # Subcomponent estimatorswitch_elbow of type QuanserComponents.EstimatorSwitch
+  estimatorswitch_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "estimatorswitch_elbow")
+  push!(__systems, @named estimatorswitch_elbow = QuanserComponents.EstimatorSwitch(; estimatorswitch_elbow_overrides...))
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
   push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
@@ -102,20 +114,24 @@ import Moshi as __Ext__Moshi
 
   ### Equations
   push!(__eqs, connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle))
-  push!(__eqs, connect(velocityestimator_shoulder.vel, lqrstabilizer.shoulder_velocity, energyswingup.shoulder_velocity))
+  push!(__eqs, connect(estimatorswitch_shoulder.y, lqrstabilizer.shoulder_velocity, energyswingup.shoulder_velocity))
   push!(__eqs, connect(anglenormalization.y, neartop.u))
-  push!(__eqs, connect(velocityestimator_elbow.vel, lqrstabilizer.elbow_velocity, energyswingup.elbow_velocity))
-  push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle))
+  push!(__eqs, connect(estimatorswitch_elbow.y, lqrstabilizer.elbow_velocity, energyswingup.elbow_velocity))
+  push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, alphabeta_shoulder.pos, lqrstabilizer.shoulder_angle))
   push!(__eqs, connect(neartop.y, stabilizationswitch.neartop))
   push!(__eqs, connect(energyswingup.realoutput, stabilizationswitch.u_swingup))
   push!(__eqs, connect(lqrstabilizer.u, stabilizationswitch.u_lqr))
-  push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u))
+  push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, alphabeta_elbow.pos, anglenormalization.u))
   push!(__eqs, connect(stabilizationswitch.u, gain.u))
   push!(__eqs, connect(gain.y, u))
   push!(__eqs, connect(anglenormalization.y, erefadaptation.alpha))
-  push!(__eqs, connect(velocityestimator_elbow.vel, erefadaptation.dalpha))
+  push!(__eqs, connect(estimatorswitch_elbow.y, erefadaptation.dalpha))
   push!(__eqs, connect(neartop.y, erefadaptation.neartop))
   push!(__eqs, connect(erefadaptation.eta, energyswingup.eta_adapt))
+  push!(__eqs, connect(velocityestimator_shoulder.vel, estimatorswitch_shoulder.v_old))
+  push!(__eqs, connect(alphabeta_shoulder.vel, estimatorswitch_shoulder.v_new))
+  push!(__eqs, connect(velocityestimator_elbow.vel, estimatorswitch_elbow.v_old))
+  push!(__eqs, connect(alphabeta_elbow.vel, estimatorswitch_elbow.v_new))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

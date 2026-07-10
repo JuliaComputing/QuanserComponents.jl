@@ -18,12 +18,14 @@ end
 include("test_internals.jl")
 
 @testset "`QuanserComponents`" begin
+include("AlphaBetaEstimator_test.jl")
 include("AngleNormalization_test.jl")
 include("Cos_test.jl")
 include("EnergySwingup_test.jl")
 include("Energy_test.jl")
 include("ErefAdaptationTest_test.jl")
 include("ErefAdaptation_test.jl")
+include("EstimatorSwitch_test.jl")
 include("FurutaSwingupDelayed_test.jl")
 include("FurutaSwingup_test.jl")
 include("LQRstabilizer_test.jl")
