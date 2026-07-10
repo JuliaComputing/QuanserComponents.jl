@@ -139,8 +139,27 @@ Interpretation:
    gentle and mismatch-robust likely requires redesigning the LQR itself
    (see item 3 and the stale-gain observation in
    `07_design_catch_condition.jl`).
-3. If the real rig can exhibit even one sample of IO latency, redesign the
-   LQR with a delay state; the current design has no delay margin.
+3. **(Implemented)** LQR redesigned from the actual model linearization
+   (`08_lqr_redesign.jl`). The original gains did not correspond to any LQR
+   design from this model with the documented weights and had no delay
+   margin. The redesign keeps the documented output weights and raises the
+   control weight until the loop tolerates delay (selected: control weight
+   300), validated in simulation rather than by classical margins (the
+   plant is unstable, making single-crossover margin numbers misleading):
+
+   | metric | original gains | redesigned |
+   |---|---|---|
+   | swingup MC (robust config, tf = 20 s) | 93.0% | **93.7%** |
+   | swingup MC with 1-sample actuation delay | 57.0% | **92.0%** |
+   | swingup with 3-sample delay (nominal) | fails at 1 | catches at 5.8 s |
+   | LQR catch region, nominal | 142/625 | 179/625 |
+   | LQR catch region, 1-sample delay | 8/625 | 191/625 |
+   | catch capability at top (nominal / mp+20%) | 2.5 / 2.5 rad/s | 2.5 / 2.5 rad/s |
+
+   The ellipsoidal catch condition was recalibrated for the new loop
+   (`07_design_catch_condition.jl` with `lqr_config = "new"`): the safe
+   ellipsoid now retains 63-68% of the catchable set (was 40-44%), still
+   with zero false positives across the perturbed plants.
 
 ## Reproducing
 

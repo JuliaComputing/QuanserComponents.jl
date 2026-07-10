@@ -14,6 +14,12 @@ include("common.jl")
 using ControlSystemsMTK, ControlSystemsBase
 using LinearAlgebra
 
+# lqr_config = "old" calibrates for the original gains against the original
+# catch grids; "new" uses the redesigned gains (08_lqr_redesign.jl) and the
+# _newlqr grids from 04, suffixing the outputs accordingly.
+@isdefined(lqr_config) || (lqr_config = "old")
+suffix = lqr_config == "new" ? "_newlqr" : ""
+
 model, ssys = build_system()
 
 op = Dict(
@@ -40,13 +46,19 @@ P = named_ss(model, [ssys.u_plant], outputs;
 )
 Pd = c2d(ss(P), Ts)
 
-# Same weights as the LQR design in test/runtests.jl
+# Same state weights as the LQR design in test/runtests.jl; the control
+# weight matches the respective design (the redesign uses 300, see
+# 08_lqr_redesign.jl)
 Q1 = P.C' * Diagonal([1000.0, 10.0, 1.0, 1.0]) * P.C
-Q2 = 10.0 * I(1)
+Q2 = (lqr_config == "new" ? 300.0 : 10.0) * I(1)
 
 S, _, L_dare = ControlSystemsBase.MatrixEquations.ared(Pd.A, Pd.B, Q2, Q1)
 L_fresh = vec(L_dare * pinv(P.C))
-L_baked = [-9.625743176817387, 394.43972658274106, -7.461418005226849, 84.42279971138271]
+L_baked = if lqr_config == "new"
+    CSV.read(resultpath("lqr_redesign_q2_300.csv"), DataFrame).value
+else
+    L_ORIGINAL
+end
 println("L fresh LQR design: ", round.(L_fresh, digits = 4))
 println("L in component:     ", round.(L_baked, digits = 4))
 if !isapprox(L_fresh, L_baked, rtol = 1e-2)
@@ -78,7 +90,7 @@ V(a, w) = [0.0, a, 0.0, w]' * Sy * [0.0, a, 0.0, w]
 plants = ["nominal", "mp_plus20", "coulomb", "quantized"]
 Vfail = Inf  # smallest V among failed grid points, over all plants
 for name in plants
-    f = resultpath("catch_region_$name.csv")
+    f = resultpath("catch_region_$(name)$(suffix).csv")
     isfile(f) || (println("missing $f – run 04_catch_region.jl first"); continue)
     S_grid = Matrix(CSV.read(f, DataFrame))
     for (i, a) in enumerate(alpha_grid), (j, w) in enumerate(omega_grid)
@@ -100,7 +112,7 @@ for i in 1:4, j in i:4
     push!(rows, (; entry = "S$(i)$(j)", value = Sn[i, j]))
 end
 push!(rows, (; entry = "c_release", value = c_out / c_in))
-CSV.write(resultpath("catch_condition_design.csv"), DataFrame(rows))
+CSV.write(resultpath("catch_condition_design$(suffix).csv"), DataFrame(rows))
 println("\nnormalized ellipsoid entries (engage at V = 1):")
 for r in rows
     @printf("  parameter %s::Real = %.6g\n", r.entry, r.value)
@@ -108,7 +120,7 @@ end
 
 # Coverage: how much of the empirically catchable set the ellipsoid retains
 for name in plants
-    f = resultpath("catch_region_$name.csv")
+    f = resultpath("catch_region_$(name)$(suffix).csv")
     isfile(f) || continue
     S_grid = Matrix(CSV.read(f, DataFrame))
     caught = [S_grid[i, j] for (i, a) in enumerate(alpha_grid), (j, w) in enumerate(omega_grid)]

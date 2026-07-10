@@ -13,10 +13,10 @@ import Moshi as __Ext__Moshi
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]                         | --  |   -9.625743176817387 |
-| `L2`         |                          | --  |   394.43972658274106 |
-| `L3`         |                          | --  |   -7.461418005226849 |
-| `L4`         |                          | --  |   84.42279971138271 |
+| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. Discrete LQR from the plant linearization about upright with output weights diag([1000, 10, 1, 1]) and control weight 300, selected in robustness/08_lqr_redesign.jl for delay tolerance: catches with three samples of actuation delay where the previous gains failed with one, at equal catch capability.                         | --  |   -1.7259853130770042 |
+| `L2`         |                          | --  |   68.2810119491725 |
+| `L3`         |                          | --  |   -1.2317839406561077 |
+| `L4`         |                          | --  |   7.7052139179986066 |
 | `umax`         |                          | --  |   10.0 |
 
 ## Connectors
@@ -37,7 +37,7 @@ import Moshi as __Ext__Moshi
 | `e4`         |                          | --  |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L1=-9.625743176817387, L2=394.43972658274106, L3=-7.461418005226849, L4=84.42279971138271, umax=Float64(10.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, L1=-1.7259853130770042, L2=68.2810119491725, L3=-1.2317839406561077, L4=7.7052139179986066, umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -69,7 +69,7 @@ import Moshi as __Ext__Moshi
 
   ### Symbolic Parameters
   __local__L1 = L1
-  append!(__params, @parameters (L1::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"])
+  append!(__params, @parameters (L1::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. Discrete LQR from the plant linearization about upright with output weights diag([1000, 10, 1, 1]) and control weight 300, selected in robustness/08_lqr_redesign.jl for delay tolerance: catches with three samples of actuation delay where the previous gains failed with one, at equal catch capability."])
   __initial_conditions[L1] = __local__L1
   __local__L2 = L2
   append!(__params, @parameters (L2::Real))

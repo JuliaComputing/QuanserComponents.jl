@@ -40,16 +40,16 @@ catch attempts stress real hardware. See robustness/README.md.
 | `th`         | Angle threshold of the fallback angle-only condition                         | --  |   0.4 |
 | `c_engage`         | Engage threshold: V = 1 is the largest sublevel set with no observed catch failure on any tested plant; larger values trade certain catches for earlier attempts                         | --  |   1 |
 | `c_release`         | Release threshold of the hysteresis                         | --  |   4 |
-| `S11`         |                          | --  |   0.144396 |
-| `S12`         |                          | --  |   -1.04444 |
-| `S13`         |                          | --  |   0.0497274 |
-| `S14`         |                          | --  |   -0.0910319 |
-| `S22`         |                          | --  |   15.837 |
-| `S23`         |                          | --  |   -0.588979 |
-| `S24`         |                          | --  |   1.3186 |
-| `S33`         |                          | --  |   0.0244188 |
-| `S34`         |                          | --  |   -0.0471712 |
-| `S44`         |                          | --  |   0.151749 |
+| `S11`         |                          | --  |   0.156633 |
+| `S12`         |                          | --  |   -1.00123 |
+| `S13`         |                          | --  |   0.0529337 |
+| `S14`         |                          | --  |   -0.119659 |
+| `S22`         |                          | --  |   18.9434 |
+| `S23`         |                          | --  |   -0.562122 |
+| `S24`         |                          | --  |   2.18534 |
+| `S33`         |                          | --  |   0.026693 |
+| `S34`         |                          | --  |   -0.0670345 |
+| `S44`         |                          | --  |   0.252618 |
 
 ## Connectors
 
@@ -70,7 +70,7 @@ catch attempts stress real hardware. See robustness/README.md.
 | `V`         | Lyapunov-function value, engage when at most 1                         | --  |
 | `engaged`         | Stabilizer-engaged state (hysteresis memory)                         | --  |
 """
-@component function CatchCondition(; name = nothing, use_ellipsoid=false, th=0.4, c_engage=Float64(1), c_release=Float64(4), S11=0.144396, S12=-1.04444, S13=0.0497274, S14=-0.0910319, S22=15.837, S23=-0.588979, S24=1.3186, S33=0.0244188, S34=-0.0471712, S44=0.151749, kwargs...)
+@component function CatchCondition(; name = nothing, use_ellipsoid=false, th=0.4, c_engage=Float64(1), c_release=Float64(4), S11=0.156633, S12=-1.00123, S13=0.0529337, S14=-0.119659, S22=18.9434, S23=-0.562122, S24=2.18534, S33=0.026693, S34=-0.0670345, S44=0.252618, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

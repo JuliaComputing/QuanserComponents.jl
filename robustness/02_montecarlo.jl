@@ -8,8 +8,10 @@ using Random, Statistics
 @isdefined(controller_config) || (controller_config = "baseline")
 @isdefined(N_mc) || (N_mc = 300)
 @isdefined(tf_mc) || (tf_mc = 15.0)
+@isdefined(use_delayed) || (use_delayed = false)
 
-model, ssys = build_system()
+model, ssys = build_system(delayed = use_delayed)
+mc_label = string(controller_config, use_delayed ? "_delay1" : "")
 ctrl = controller_overrides(ssys, controller_config)
 has_friction = supports_friction(ssys)
 
@@ -46,13 +48,13 @@ for i in 1:N_mc
 end
 
 df = DataFrame(rows)
-CSV.write(resultpath("mc_$(controller_config).csv"), df)
+CSV.write(resultpath("mc_$(mc_label).csv"), df)
 
 rate = mean(df.success)
 n = nrow(df)
 ci = 1.96 * sqrt(rate * (1 - rate) / n)
 @printf("\nMC success rate (%s): %.1f%% ± %.1f%% (N = %d)\n",
-    controller_config, 100rate, 100ci, n)
+    mc_label, 100rate, 100ci, n)
 
 # Conditional failure rates: split each parameter at its median, compare
 # failure rate in the upper vs lower half to rank influence.

@@ -773,11 +773,11 @@ component LQRstabilizer
   shoulder_velocity = Dyad.RealInput() {^shoulder_velocity}
   elbow_velocity = Dyad.RealInput() {^elbow_velocity}
   u = Dyad.RealOutput() {^u}
-  "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
-  parameter L1::Real = -9.625743176817387
-  parameter L2::Real = 394.43972658274106
-  parameter L3::Real = -7.461418005226849
-  parameter L4::Real = 84.42279971138271
+  "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. Discrete LQR from the plant linearization about upright with output weights diag([1000, 10, 1, 1]) and control weight 300, selected in robustness/08_lqr_redesign.jl for delay tolerance: catches with three samples of actuation delay where the previous gains failed with one, at equal catch capability."
+  parameter L1::Real = -1.7259853130770042
+  parameter L2::Real = 68.2810119491725
+  parameter L3::Real = -1.2317839406561077
+  parameter L4::Real = 7.7052139179986066
   variable e1::Real
   variable e2::Real
   variable e3::Real
@@ -1091,16 +1091,16 @@ component CatchCondition@[input clk extends Discrete]
   parameter c_engage::Real = 1
   "Release threshold of the hysteresis"
   parameter c_release::Real = 4
-  parameter S11::Real = 0.144396
-  parameter S12::Real = -1.04444
-  parameter S13::Real = 0.0497274
-  parameter S14::Real = -0.0910319
-  parameter S22::Real = 15.837
-  parameter S23::Real = -0.588979
-  parameter S24::Real = 1.3186
-  parameter S33::Real = 0.0244188
-  parameter S34::Real = -0.0471712
-  parameter S44::Real = 0.151749
+  parameter S11::Real = 0.156633
+  parameter S12::Real = -1.00123
+  parameter S13::Real = 0.0529337
+  parameter S14::Real = -0.119659
+  parameter S22::Real = 18.9434
+  parameter S23::Real = -0.562122
+  parameter S24::Real = 2.18534
+  parameter S33::Real = 0.026693
+  parameter S34::Real = -0.0670345
+  parameter S44::Real = 0.252618
   "Deviation from the upright equilibrium"
   variable e1::Real
   variable e2::Real
