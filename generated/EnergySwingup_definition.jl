@@ -7,13 +7,35 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   EnergySwingup(; name, umax)
+   EnergySwingup(; name, umax, k, k_center, eta, normalize, mp, Lp, g)
+
+Energy-based swingup controller (Åström-style energy pumping) with optional
+robustifications against plant-model mismatch:
+
+- `eta`: static relative margin on the energy reference; the controller pumps
+  toward `E_ref*(1 + eta)` to compensate for unmodeled dissipation.
+- `normalize`: normalizes the energy error by `E_ref`, making the loop gain
+  insensitive to errors in `mp` and `Lp` (rescale `k` when enabling).
+
+With the default `eta = 0` and `normalize = false` the control law is
+
+  u = clamp(k*sign(cos(α)*(-dα))*(E - E_ref) - k_center*θ, -umax, umax)
+
+which is algebraically identical to the original block-diagram
+implementation of this component.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `umax`         | maximum control signal during swingup                         | --  |   2 |
+| `k`         | Energy-pumping gain                         | --  |   80 |
+| `k_center`         | Arm-centering gain pulling the base arm back toward center                         | --  |   0.2 |
+| `eta`         | Static relative energy-reference margin                         | --  |   0 |
+| `normalize`         | If true, the energy error is normalized by E_ref (rescale k accordingly)                         | --  |   false |
+| `mp`         | Pendulum mass as assumed by the controller                         | --  |   0.024 |
+| `Lp`         | Pendulum length as assumed by the controller                         | --  |   0.129 |
+| `g`         | Gravitational acceleration                         | --  |   9.81 |
 
 ## Connectors
 
@@ -22,8 +44,17 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `shoulder_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `realoutput` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+
+## Variables
+
+| Name         | Description                         | Units  | 
+| ------------ | ----------------------------------- | ------ |
+| `alpha`         | Pendulum angle measured from upright                         | --  |
+| `E`         | Estimated pendulum energy                         | --  |
+| `Etilde`         | Energy error to the (margin-boosted) reference                         | --  |
+| `uraw`         | Unsaturated control signal                         | --  |
 """
-@component function EnergySwingup(; name = nothing, umax=Float64(2), kwargs...)
+@component function EnergySwingup(; name = nothing, umax=Float64(2), k=Float64(80), k_center=0.2, eta=Float64(0), normalize=false, mp=0.024, Lp=0.129, g=9.81, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -50,6 +81,9 @@ import Moshi as __Ext__Moshi
   ### Path Parameters (non-final)
 
   ### Final Parameters (declarations)
+  append!(__params, @parameters (l::Real), [misc = "final"])
+  append!(__params, @parameters (Jp_cm::Real), [misc = "final"])
+  append!(__params, @parameters (E_ref::Real), [description = "Pendulum energy at upright rest (zero at hanging rest)", misc = "final"])
 
   ### Deferred assignment (default values that depend on final parameters)
 
@@ -57,8 +91,32 @@ import Moshi as __Ext__Moshi
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "maximum control signal during swingup", bounds = (0.1, 50)])
   __initial_conditions[umax] = __local__umax
+  __local__k = k
+  append!(__params, @parameters (k::Real), [description = "Energy-pumping gain"])
+  __initial_conditions[k] = __local__k
+  __local__k_center = k_center
+  append!(__params, @parameters (k_center::Real), [description = "Arm-centering gain pulling the base arm back toward center"])
+  __initial_conditions[k_center] = __local__k_center
+  __local__eta = eta
+  append!(__params, @parameters (eta::Real), [description = "Static relative energy-reference margin"])
+  __initial_conditions[eta] = __local__eta
+  __local__normalize = normalize
+  append!(__params, @parameters (normalize::Bool), [description = "If true, the energy error is normalized by E_ref (rescale k accordingly)"])
+  __initial_conditions[normalize] = __local__normalize
+  __local__mp = mp
+  append!(__params, @parameters (mp::Real), [description = "Pendulum mass as assumed by the controller"])
+  __initial_conditions[mp] = __local__mp
+  __local__Lp = Lp
+  append!(__params, @parameters (Lp::Real), [description = "Pendulum length as assumed by the controller"])
+  __initial_conditions[Lp] = __local__Lp
+  __local__g = g
+  append!(__params, @parameters (g::Real), [description = "Gravitational acceleration"])
+  __initial_conditions[g] = __local__g
 
   ### Final Parameters (assignments)
+  __bindings[l] = Lp / 2
+  __bindings[Jp_cm] = mp * Lp ^ 2 / 12
+  __bindings[E_ref] = 2 * mp * g * l
 
   ### Final Path Parameters
   append!(__vars, @variables (elbow_angle(t)::Real), [input = true])
@@ -68,58 +126,25 @@ import Moshi as __Ext__Moshi
   append!(__vars, @variables (realoutput(t)::Real), [output = true])
 
   ### Variables (declarations)
+  append!(__vars, @variables (alpha(t)::Real), [description = "Pendulum angle measured from upright"])
+  append!(__vars, @variables (E(t)::Real), [description = "Estimated pendulum energy"])
+  append!(__vars, @variables (Etilde(t)::Real), [description = "Energy error to the (margin-boosted) reference"])
+  append!(__vars, @variables (uraw(t)::Real), [description = "Unsaturated control signal"])
 
   ### Variables (assignments)
+  __ovr_alpha = pop!(__overrides, "alpha", nothing); isnothing(__ovr_alpha) || push!(__eqs, alpha ~ __ovr_alpha)
+  __ovr_alpha__initial = pop!(__overrides, "alpha__initial", nothing); isnothing(__ovr_alpha__initial) || (__initial_conditions[alpha] = __ovr_alpha__initial)
+  __ovr_E = pop!(__overrides, "E", nothing); isnothing(__ovr_E) || push!(__eqs, E ~ __ovr_E)
+  __ovr_E__initial = pop!(__overrides, "E__initial", nothing); isnothing(__ovr_E__initial) || (__initial_conditions[E] = __ovr_E__initial)
+  __ovr_Etilde = pop!(__overrides, "Etilde", nothing); isnothing(__ovr_Etilde) || push!(__eqs, Etilde ~ __ovr_Etilde)
+  __ovr_Etilde__initial = pop!(__overrides, "Etilde__initial", nothing); isnothing(__ovr_Etilde__initial) || (__initial_conditions[Etilde] = __ovr_Etilde__initial)
+  __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
+  __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
 
   ### Constants
   __constants = Any[]
 
   ### Components
-  # Subcomponent energy of type QuanserComponents.Energy
-  energy_overrides = __pop_subcomponent_overrides!(__overrides, "energy")
-  push!(__systems, @named energy = QuanserComponents.Energy(; energy_overrides...))
-  # Subcomponent sub_pi of type BlockComponents.Math.Add
-  sub_pi_overrides = __pop_subcomponent_overrides!(__overrides, "sub_pi")
-  push!(__systems, @named sub_pi = BlockComponents.Math.Add(; k2=Float64(-1), sub_pi_overrides...))
-  # Subcomponent constant1 of type BlockComponents.Sources.Constant
-  constant1_overrides = __pop_subcomponent_overrides!(__overrides, "constant1")
-  push!(__systems, @named constant1 = BlockComponents.Sources.Constant(; k=pi, constant1_overrides...))
-  # Subcomponent energy1 of type QuanserComponents.Energy
-  energy1_overrides = __pop_subcomponent_overrides!(__overrides, "energy1")
-  push!(__systems, @named energy1 = QuanserComponents.Energy(; energy1_overrides...))
-  # Subcomponent constant2 of type BlockComponents.Sources.Constant
-  constant2_overrides = __pop_subcomponent_overrides!(__overrides, "constant2")
-  push!(__systems, @named constant2 = BlockComponents.Sources.Constant(; k=Float64(0), constant2_overrides...))
-  # Subcomponent gain of type BlockComponents.Math.Gain
-  gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
-  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(80), gain_overrides...))
-  # Subcomponent arm_centering of type BlockComponents.Math.Gain
-  arm_centering_overrides = __pop_subcomponent_overrides!(__overrides, "arm_centering")
-  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(; k=-0.2, arm_centering_overrides...))
-  # Subcomponent add_centering of type BlockComponents.Math.Add
-  add_centering_overrides = __pop_subcomponent_overrides!(__overrides, "add_centering")
-  push!(__systems, @named add_centering = BlockComponents.Math.Add(; add_centering_overrides...))
-  # Subcomponent sub_eref of type BlockComponents.Math.Add
-  sub_eref_overrides = __pop_subcomponent_overrides!(__overrides, "sub_eref")
-  push!(__systems, @named sub_eref = BlockComponents.Math.Add(; k2=Float64(-1), sub_eref_overrides...))
-  # Subcomponent product of type BlockComponents.Math.Product
-  product_overrides = __pop_subcomponent_overrides!(__overrides, "product")
-  push!(__systems, @named product = BlockComponents.Math.Product(; product_overrides...))
-  # Subcomponent sign of type QuanserComponents.Sign
-  sign_overrides = __pop_subcomponent_overrides!(__overrides, "sign")
-  push!(__systems, @named sign = QuanserComponents.Sign(; sign_overrides...))
-  # Subcomponent product1 of type BlockComponents.Math.Product
-  product1_overrides = __pop_subcomponent_overrides!(__overrides, "product1")
-  push!(__systems, @named product1 = BlockComponents.Math.Product(; product1_overrides...))
-  # Subcomponent limiter of type BlockComponents.Nonlinear.Limiter
-  limiter_overrides = __pop_subcomponent_overrides!(__overrides, "limiter")
-  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_max=umax, limiter_overrides...))
-  # Subcomponent cos of type QuanserComponents.Cos
-  cos_overrides = __pop_subcomponent_overrides!(__overrides, "cos")
-  push!(__systems, @named cos = QuanserComponents.Cos(; cos_overrides...))
-  # Subcomponent gain1 of type BlockComponents.Math.Gain
-  gain1_overrides = __pop_subcomponent_overrides!(__overrides, "gain1")
-  push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=Float64(-1), gain1_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -132,25 +157,11 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(elbow_velocity, energy.dα, gain1.u))
-  push!(__eqs, connect(elbow_angle, sub_pi.u1))
-  push!(__eqs, connect(constant1.y, sub_pi.u2))
-  push!(__eqs, connect(constant2.y, energy1.α))
-  push!(__eqs, connect(constant2.y, energy1.dα))
-  push!(__eqs, connect(energy1.E, sub_eref.u2))
-  push!(__eqs, connect(sub_pi.y, energy.α, cos.u))
-  push!(__eqs, connect(sub_eref.y, product1.u2))
-  push!(__eqs, connect(product1.y, gain.u))
-  push!(__eqs, connect(limiter.y, realoutput))
-  push!(__eqs, connect(energy.E, sub_eref.u1))
-  push!(__eqs, connect(product.y, sign.u))
-  push!(__eqs, connect(sign.y, product1.u1))
-  push!(__eqs, connect(cos.y, product.u1))
-  push!(__eqs, connect(shoulder_angle, arm_centering.u))
-  push!(__eqs, connect(arm_centering.y, add_centering.u2))
-  push!(__eqs, connect(add_centering.y, limiter.u))
-  push!(__eqs, connect(gain.y, add_centering.u1))
-  push!(__eqs, connect(gain1.y, product.u2))
+  push!(__eqs, alpha ~ elbow_angle - pi)
+  push!(__eqs, E ~ 0.5 * Jp_cm * elbow_velocity ^ 2 + mp * g * l * (1 + cos(alpha)))
+  push!(__eqs, Etilde ~ ifelse(normalize == true, (E - (1 + eta) * E_ref) / E_ref, E - (1 + eta) * E_ref))
+  push!(__eqs, uraw ~ k * sign(cos(alpha) * (-elbow_velocity)) * Etilde - k_center * shoulder_angle)
+  push!(__eqs, realoutput ~ clamp(uraw, -umax, umax))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

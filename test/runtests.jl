@@ -33,8 +33,8 @@ prob = ODEProblem(ssys, [
     # ssys.swingup.lqrstabilizer.L4 => L[4]
     # ssys.swingup.velocityestimator_elbow.discretederivative.u(k-1) => pi
     ssys.swingup.energyswingup.umax => 3.0
-    ssys.swingup.energyswingup.gain.k => 100.0
-    ssys.swingup.energyswingup.arm_centering.k => -1.0
+    ssys.swingup.energyswingup.k => 100.0
+    ssys.swingup.energyswingup.k_center => 1.0
 
     ssys.qubependulum.floor.r_shape => [0, -0.10, 0]
 
@@ -84,7 +84,7 @@ plot(f1, f2) |> display
 plot(sol, idxs=[
     # ssys.swingup.u,
     ssys.swingup.energyswingup.realoutput,
-    ssys.swingup.energyswingup.limiter.u,
+    ssys.swingup.energyswingup.uraw,
     # ssys.qubependulum.torquesource.tau,
 ])
 

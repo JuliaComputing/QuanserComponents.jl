@@ -571,331 +571,64 @@ metadata {
 }
 end
 
+"""
+Energy-based swingup controller (Åström-style energy pumping) with optional
+robustifications against plant-model mismatch:
+
+- `eta`: static relative margin on the energy reference; the controller pumps
+  toward `E_ref*(1 + eta)` to compensate for unmodeled dissipation.
+- `normalize`: normalizes the energy error by `E_ref`, making the loop gain
+  insensitive to errors in `mp` and `Lp` (rescale `k` when enabling).
+
+With the default `eta = 0` and `normalize = false` the control law is
+
+  u = clamp(k*sign(cos(α)*(-dα))*(E - E_ref) - k_center*θ, -umax, umax)
+
+which is algebraically identical to the original block-diagram
+implementation of this component.
+"""
 component EnergySwingup
   elbow_angle = Dyad.RealInput() {^elbow_angle}
   elbow_velocity = Dyad.RealInput() {^elbow_velocity}
   shoulder_angle = Dyad.RealInput() {^shoulder_angle}
   shoulder_velocity = Dyad.RealInput() {^shoulder_velocity}
-  energy = QuanserComponents.Energy() {^energy}
-  sub_pi = BlockComponents.Math.Add(k2 = -1) {^sub_pi}
-  constant1 = BlockComponents.Sources.Constant(k = pi) {^constant1}
-  energy1 = QuanserComponents.Energy() {^energy1}
-  constant2 = BlockComponents.Sources.Constant(k = 0) {^constant2}
-  gain = BlockComponents.Math.Gain(k = 80) {^gain}
-  arm_centering = BlockComponents.Math.Gain(k = -0.2) {^arm_centering}
-  add_centering = BlockComponents.Math.Add() {^add_centering}
-  sub_eref = BlockComponents.Math.Add(k2 = -1) {^sub_eref}
-  product = BlockComponents.Math.Product() {^product}
-  sign = QuanserComponents.Sign() {^sign}
-  product1 = BlockComponents.Math.Product() {^product1}
   realoutput = Dyad.RealOutput() {^realoutput}
-  limiter = BlockComponents.Nonlinear.Limiter(y_max = umax) {^limiter}
-  cos = QuanserComponents.Cos() {^cos}
-  gain1 = BlockComponents.Math.Gain(k = -1) {^gain1}
   "maximum control signal during swingup"
   parameter umax::Real(min = 0.1, max = 50) = 2
+  "Energy-pumping gain"
+  parameter k::Real = 80
+  "Arm-centering gain pulling the base arm back toward center"
+  parameter k_center::Real = 0.2
+  "Static relative energy-reference margin"
+  parameter eta::Real = 0
+  "If true, the energy error is normalized by E_ref (rescale k accordingly)"
+  parameter normalize::Boolean = false
+  "Pendulum mass as assumed by the controller"
+  parameter mp::Real = 0.024
+  "Pendulum length as assumed by the controller"
+  parameter Lp::Real = 0.129
+  "Gravitational acceleration"
+  parameter g::Real = 9.81
+  final parameter l::Real = Lp / 2
+  final parameter Jp_cm::Real = mp * Lp ^ 2 / 12
+  "Pendulum energy at upright rest (zero at hanging rest)"
+  final parameter E_ref::Real = 2 * mp * g * l
+  "Pendulum angle measured from upright"
+  variable alpha::Real
+  "Estimated pendulum energy"
+  variable E::Real
+  "Energy error to the (margin-boosted) reference"
+  variable Etilde::Real
+  "Unsaturated control signal"
+  variable uraw::Real
 relations
-  connect(elbow_velocity, energy.dα, gain1.u) {^id21}
-  connect(elbow_angle, sub_pi.u1) {^id22}
-  connect(constant1.y, sub_pi.u2) {^id23}
-  connect(constant2.y, energy1.α) {^id24}
-  connect(energy1.dα, constant2.y) {^id25}
-  connect(energy1.E, sub_eref.u2) {^id26}
-  connect(energy.α, sub_pi.y, cos.u) {^id27}
-  connect(product1.u2, sub_eref.y) {^id28}
-  connect(product1.y, gain.u) {^id29}
-  connect(limiter.y, realoutput) {^id30}
-  connect(sub_eref.u1, energy.E) {^id31}
-  connect(product.y, sign.u) {^id32}
-  connect(sign.y, product1.u1) {^id33}
-  connect(cos.y, product.u1) {^id34}
-  connect(shoulder_angle, arm_centering.u) {^id35}
-  connect(arm_centering.y, add_centering.u2) {^id36}
-  connect(add_centering.y, limiter.u) {^id37}
-  connect(gain.y, add_centering.u1) {^id38}
-  connect(gain1.y, product.u2) {^id39}
-metadata {
-  "Dyad": {
-    "experiments": {},
-    "tests": {},
-    "labels": [],
-    "icons": {"default": "dyad://DiscreteComponents/EnergySwingup.svg"},
-    "path": {},
-    "doc": {"behavior": true}
-  },
-  "_links": {
-    "elbow_angle": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -80, "y1": 100, "x2": 0, "y2": 180, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "elbow_velocity": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -100, "y1": 330, "x2": 0, "y2": 430, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "shoulder_angle": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -80, "y1": 590, "x2": 0, "y2": 670, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "shoulder_velocity": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -80, "y1": 850, "x2": 0, "y2": 930, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "energy": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 190, "y1": 360, "x2": 290, "y2": 460, "rot": 90}
-        },
-        "tags": []
-      }
-    },
-    "sub_pi": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 150, "y1": 120, "x2": 250, "y2": 220, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "constant1": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 10, "y1": 180, "x2": 110, "y2": 280, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "energy1": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 270, "y1": 530, "x2": 370, "y2": 630, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "constant2": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 60, "y1": 510, "x2": 160, "y2": 610, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "gain": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 750, "y1": 470, "x2": 850, "y2": 570, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "arm_centering": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 440, "y1": 630, "x2": 540, "y2": 730, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "add_centering": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 780, "y1": 630, "x2": 880, "y2": 730, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "sub_eref": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 440, "y1": 500, "x2": 540, "y2": 600, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "product": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 420, "y1": 150, "x2": 520, "y2": 250, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "sign": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 540, "y1": 280, "x2": 640, "y2": 380, "rot": 90}
-        },
-        "tags": []
-      }
-    },
-    "product1": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 610, "y1": 470, "x2": 710, "y2": 570, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "realoutput": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 1000, "y1": 460, "x2": 1080, "y2": 540, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "limiter": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 920, "y1": 630, "x2": 1020, "y2": 730, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "cos": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 290, "y1": 30, "x2": 350, "y2": 90, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "gain1": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 300, "y1": 250, "x2": 400, "y2": 350, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "id21": {
-      "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": -50, "y": 340}], "E": -1},
-          {"S": -1, "M": [{"x": 218, "y": 340}], "E": 2},
-          {"S": 3, "M": [{"x": 220, "y": 300}], "E": -1}
-        ],
-        "junctions": [{"x": 220, "y": 340}],
-        "renderStyle": "standard"
-      }
-    },
-    "id22": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id23": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 130, "y": 230}, {"x": 130, "y": 200}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id24": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 215, "y": 560}, {"x": 215, "y": 555}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id25": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 215, "y": 602}, {"x": 215, "y": 560}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id26": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id27": {
-      "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": 265, "y": 262.5}, {"x": 270, "y": 262.5}], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 270, "y": 60}], "E": -1}
-        ],
-        "junctions": [{"x": 270, "y": 170}],
-        "renderStyle": "standard"
-      }
-    },
-    "id28": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id29": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id30": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 1040, "y": 680}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id31": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 240, "y": 520}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id32": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 590, "y": 200}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id33": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 590, "y": 490}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id34": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 384, "y": 60}, {"x": 384, "y": 170}], "E": 2}]
-      }
-    },
-    "id35": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": -40, "y": 680}], "E": 2}]
-      }
-    },
-    "id36": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 660, "y": 680}, {"x": 660, "y": 710}], "E": 2}]
-      }
-    },
-    "id37": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
-    "id38": {
-      "Dyad": {
-        "edges": [
-          {
-            "S": 1,
-            "M": [
-              {"x": 880, "y": 520},
-              {"x": 880, "y": 610},
-              {"x": 740, "y": 610},
-              {"x": 740, "y": 650}
-            ],
-            "E": 2
-          }
-        ],
-        "renderStyle": "standard"
-      }
-    },
-    "id39": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 410, "y": 300}, {"x": 410, "y": 230}], "E": 2}]
-      }
-    }
-  }
-}
+  alpha = elbow_angle - pi
+  E = 0.5 * Jp_cm * elbow_velocity ^ 2 + mp * g * l * (1 + cos(alpha))
+  Etilde = ifelse(normalize == true,
+                  (E - (1 + eta) * E_ref) / E_ref,
+                  E - (1 + eta) * E_ref)
+  uraw = k * sign(cos(alpha) * (-elbow_velocity)) * Etilde - k_center * shoulder_angle
+  realoutput = clamp(uraw, -umax, umax)
 end
 
 component Sign

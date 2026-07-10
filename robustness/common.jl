@@ -31,19 +31,44 @@ function build_system(; delayed = false, delay_n = 1)
     model, ssys
 end
 
-"Controller and initial-condition overrides matching test/runtests.jl."
-function nominal_overrides(ssys)
-    Pair[
+"True for the equation-based EnergySwingup (Phase 3A) with k/k_center params."
+function has_equation_swingup(ssys)
+    try
+        ssys.swingup.energyswingup.k_center
+        true
+    catch
+        false
+    end
+end
+
+"Controller settings matching test/runtests.jl (no initial conditions)."
+function controller_settings(ssys)
+    ov = Pair[
         ssys.qubependulum.shoulder_joint.render => false
-        ssys.qubependulum.elbow_joint.phi => deg2rad(0.15)
-        ssys.qubependulum.shoulder_joint.phi => 0.0
         ssys.gain.k => 1.0
         ssys.swingup.lqrstabilizer.umax => 10
         ssys.swingup.energyswingup.umax => 3.0
-        ssys.swingup.energyswingup.gain.k => 100.0
-        ssys.swingup.energyswingup.arm_centering.k => -1.0
+    ]
+    if has_equation_swingup(ssys)
+        push!(ov, ssys.swingup.energyswingup.k => 100.0)
+        push!(ov, ssys.swingup.energyswingup.k_center => 1.0)
+    else
+        push!(ov, ssys.swingup.energyswingup.gain.k => 100.0)
+        push!(ov, ssys.swingup.energyswingup.arm_centering.k => -1.0)
+    end
+    ov
+end
+
+"Initial conditions for a swingup experiment: pendulum hanging near down."
+function swingup_ics(ssys)
+    Pair[
+        ssys.qubependulum.elbow_joint.phi => deg2rad(0.15)
+        ssys.qubependulum.shoulder_joint.phi => 0.0
     ]
 end
+
+"Controller and initial-condition overrides matching test/runtests.jl."
+nominal_overrides(ssys) = vcat(controller_settings(ssys), swingup_ics(ssys))
 
 """
 Plant-parameter overrides expressing plant-model mismatch. The controller is
@@ -170,6 +195,12 @@ function supports_friction(ssys)
     catch
         false
     end
+end
+
+"Append `extra` to `base`, replacing any base entry with a matching key."
+function with_overrides(base::Vector{<:Pair}, extra::Vector{<:Pair})
+    ks = first.(extra)
+    vcat(filter(p -> !any(k -> isequal(p.first, k), ks), base), extra)
 end
 
 """
