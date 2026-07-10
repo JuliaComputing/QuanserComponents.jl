@@ -31,32 +31,26 @@ function build_system(; delayed = false, delay_n = 1)
     model, ssys
 end
 
-"True for the equation-based EnergySwingup (Phase 3A) with k/k_center params."
-function has_equation_swingup(ssys)
-    try
-        ssys.swingup.energyswingup.k_center
-        true
-    catch
-        false
-    end
-end
-
-"Controller settings matching test/runtests.jl (no initial conditions)."
+"""
+Controller settings pinning the ORIGINAL (pre-robustification) controller,
+regardless of the current component defaults: unnormalized energy error,
+no adaptation, original velocity estimator. This is the campaign "baseline"
+and the reference for the behavior-neutrality regression.
+"""
 function controller_settings(ssys)
-    ov = Pair[
+    Pair[
         ssys.qubependulum.shoulder_joint.render => false
         ssys.gain.k => 1.0
         ssys.swingup.lqrstabilizer.umax => 10
         ssys.swingup.energyswingup.umax => 3.0
+        ssys.swingup.energyswingup.k => 100.0
+        ssys.swingup.energyswingup.k_center => 1.0
+        ssys.swingup.energyswingup.normalize => false
+        ssys.swingup.energyswingup.eta => 0.0
+        ssys.swingup.erefadaptation.gamma => 0.0
+        ssys.swingup.estimatorswitch_shoulder.use_new => false
+        ssys.swingup.estimatorswitch_elbow.use_new => false
     ]
-    if has_equation_swingup(ssys)
-        push!(ov, ssys.swingup.energyswingup.k => 100.0)
-        push!(ov, ssys.swingup.energyswingup.k_center => 1.0)
-    else
-        push!(ov, ssys.swingup.energyswingup.gain.k => 100.0)
-        push!(ov, ssys.swingup.energyswingup.arm_centering.k => -1.0)
-    end
-    ov
 end
 
 "Initial conditions for a swingup experiment: pendulum hanging near down."

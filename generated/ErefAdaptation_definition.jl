@@ -18,14 +18,14 @@ This compensates unknown dissipation and drive-gain mismatch without knowing
 which parameter is wrong: the reference is only boosted when the pendulum
 demonstrably fails to reach the top. The margin is clamped to
 `[0, eta_max]` and bleeds off at relative rate `lambda` per sample while the
-stabilizer is active, so a later fall restarts from a mild boost. With the
-default `gamma = 0` the output is identically zero.
+stabilizer is active, so a later fall restarts from a mild boost. Setting
+`gamma = 0` disables adaptation and makes the output identically zero.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `gamma`         | Adaptation gain per radian of apex shortfall; 0 disables adaptation                         | --  |   0 |
+| `gamma`         | Adaptation gain per radian of apex shortfall; 0 disables adaptation                         | --  |   0.05 |
 | `eta_max`         | Upper bound on the adaptive margin                         | --  |   0.5 |
 | `lambda`         | Relative decay rate of the margin per sample while stabilized                         | --  |   0.02 |
 
@@ -43,7 +43,7 @@ default `gamma = 0` the output is identically zero.
 | `apex`         | Indicator of a swing apex on the upper half during swingup                         | --  |
 | `etax`         | Adaptive margin state                         | --  |
 """
-@component function ErefAdaptation(; name = nothing, gamma=Float64(0), eta_max=0.5, lambda=0.02, kwargs...)
+@component function ErefAdaptation(; name = nothing, gamma=0.05, eta_max=0.5, lambda=0.02, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

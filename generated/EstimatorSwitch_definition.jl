@@ -17,7 +17,7 @@ estimators stay available for comparison in every simulation.
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `use_new`         | Select the alpha-beta estimator when true                         | --  |   false |
+| `use_new`         | Select the alpha-beta estimator when true                         | --  |   true |
 
 ## Connectors
 
@@ -25,7 +25,7 @@ estimators stay available for comparison in every simulation.
  * `v_new` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `y` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function EstimatorSwitch(; name = nothing, use_new=false, kwargs...)
+@component function EstimatorSwitch(; name = nothing, use_new=true, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

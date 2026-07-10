@@ -25,16 +25,12 @@ prob = ODEProblem(ssys, [
     ssys.qubependulum.elbow_joint.phi => 0+deg2rad(0.15)
     ssys.qubependulum.shoulder_joint.phi => 0.0
     ssys.gain.k => 1.0
-    ssys.swingup.lqrstabilizer.umax => 10
     # ssys.qubependulum.Jp => 1e-1
     # ssys.swingup.lqrstabilizer.L1 => L[1]
     # ssys.swingup.lqrstabilizer.L2 => L[2]
     # ssys.swingup.lqrstabilizer.L3 => L[3]
     # ssys.swingup.lqrstabilizer.L4 => L[4]
     # ssys.swingup.velocityestimator_elbow.discretederivative.u(k-1) => pi
-    ssys.swingup.energyswingup.umax => 3.0
-    ssys.swingup.energyswingup.k => 100.0
-    ssys.swingup.energyswingup.k_center => 1.0
 
     ssys.qubependulum.floor.r_shape => [0, -0.10, 0]
 

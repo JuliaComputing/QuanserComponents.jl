@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   EnergySwingup(; name, umax, k, k_center, eta, normalize, mp, Lp, g)
+   EnergySwingup(; name, umax, k_center, eta, normalize, mp, Lp, g, k)
 
 Energy-based swingup controller (Åström-style energy pumping) with optional
 robustifications against plant-model mismatch:
@@ -17,25 +17,28 @@ robustifications against plant-model mismatch:
 - `normalize`: normalizes the energy error by `E_ref`, making the loop gain
   insensitive to errors in `mp` and `Lp` (rescale `k` when enabling).
 
-With the default `eta = 0` and `normalize = false` the control law is
+The control law is
 
-  u = clamp(k*sign(cos(α)*(-dα))*(E - E_ref) - k_center*θ, -umax, umax)
+  u = clamp(k*sign(cos(α)*(-dα))*Ẽ - k_center*θ, -umax, umax)
 
-which is algebraically identical to the original block-diagram
-implementation of this component.
+with Ẽ the (optionally normalized) energy error to the margin-boosted
+reference. With `normalize = false`, `eta = 0` and unscaled `k` this is
+algebraically identical to the original block-diagram implementation of
+this component; the defaults select the robustified configuration
+identified by the campaign in `robustness/`.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `umax`         | maximum control signal during swingup                         | --  |   2 |
-| `k`         | Energy-pumping gain                         | --  |   80 |
-| `k_center`         | Arm-centering gain pulling the base arm back toward center                         | --  |   0.2 |
+| `umax`         | maximum control signal during swingup                         | --  |   3 |
+| `k_center`         | Arm-centering gain pulling the base arm back toward center                         | --  |   1.0 |
 | `eta`         | Static relative energy-reference margin                         | --  |   0 |
-| `normalize`         | If true, the energy error is normalized by E_ref (rescale k accordingly)                         | --  |   false |
+| `normalize`         | If true, the energy error is normalized by E_ref (rescale k accordingly)                         | --  |   true |
 | `mp`         | Pendulum mass as assumed by the controller                         | --  |   0.024 |
 | `Lp`         | Pendulum length as assumed by the controller                         | --  |   0.129 |
 | `g`         | Gravitational acceleration                         | --  |   9.81 |
+| `k`         | Energy-pumping gain; scaled by the upright energy mp*g*Lp = E_ref since it acts on the normalized energy error by default                         | --  |   100 * mp * g * Lp |
 
 ## Connectors
 
@@ -55,7 +58,7 @@ implementation of this component.
 | `Etilde`         | Energy error to the (margin-boosted) reference                         | --  |
 | `uraw`         | Unsaturated control signal                         | --  |
 """
-@component function EnergySwingup(; name = nothing, umax=Float64(2), k=Float64(80), k_center=0.2, eta=Float64(0), normalize=false, mp=0.024, Lp=0.129, g=9.81, kwargs...)
+@component function EnergySwingup(; name = nothing, umax=Float64(3), k_center=Float64(1.0), eta=Float64(0), normalize=true, mp=0.024, Lp=0.129, g=9.81, k=100 * mp * g * Lp, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -92,9 +95,6 @@ implementation of this component.
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "maximum control signal during swingup", bounds = (0.1, 50)])
   __initial_conditions[umax] = __local__umax
-  __local__k = k
-  append!(__params, @parameters (k::Real), [description = "Energy-pumping gain"])
-  __initial_conditions[k] = __local__k
   __local__k_center = k_center
   append!(__params, @parameters (k_center::Real), [description = "Arm-centering gain pulling the base arm back toward center"])
   __initial_conditions[k_center] = __local__k_center
@@ -113,6 +113,9 @@ implementation of this component.
   __local__g = g
   append!(__params, @parameters (g::Real), [description = "Gravitational acceleration"])
   __initial_conditions[g] = __local__g
+  __local__k = k
+  append!(__params, @parameters (k::Real), [description = "Energy-pumping gain; scaled by the upright energy mp*g*Lp = E_ref since it acts on the normalized energy error by default"])
+  __initial_conditions[k] = __local__k
 
   ### Final Parameters (assignments)
   __bindings[l] = Lp / 2

@@ -580,12 +580,15 @@ robustifications against plant-model mismatch:
 - `normalize`: normalizes the energy error by `E_ref`, making the loop gain
   insensitive to errors in `mp` and `Lp` (rescale `k` when enabling).
 
-With the default `eta = 0` and `normalize = false` the control law is
+The control law is
 
-  u = clamp(k*sign(cos(α)*(-dα))*(E - E_ref) - k_center*θ, -umax, umax)
+  u = clamp(k*sign(cos(α)*(-dα))*Ẽ - k_center*θ, -umax, umax)
 
-which is algebraically identical to the original block-diagram
-implementation of this component.
+with Ẽ the (optionally normalized) energy error to the margin-boosted
+reference. With `normalize = false`, `eta = 0` and unscaled `k` this is
+algebraically identical to the original block-diagram implementation of
+this component; the defaults select the robustified configuration
+identified by the campaign in `robustness/`.
 """
 component EnergySwingup
   elbow_angle = Dyad.RealInput() {^elbow_angle}
@@ -596,21 +599,21 @@ component EnergySwingup
   eta_adapt = Dyad.RealInput() {^eta_adapt}
   realoutput = Dyad.RealOutput() {^realoutput}
   "maximum control signal during swingup"
-  parameter umax::Real(min = 0.1, max = 50) = 2
-  "Energy-pumping gain"
-  parameter k::Real = 80
+  parameter umax::Real(min = 0.1, max = 50) = 3
   "Arm-centering gain pulling the base arm back toward center"
-  parameter k_center::Real = 0.2
+  parameter k_center::Real = 1.0
   "Static relative energy-reference margin"
   parameter eta::Real = 0
   "If true, the energy error is normalized by E_ref (rescale k accordingly)"
-  parameter normalize::Boolean = false
+  parameter normalize::Boolean = true
   "Pendulum mass as assumed by the controller"
   parameter mp::Real = 0.024
   "Pendulum length as assumed by the controller"
   parameter Lp::Real = 0.129
   "Gravitational acceleration"
   parameter g::Real = 9.81
+  "Energy-pumping gain; scaled by the upright energy mp*g*Lp = E_ref since it acts on the normalized energy error by default"
+  parameter k::Real = 100 * mp * g * Lp
   final parameter l::Real = Lp / 2
   final parameter Jp_cm::Real = mp * Lp ^ 2 / 12
   "Pendulum energy at upright rest (zero at hanging rest)"
@@ -643,8 +646,8 @@ This compensates unknown dissipation and drive-gain mismatch without knowing
 which parameter is wrong: the reference is only boosted when the pendulum
 demonstrably fails to reach the top. The margin is clamped to
 `[0, eta_max]` and bleeds off at relative rate `lambda` per sample while the
-stabilizer is active, so a later fall restarts from a mild boost. With the
-default `gamma = 0` the output is identically zero.
+stabilizer is active, so a later fall restarts from a mild boost. Setting
+`gamma = 0` disables adaptation and makes the output identically zero.
 """
 component ErefAdaptation@[input clk extends Discrete]
   "Normalized elbow angle in [0, 2pi), pi at upright"
@@ -656,7 +659,7 @@ component ErefAdaptation@[input clk extends Discrete]
   "Adaptive relative energy-reference margin"
   eta = RealOutput@[clk]() {^eta}
   "Adaptation gain per radian of apex shortfall; 0 disables adaptation"
-  parameter gamma::Real = 0
+  parameter gamma::Real = 0.05
   "Upper bound on the adaptive margin"
   parameter eta_max::Real = 0.5
   "Relative decay rate of the margin per sample while stabilized"
@@ -713,9 +716,9 @@ component AlphaBetaEstimator@[input clk extends Discrete]
   vel = RealOutput@[clk]() {^vel}
   structural parameter Ts::Real = SampleTime()
   "Position correction gain in (0, 1)"
-  parameter alpha::Real = 0.5
+  parameter alpha::Real = 0.85
   "Velocity correction gain; alpha^2/(2 - alpha) is the critically matched value"
-  parameter beta::Real = 0.16666666666666666
+  parameter beta::Real = alpha ^ 2 / (2 - alpha)
   "Position estimate"
   variable x::Real
   "Velocity estimate"
@@ -743,7 +746,7 @@ component EstimatorSwitch
   v_new = Dyad.RealInput() {^v_new}
   y = Dyad.RealOutput() {^y}
   "Select the alpha-beta estimator when true"
-  parameter use_new::Boolean = false
+  parameter use_new::Boolean = true
 relations
   y = ifelse(use_new == true, v_new, v_old)
 end
@@ -780,7 +783,7 @@ component LQRstabilizer
   variable e3::Real
   variable e4::Real
   variable uraw::Real
-  parameter umax::Real = 3.0
+  parameter umax::Real = 10.0
 relations
   e1 = 0.0 - shoulder_angle
   e2 = pi - elbow_angle

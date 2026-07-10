@@ -17,7 +17,7 @@ import Moshi as __Ext__Moshi
 | `L2`         |                          | --  |   394.43972658274106 |
 | `L3`         |                          | --  |   -7.461418005226849 |
 | `L4`         |                          | --  |   84.42279971138271 |
-| `umax`         |                          | --  |   3.0 |
+| `umax`         |                          | --  |   10.0 |
 
 ## Connectors
 
@@ -37,7 +37,7 @@ import Moshi as __Ext__Moshi
 | `e4`         |                          | --  |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L1=-9.625743176817387, L2=394.43972658274106, L3=-7.461418005226849, L4=84.42279971138271, umax=Float64(3.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, L1=-9.625743176817387, L2=394.43972658274106, L3=-7.461418005226849, L4=84.42279971138271, umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

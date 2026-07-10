@@ -109,8 +109,12 @@ Interpretation:
 
 ## Recommendations
 
-1. Enable `normalize`, `gamma = 0.05` (adaptation) and the alpha-beta
-   estimator (`alpha = 0.85`) as the default swingup configuration.
+1. **(Implemented)** `normalize`, `gamma = 0.05` (adaptation) and the
+   alpha-beta estimator (`alpha = 0.85`) are the component defaults; the
+   campaign "baseline" config now pins the original controller explicitly.
+   `LQRstabilizer.umax` defaults to the value every actual use overrode it
+   to; with its old default the out-of-the-box model could not hold the
+   catch at all.
 2. Keep `NearTop.th = 0.4` only together with a velocity condition: the
    catch-region slices show the band is far from invariant. An ellipsoidal
    condition from the LQR Riccati solution is the natural refinement.

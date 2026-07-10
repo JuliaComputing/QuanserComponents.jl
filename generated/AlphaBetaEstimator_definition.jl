@@ -20,8 +20,8 @@ noise suppression for less phase lag. The critically matched gain pairing is
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `Ts`         |                          | --  |   SampleTime() |
-| `alpha`         | Position correction gain in (0, 1)                         | --  |   0.5 |
-| `beta`         | Velocity correction gain; alpha^2/(2 - alpha) is the critically matched value                         | --  |   0.16666666666666666 |
+| `alpha`         | Position correction gain in (0, 1)                         | --  |   0.85 |
+| `beta`         | Velocity correction gain; alpha^2/(2 - alpha) is the critically matched value                         | --  |   alpha ^ 2 / (2 - alpha) |
 
 ## Connectors
 
@@ -36,7 +36,7 @@ noise suppression for less phase lag. The critically matched gain pairing is
 | `v`         | Velocity estimate                         | --  |
 | `xp`         | Predicted position before measurement correction                         | --  |
 """
-@component function AlphaBetaEstimator(; name = nothing, Ts=SampleTime(), alpha=0.5, beta=0.16666666666666666, kwargs...)
+@component function AlphaBetaEstimator(; name = nothing, Ts=SampleTime(), alpha=0.85, beta=alpha ^ 2 / (2 - alpha), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
