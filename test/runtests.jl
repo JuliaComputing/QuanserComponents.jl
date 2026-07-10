@@ -5,8 +5,8 @@ using MultibodyComponents
 # using DiscreteComponents
 using SynchToolkit
 using LinearAlgebra
-using SynchJulia
-SynchJulia.backend!(:julia)
+# using SynchJulia
+# SynchJulia.backend!(:julia)
 ##
 # include("../generated/tests.jl")
 
