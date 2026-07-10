@@ -209,6 +209,12 @@ import Moshi as __Ext__Moshi
   __no_namespace_damper1 = ModelingToolkit.toggle_namespacing(damper1, false)
   __damper1_d = Symbolics.unwrap(__no_namespace_damper1.d)::Symbolics.SymbolicT
   delete!(__damper1_ics, __damper1_d)
+  # Subcomponent shoulder_friction of type QuanserComponents.SmoothCoulombFriction
+  shoulder_friction_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_friction")
+  push!(__systems, @named shoulder_friction = QuanserComponents.SmoothCoulombFriction(; shoulder_friction_overrides...))
+  # Subcomponent elbow_friction of type QuanserComponents.SmoothCoulombFriction
+  elbow_friction_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_friction")
+  push!(__systems, @named elbow_friction = QuanserComponents.SmoothCoulombFriction(; elbow_friction_overrides...))
   # Subcomponent fixed of type MultibodyComponents.Fixed
   fixed_overrides = __pop_subcomponent_overrides!(__overrides, "fixed")
   push!(__systems, @named fixed = MultibodyComponents.Fixed(; fixed_overrides...))
@@ -232,7 +238,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named motor_part_mesh = MultibodyComponents.ShapefileVisualizer(; color=[0.5, 0.5, 0.5, Float64(1)], shapefile=joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0]), motor_part_mesh_overrides...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
 
@@ -256,6 +262,10 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(shoulder_sensor.phi, shoulder_angle))
   push!(__eqs, connect(elbow_joint.support, damper1.spline_a))
   push!(__eqs, connect(damper1.spline_b, elbow_joint.axis))
+  push!(__eqs, connect(shoulder_friction.spline_a, shoulder_joint.support))
+  push!(__eqs, connect(shoulder_friction.spline_b, shoulder_joint.axis))
+  push!(__eqs, connect(elbow_friction.spline_a, elbow_joint.support))
+  push!(__eqs, connect(elbow_friction.spline_b, elbow_joint.axis))
   push!(__eqs, connect(elbow_sensor.spline, damper1.spline_b))
   push!(__eqs, connect(base_box.frame_a, floor.frame_a, fixed.frame_b))
   push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b, motor_main_mesh.frame_a, motor_front_mesh.frame_a, motor_part_mesh.frame_a))

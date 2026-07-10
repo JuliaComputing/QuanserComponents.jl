@@ -4,8 +4,8 @@ component FurutaSwingup
   swingup = Swingup() {^swingup}
   qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
   zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
-  elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
-  shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^shoulder_sampler}
+  elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001, midrise = false, bits = 13, y_min = -4 * pi, y_max = 4 * pi) {^elbow_sampler}
+  shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001, midrise = false, bits = 13, y_min = -4 * pi, y_max = 4 * pi) {^shoulder_sampler}
   periodicclock = DiscreteComponents.PeriodicClock(dt = 0.005) {^periodicclock}
   world = MultibodyComponents.World(default_body_color = gray, default_rod_color = gray, default_joint_color = gray, nominal_length = 0.1, render = false) {^world}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
@@ -129,6 +129,36 @@ metadata {
 }
 end
 
+"""
+Variant of `FurutaSwingup` with `delay_n` samples of actuation delay between
+the controller output and the zero-order hold, modeling compute/IO latency
+as plant-model mismatch. Kept as a separate component because the delay
+length is structural (requires a model rebuild to change).
+"""
+component FurutaSwingupDelayed
+  swingup = Swingup() {^swingup}
+  qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
+  zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
+  elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001, midrise = false, bits = 13, y_min = -4 * pi, y_max = 4 * pi) {^elbow_sampler}
+  shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001, midrise = false, bits = 13, y_min = -4 * pi, y_max = 4 * pi) {^shoulder_sampler}
+  periodicclock = DiscreteComponents.PeriodicClock(dt = 0.005) {^periodicclock}
+  world = MultibodyComponents.World(default_body_color = gray, default_rod_color = gray, default_joint_color = gray, nominal_length = 0.1, render = false) {^world}
+  gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
+  input_delay = DiscreteComponents.NDelay(n = delay_n, initial_condition = 0) {^input_delay}
+  parameter gray::Real[4] = [0.9, 0.9, 0.9, 1]
+  "Number of samples of actuation delay"
+  structural parameter delay_n::Integer = 1
+relations
+  connect(elbow_sampler.y, swingup.elbow_angle) {^id9}
+  connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y) {^id10}
+  connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id11}
+  connect(zeroorderhold.y, qubependulum.voltage) {^id12}
+  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id13}
+  connect(gain.u, swingup.u) {^id14}
+  connect(gain.y, input_delay.u) {^id15}
+  connect(input_delay.y, zeroorderhold.u) {^id16}
+end
+
 component QubePendulum
   torquesource = RotationalComponents.Sources.TorqueSource() {^torquesource}
   voltage = Dyad.RealInput() {^voltage}
@@ -143,6 +173,8 @@ component QubePendulum
   elbow_angle = Dyad.RealOutput() {^elbow_angle}
   damper = RotationalComponents.Components.Damper(final d = br + kt * km / Rm) {^damper}
   damper1 = RotationalComponents.Components.Damper(final d = bp) {^damper1}
+  shoulder_friction = QuanserComponents.SmoothCoulombFriction() {^shoulder_friction}
+  elbow_friction = QuanserComponents.SmoothCoulombFriction() {^elbow_friction}
   fixed = MultibodyComponents.Fixed() {^fixed}
   base_box = MultibodyComponents.ShapefileVisualizer(color = [0.1, 0.1, 0.1, 1], shapefile = joinpath("assets", "qube", "qube_block.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0])) {^base_box}
   floor = MultibodyComponents.TexturedPlaneVisualizer(texturefile = joinpath("assets", "textures", "sand_02_diff_2k.jpg"), tile = 6, length = 0.5, width = 0.5, length_direction = [1, 0, 0], width_direction = [0, 0, 1], r_shape = [0, -0.11, 0], specular_coefficient = 0.5) {^floor}
@@ -191,6 +223,10 @@ relations
   connect(shoulder_sensor.phi, shoulder_angle) {^id31}
   connect(elbow_joint.support, damper1.spline_a) {^id32}
   connect(damper1.spline_b, elbow_joint.axis) {^id33}
+  connect(shoulder_friction.spline_a, shoulder_joint.support) {^id37}
+  connect(shoulder_friction.spline_b, shoulder_joint.axis) {^id38}
+  connect(elbow_friction.spline_a, elbow_joint.support) {^id39}
+  connect(elbow_friction.spline_b, elbow_joint.axis) {^id40}
   connect(elbow_sensor.spline, damper1.spline_b) {^id34}
   connect(base_box.frame_a, floor.frame_a, fixed.frame_b) {^id35}
   connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b, motor_main_mesh.frame_a, motor_front_mesh.frame_a, motor_part_mesh.frame_a) {^id36}
@@ -417,6 +453,25 @@ metadata {
     "id36": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}}
   }
 }
+end
+
+"""
+Smooth (regularized) Coulomb friction torque between two rotational splines.
+
+The discontinuous `sign(w_rel)` characteristic is regularized with a `tanh`
+of velocity width `w_eps`. With the default `tau_c = 0` the component
+produces no torque and the surrounding model behaves as if the component
+were absent; its purpose is to inject unmodeled friction as plant-model
+mismatch in robustness studies.
+"""
+component SmoothCoulombFriction
+  extends RotationalComponents.Interfaces.PartialCompliantWithRelativeStates
+  "Coulomb friction torque magnitude"
+  parameter tau_c::Dyad.Torque = 0
+  "Velocity width of the tanh regularization"
+  parameter w_eps::Dyad.AngularVelocity = 0.01
+relations
+  tau = tau_c * tanh(w_rel / w_eps)
 end
 
 component Energy

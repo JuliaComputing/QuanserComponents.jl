@@ -80,7 +80,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named energy = QuanserComponents.Energy(; energy_overrides...))
   # Subcomponent sub_pi of type BlockComponents.Math.Add
   sub_pi_overrides = __pop_subcomponent_overrides!(__overrides, "sub_pi")
-  push!(__systems, @named sub_pi = BlockComponents.Math.Add(; k2=-1, sub_pi_overrides...))
+  push!(__systems, @named sub_pi = BlockComponents.Math.Add(; k2=Float64(-1), sub_pi_overrides...))
   # Subcomponent constant1 of type BlockComponents.Sources.Constant
   constant1_overrides = __pop_subcomponent_overrides!(__overrides, "constant1")
   push!(__systems, @named constant1 = BlockComponents.Sources.Constant(; k=pi, constant1_overrides...))
@@ -101,7 +101,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named add_centering = BlockComponents.Math.Add(; add_centering_overrides...))
   # Subcomponent sub_eref of type BlockComponents.Math.Add
   sub_eref_overrides = __pop_subcomponent_overrides!(__overrides, "sub_eref")
-  push!(__systems, @named sub_eref = BlockComponents.Math.Add(; k2=-1, sub_eref_overrides...))
+  push!(__systems, @named sub_eref = BlockComponents.Math.Add(; k2=Float64(-1), sub_eref_overrides...))
   # Subcomponent product of type BlockComponents.Math.Product
   product_overrides = __pop_subcomponent_overrides!(__overrides, "product")
   push!(__systems, @named product = BlockComponents.Math.Product(; product_overrides...))
@@ -119,10 +119,10 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named cos = QuanserComponents.Cos(; cos_overrides...))
   # Subcomponent gain1 of type BlockComponents.Math.Gain
   gain1_overrides = __pop_subcomponent_overrides!(__overrides, "gain1")
-  push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=-1, gain1_overrides...))
+  push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=Float64(-1), gain1_overrides...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
 

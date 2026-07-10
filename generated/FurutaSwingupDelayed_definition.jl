@@ -7,20 +7,26 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   FurutaSwingup(; name, gray)
+   FurutaSwingupDelayed(; name, delay_n, gray)
+
+Variant of `FurutaSwingup` with `delay_n` samples of actuation delay between
+the controller output and the zero-order hold, modeling compute/IO latency
+as plant-model mismatch. Kept as a separate component because the delay
+length is structural (requires a model rebuild to change).
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
+| `delay_n`         | Number of samples of actuation delay                         | --  |   1 |
 | `gray`         |                          | --  |   [0.9, 0.9, 0.9, 1] |
 """
-@component function FurutaSwingup(; name = nothing, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
+@component function FurutaSwingupDelayed(; name = nothing, delay_n=1, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = FurutaSwingup()
+    @named model = FurutaSwingupDelayed()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -86,6 +92,9 @@ import Moshi as __Ext__Moshi
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
   push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
+  # Subcomponent input_delay of type DiscreteComponents.NDelay
+  input_delay_overrides = __pop_subcomponent_overrides!(__overrides, "input_delay")
+  push!(__systems, @named input_delay = DiscreteComponents.NDelay(; n=delay_n, initial_condition=Float64(0), input_delay_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -98,18 +107,16 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(zeroorderhold.y, :u_plant, qubependulum.voltage))
-  push!(__eqs, connect(qubependulum.elbow_angle, :elbow_y, elbow_sampler.u))
-  push!(__eqs, connect(qubependulum.shoulder_angle, :shoulder_y, shoulder_sampler.u))
   push!(__eqs, connect(elbow_sampler.y, swingup.elbow_angle))
   push!(__eqs, connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y))
   push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
   push!(__eqs, connect(zeroorderhold.y, qubependulum.voltage))
   push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
   push!(__eqs, connect(swingup.u, gain.u))
-  push!(__eqs, connect(gain.y, zeroorderhold.u))
+  push!(__eqs, connect(gain.y, input_delay.u))
+  push!(__eqs, connect(input_delay.y, zeroorderhold.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export FurutaSwingup
+export FurutaSwingupDelayed

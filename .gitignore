@@ -6,3 +6,7 @@
 /docs/Manifest*.toml
 /agent_resources/
 /.migration-backups/
+/robustness/Manifest.toml
+/robustness/*.log
+/robustness/results/
+/robustness/figures/
