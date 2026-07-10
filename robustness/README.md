@@ -115,9 +115,30 @@ Interpretation:
    `LQRstabilizer.umax` defaults to the value every actual use overrode it
    to; with its old default the out-of-the-box model could not hold the
    catch at all.
-2. Keep `NearTop.th = 0.4` only together with a velocity condition: the
-   catch-region slices show the band is far from invariant. An ellipsoidal
-   condition from the LQR Riccati solution is the natural refinement.
+2. **(Implemented, opt-in, negative result in simulation)** `CatchCondition`
+   replaces the angle-only `NearTop`: it can gate the handover on an
+   ellipsoidal sublevel set V = e'Se ≤ c_engage of a Lyapunov function of
+   the implemented LQR loop (S from `07_design_catch_condition.jl`,
+   calibrated for zero false positives on the empirical catch grids of four
+   perturbed plants) with hysteresis release at `c_release`. Findings from
+   the paired MC:
+   - angle-only switch (default): 93.0%
+   - ellipsoid, zero-false-positive calibration (`c_engage = 1`): 79.7%
+   - ellipsoid, loosened (`c_engage = 2, c_release = 8`): 76.3% (threshold
+     tuning on the broken/rescued subset did not generalize — selection
+     bias; draws that were fine under both other configs broke)
+
+   Interpretation: the gate is computed from the nominal model, which is
+   exactly what mismatch invalidates, and in simulation failed catch
+   attempts are cheap, so refusing marginal attempts costs success. The
+   gate's real benefits are qualitative: single chatter-free engagement and
+   mean arrival speed under half of the angle-only switch (1.5 vs 3.2 rad/s
+   among successes) — relevant on hardware where failed high-speed catch
+   attempts cause voltage spikes and mechanical stress. Hence opt-in via
+   `catchcondition.use_ellipsoid`, default off. A handover that is both
+   gentle and mismatch-robust likely requires redesigning the LQR itself
+   (see item 3 and the stale-gain observation in
+   `07_design_catch_condition.jl`).
 3. If the real rig can exhibit even one sample of IO latency, redesign the
    LQR with a delay state; the current design has no delay margin.
 

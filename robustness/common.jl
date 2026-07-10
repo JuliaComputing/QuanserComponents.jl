@@ -50,6 +50,7 @@ function controller_settings(ssys)
         ssys.swingup.erefadaptation.gamma => 0.0
         ssys.swingup.estimatorswitch_shoulder.use_new => false
         ssys.swingup.estimatorswitch_elbow.use_new => false
+        ssys.swingup.catchcondition.use_ellipsoid => false
     ]
 end
 
@@ -239,6 +240,16 @@ function controller_overrides(ssys, config::AbstractString)
             ssys.swingup.alphabeta_shoulder.beta => ab_beta,
             ssys.swingup.alphabeta_elbow.alpha => ab_alpha,
             ssys.swingup.alphabeta_elbow.beta => ab_beta,
+        ])
+    elseif config == "adaptive_ab_vswitch"
+        # adaptive_ab + the velocity-aware ellipsoidal catch condition at the
+        # zero-false-positive calibration, which performed best among the
+        # ellipsoid tunings on the full ensemble (rec2_tune_engage.jl showed
+        # that subset-based tuning of the thresholds does not generalize)
+        return with_overrides(controller_overrides(ssys, "adaptive_ab"), Pair[
+            ssys.swingup.catchcondition.use_ellipsoid => true,
+            ssys.swingup.catchcondition.c_engage => 1.0,
+            ssys.swingup.catchcondition.c_release => 4.0,
         ])
     end
     error("unknown controller config: $config")

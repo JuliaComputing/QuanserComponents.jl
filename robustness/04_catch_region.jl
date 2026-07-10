@@ -17,7 +17,9 @@ function catch_success(ssys, plant_kwargs, dphi, w; tf = 3.0)
         controller_settings(ssys),
         supports_friction(ssys) ? perturbation_overrides(ssys; plant_kwargs...) : Pair[],
         Pair[
-            ssys.swingup.neartop.th => 1e6
+            # force the switch to always select the LQR
+            ssys.swingup.catchcondition.use_ellipsoid => false
+            ssys.swingup.catchcondition.th => 1e6
             ssys.qubependulum.elbow_joint.phi => pi + dphi
             ssys.qubependulum.elbow_joint.w => w
             ssys.qubependulum.shoulder_joint.phi => 0.0

@@ -77,9 +77,9 @@ import Moshi as __Ext__Moshi
   # Subcomponent lqrstabilizer of type QuanserComponents.LQRstabilizer
   lqrstabilizer_overrides = __pop_subcomponent_overrides!(__overrides, "lqrstabilizer")
   push!(__systems, @named lqrstabilizer = QuanserComponents.LQRstabilizer(; lqrstabilizer_overrides...))
-  # Subcomponent neartop of type QuanserComponents.NearTop
-  neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
-  push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))
+  # Subcomponent catchcondition of type QuanserComponents.CatchCondition
+  catchcondition_overrides = __pop_subcomponent_overrides!(__overrides, "catchcondition")
+  push!(__systems, @named catchcondition = QuanserComponents.CatchCondition(; catchcondition_overrides...))
   # Subcomponent stabilizationswitch of type QuanserComponents.StabilizationSwitch
   stabilizationswitch_overrides = __pop_subcomponent_overrides!(__overrides, "stabilizationswitch")
   push!(__systems, @named stabilizationswitch = QuanserComponents.StabilizationSwitch(; stabilizationswitch_overrides...))
@@ -114,11 +114,11 @@ import Moshi as __Ext__Moshi
 
   ### Equations
   push!(__eqs, connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle))
-  push!(__eqs, connect(estimatorswitch_shoulder.y, lqrstabilizer.shoulder_velocity, energyswingup.shoulder_velocity))
-  push!(__eqs, connect(anglenormalization.y, neartop.u))
-  push!(__eqs, connect(estimatorswitch_elbow.y, lqrstabilizer.elbow_velocity, energyswingup.elbow_velocity))
-  push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, alphabeta_shoulder.pos, lqrstabilizer.shoulder_angle))
-  push!(__eqs, connect(neartop.y, stabilizationswitch.neartop))
+  push!(__eqs, connect(estimatorswitch_shoulder.y, lqrstabilizer.shoulder_velocity, energyswingup.shoulder_velocity, catchcondition.shoulder_velocity))
+  push!(__eqs, connect(anglenormalization.y, catchcondition.elbow_angle))
+  push!(__eqs, connect(estimatorswitch_elbow.y, lqrstabilizer.elbow_velocity, energyswingup.elbow_velocity, catchcondition.elbow_velocity))
+  push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, alphabeta_shoulder.pos, lqrstabilizer.shoulder_angle, catchcondition.shoulder_angle))
+  push!(__eqs, connect(catchcondition.y, stabilizationswitch.neartop))
   push!(__eqs, connect(energyswingup.realoutput, stabilizationswitch.u_swingup))
   push!(__eqs, connect(lqrstabilizer.u, stabilizationswitch.u_lqr))
   push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, alphabeta_elbow.pos, anglenormalization.u))
@@ -126,7 +126,7 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(gain.y, u))
   push!(__eqs, connect(anglenormalization.y, erefadaptation.alpha))
   push!(__eqs, connect(estimatorswitch_elbow.y, erefadaptation.dalpha))
-  push!(__eqs, connect(neartop.y, erefadaptation.neartop))
+  push!(__eqs, connect(catchcondition.y, erefadaptation.neartop))
   push!(__eqs, connect(erefadaptation.eta, energyswingup.eta_adapt))
   push!(__eqs, connect(velocityestimator_shoulder.vel, estimatorswitch_shoulder.v_old))
   push!(__eqs, connect(alphabeta_shoulder.vel, estimatorswitch_shoulder.v_new))
