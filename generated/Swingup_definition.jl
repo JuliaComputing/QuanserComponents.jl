@@ -83,6 +83,9 @@ import Moshi as __Ext__Moshi
   # Subcomponent stabilizationswitch of type QuanserComponents.StabilizationSwitch
   stabilizationswitch_overrides = __pop_subcomponent_overrides!(__overrides, "stabilizationswitch")
   push!(__systems, @named stabilizationswitch = QuanserComponents.StabilizationSwitch(; stabilizationswitch_overrides...))
+  # Subcomponent erefadaptation of type QuanserComponents.ErefAdaptation
+  erefadaptation_overrides = __pop_subcomponent_overrides!(__overrides, "erefadaptation")
+  push!(__systems, @named erefadaptation = QuanserComponents.ErefAdaptation(; erefadaptation_overrides...))
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
   push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
@@ -109,6 +112,10 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u))
   push!(__eqs, connect(stabilizationswitch.u, gain.u))
   push!(__eqs, connect(gain.y, u))
+  push!(__eqs, connect(anglenormalization.y, erefadaptation.alpha))
+  push!(__eqs, connect(velocityestimator_elbow.vel, erefadaptation.dalpha))
+  push!(__eqs, connect(neartop.y, erefadaptation.neartop))
+  push!(__eqs, connect(erefadaptation.eta, energyswingup.eta_adapt))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

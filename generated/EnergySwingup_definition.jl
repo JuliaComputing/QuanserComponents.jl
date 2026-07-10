@@ -43,6 +43,7 @@ implementation of this component.
  * `elbow_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `shoulder_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
+ * `eta_adapt` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `realoutput` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 
 ## Variables
@@ -123,6 +124,7 @@ implementation of this component.
   append!(__vars, @variables (elbow_velocity(t)::Real), [input = true])
   append!(__vars, @variables (shoulder_angle(t)::Real), [input = true])
   append!(__vars, @variables (shoulder_velocity(t)::Real), [input = true])
+  append!(__vars, @variables (eta_adapt(t)::Real), [input = true])
   append!(__vars, @variables (realoutput(t)::Real), [output = true])
 
   ### Variables (declarations)
@@ -159,7 +161,7 @@ implementation of this component.
   ### Equations
   push!(__eqs, alpha ~ elbow_angle - pi)
   push!(__eqs, E ~ 0.5 * Jp_cm * elbow_velocity ^ 2 + mp * g * l * (1 + cos(alpha)))
-  push!(__eqs, Etilde ~ ifelse(normalize == true, (E - (1 + eta) * E_ref) / E_ref, E - (1 + eta) * E_ref))
+  push!(__eqs, Etilde ~ ifelse(normalize == true, (E - (1 + eta + eta_adapt) * E_ref) / E_ref, E - (1 + eta + eta_adapt) * E_ref))
   push!(__eqs, uraw ~ k * sign(cos(alpha) * (-elbow_velocity)) * Etilde - k_center * shoulder_angle)
   push!(__eqs, realoutput ~ clamp(uraw, -umax, umax))
 
