@@ -115,11 +115,53 @@ Interpretation:
    `LQRstabilizer.umax` defaults to the value every actual use overrode it
    to; with its old default the out-of-the-box model could not hold the
    catch at all.
-2. Keep `NearTop.th = 0.4` only together with a velocity condition: the
-   catch-region slices show the band is far from invariant. An ellipsoidal
-   condition from the LQR Riccati solution is the natural refinement.
-3. If the real rig can exhibit even one sample of IO latency, redesign the
-   LQR with a delay state; the current design has no delay margin.
+2. **(Implemented, opt-in, negative result in simulation)** `CatchCondition`
+   replaces the angle-only `NearTop`: it can gate the handover on an
+   ellipsoidal sublevel set V = e'Se ≤ c_engage of a Lyapunov function of
+   the implemented LQR loop (S from `07_design_catch_condition.jl`,
+   calibrated for zero false positives on the empirical catch grids of four
+   perturbed plants) with hysteresis release at `c_release`. Findings from
+   the paired MC:
+   - angle-only switch (default): 93.0% (original LQR) / 93.7% (redesigned)
+   - ellipsoid, zero-false-positive calibration (`c_engage = 1`): 79.7%
+     with the original LQR, 85.7% recalibrated for the redesigned LQR
+     (whose larger catch region makes the gate less restrictive)
+   - ellipsoid, loosened (`c_engage = 2, c_release = 8`): 76.3% (threshold
+     tuning on the broken/rescued subset did not generalize — selection
+     bias; draws that were fine under both other configs broke)
+
+   Interpretation: the gate is computed from the nominal model, which is
+   exactly what mismatch invalidates, and in simulation failed catch
+   attempts are cheap, so refusing marginal attempts costs success. The
+   gate's real benefits are qualitative: single chatter-free engagement and
+   mean arrival speed under half of the angle-only switch (1.5 vs 3.2 rad/s
+   among successes) — relevant on hardware where failed high-speed catch
+   attempts cause voltage spikes and mechanical stress. Hence opt-in via
+   `catchcondition.use_ellipsoid`, default off. A handover that is both
+   gentle and mismatch-robust likely requires redesigning the LQR itself
+   (see item 3 and the stale-gain observation in
+   `07_design_catch_condition.jl`).
+3. **(Implemented)** LQR redesigned from the actual model linearization
+   (`08_lqr_redesign.jl`). The original gains did not correspond to any LQR
+   design from this model with the documented weights and had no delay
+   margin. The redesign keeps the documented output weights and raises the
+   control weight until the loop tolerates delay (selected: control weight
+   300), validated in simulation rather than by classical margins (the
+   plant is unstable, making single-crossover margin numbers misleading):
+
+   | metric | original gains | redesigned |
+   |---|---|---|
+   | swingup MC (robust config, tf = 20 s) | 93.0% | **93.7%** |
+   | swingup MC with 1-sample actuation delay | 57.0% | **92.0%** |
+   | swingup with 3-sample delay (nominal) | fails at 1 | catches at 5.8 s |
+   | LQR catch region, nominal | 142/625 | 179/625 |
+   | LQR catch region, 1-sample delay | 8/625 | 191/625 |
+   | catch capability at top (nominal / mp+20%) | 2.5 / 2.5 rad/s | 2.5 / 2.5 rad/s |
+
+   The ellipsoidal catch condition was recalibrated for the new loop
+   (`07_design_catch_condition.jl` with `lqr_config = "new"`): the safe
+   ellipsoid now retains 63-68% of the catchable set (was 40-44%), still
+   with zero false positives across the perturbed plants.
 
 ## Reproducing
 

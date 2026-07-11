@@ -6,6 +6,11 @@
 
 include("common.jl")
 
+# lqr_config = "old" pins the original gains; "new" uses the redesigned
+# defaults and suffixes the output files with _newlqr.
+@isdefined(lqr_config) || (lqr_config = "old")
+suffix = lqr_config == "new" ? "_newlqr" : ""
+
 model, ssys = build_system()
 
 alpha_grid = range(-1.2, 1.2, length = 25)  # elbow angle offset from upright
@@ -14,10 +19,14 @@ omega_grid = range(-8.0, 8.0, length = 25)  # elbow angular velocity
 "Success = settled upright at tf, starting near the top with LQR always active."
 function catch_success(ssys, plant_kwargs, dphi, w; tf = 3.0)
     ov = vcat(
-        controller_settings(ssys),
+        with_overrides(controller_settings(ssys; pin_lqr = lqr_config == "old"),
+            Pair[
+                # force the switch to always select the LQR
+                ssys.swingup.catchcondition.use_ellipsoid => false
+                ssys.swingup.catchcondition.th => 1e6
+            ]),
         supports_friction(ssys) ? perturbation_overrides(ssys; plant_kwargs...) : Pair[],
         Pair[
-            ssys.swingup.neartop.th => 1e6
             ssys.qubependulum.elbow_joint.phi => pi + dphi
             ssys.qubependulum.elbow_joint.w => w
             ssys.qubependulum.shoulder_joint.phi => 0.0
@@ -49,13 +58,13 @@ for (name, kwargs) in plants
         S[i, j] = catch_success(ssys, kwargs, a, w)
         @printf("%s: α−π=%6.3f ω=%6.2f -> %s\n", name, a, w, S[i, j])
     end
-    CSV.write(resultpath("catch_region_$(name).csv"),
+    CSV.write(resultpath("catch_region_$(name)$(suffix).csv"),
         DataFrame(S, string.(round.(omega_grid, sigdigits = 3))))
     hm = heatmap(omega_grid, alpha_grid, S, xlabel = "elbow velocity [rad/s]",
         ylabel = "α − π [rad]", color = [:red, :green], clims = (0, 1),
         colorbar = false, title = "LQR catch region: $name")
     hline!(hm, [-0.4, 0.4], l = (:dash, :black), label = "NearTop.th")
-    savefig(hm, figurepath("catch_region_$(name).png"))
+    savefig(hm, figurepath("catch_region_$(name)$(suffix).png"))
 end
 
 # Delay variant
@@ -64,10 +73,10 @@ S = falses(length(alpha_grid), length(omega_grid))
 for (i, a) in enumerate(alpha_grid), (j, w) in enumerate(omega_grid)
     S[i, j] = catch_success(ssys_d, (;), a, w)
 end
-CSV.write(resultpath("catch_region_delay1.csv"),
+CSV.write(resultpath("catch_region_delay1$(suffix).csv"),
     DataFrame(S, string.(round.(omega_grid, sigdigits = 3))))
 hm = heatmap(omega_grid, alpha_grid, S, xlabel = "elbow velocity [rad/s]",
     ylabel = "α − π [rad]", color = [:red, :green], clims = (0, 1),
     colorbar = false, title = "LQR catch region: delay 1 sample")
 hline!(hm, [-0.4, 0.4], l = (:dash, :black), label = "NearTop.th")
-savefig(hm, figurepath("catch_region_delay1.png"))
+savefig(hm, figurepath("catch_region_delay1$(suffix).png"))

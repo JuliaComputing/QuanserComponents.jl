@@ -69,7 +69,7 @@ render(model, sol, 0.0; lights=qube_lights)[1]
 
 ##
 using Plots
-f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.swingup.u, ssys.swingup.neartop.y])
+f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.swingup.u, ssys.swingup.catchcondition.y])
 hline!([pi], l=(:dash, :black), primary=false)
 f2 = plot(sol, idxs=ssys.qubependulum.shoulder_joint.phi)
 plot(f1, f2) |> display

@@ -31,14 +31,19 @@ function build_system(; delayed = false, delay_n = 1)
     model, ssys
 end
 
+"LQR gains of the original controller (before the redesign in 08_lqr_redesign.jl)."
+const L_ORIGINAL = [-9.625743176817387, 394.43972658274106, -7.461418005226849, 84.42279971138271]
+
 """
 Controller settings pinning the ORIGINAL (pre-robustification) controller,
 regardless of the current component defaults: unnormalized energy error,
-no adaptation, original velocity estimator. This is the campaign "baseline"
-and the reference for the behavior-neutrality regression.
+no adaptation, original velocity estimator, and (with `pin_lqr = true`) the
+original LQR gains. This is the campaign "baseline" and the reference for
+the behavior-neutrality regression. Pass `pin_lqr = false` to use the
+current default (redesigned) LQR gains instead.
 """
-function controller_settings(ssys)
-    Pair[
+function controller_settings(ssys; pin_lqr = true)
+    ov = Pair[
         ssys.qubependulum.shoulder_joint.render => false
         ssys.gain.k => 1.0
         ssys.swingup.lqrstabilizer.umax => 10
@@ -50,7 +55,17 @@ function controller_settings(ssys)
         ssys.swingup.erefadaptation.gamma => 0.0
         ssys.swingup.estimatorswitch_shoulder.use_new => false
         ssys.swingup.estimatorswitch_elbow.use_new => false
+        ssys.swingup.catchcondition.use_ellipsoid => false
     ]
+    if pin_lqr
+        append!(ov, Pair[
+            ssys.swingup.lqrstabilizer.L1 => L_ORIGINAL[1],
+            ssys.swingup.lqrstabilizer.L2 => L_ORIGINAL[2],
+            ssys.swingup.lqrstabilizer.L3 => L_ORIGINAL[3],
+            ssys.swingup.lqrstabilizer.L4 => L_ORIGINAL[4],
+        ])
+    end
+    ov
 end
 
 "Initial conditions for a swingup experiment: pendulum hanging near down."
@@ -239,6 +254,34 @@ function controller_overrides(ssys, config::AbstractString)
             ssys.swingup.alphabeta_shoulder.beta => ab_beta,
             ssys.swingup.alphabeta_elbow.alpha => ab_alpha,
             ssys.swingup.alphabeta_elbow.beta => ab_beta,
+        ])
+    elseif config == "adaptive_ab_newlqr"
+        # adaptive_ab with the redesigned LQR gains (component defaults)
+        drop = Set(Any[ssys.swingup.lqrstabilizer.L1, ssys.swingup.lqrstabilizer.L2,
+            ssys.swingup.lqrstabilizer.L3, ssys.swingup.lqrstabilizer.L4])
+        return filter(p -> !any(k -> isequal(p.first, k), drop),
+            controller_overrides(ssys, "adaptive_ab"))
+    elseif config == "adaptive_ab_vswitch_newlqr"
+        # redesigned LQR + ellipsoidal catch condition recalibrated for it
+        return with_overrides(controller_overrides(ssys, "adaptive_ab_newlqr"), Pair[
+            ssys.swingup.catchcondition.use_ellipsoid => true,
+        ])
+    elseif config == "adaptive_ab_vswitch"
+        # adaptive_ab + the velocity-aware ellipsoidal catch condition at the
+        # zero-false-positive calibration, which performed best among the
+        # ellipsoid tunings on the full ensemble (rec2_tune_engage.jl showed
+        # that subset-based tuning of the thresholds does not generalize).
+        # The S entries are pinned to the calibration for the ORIGINAL LQR
+        # gains; the component defaults are recalibrated for the redesign.
+        cc = ssys.swingup.catchcondition
+        return with_overrides(controller_overrides(ssys, "adaptive_ab"), Pair[
+            cc.use_ellipsoid => true,
+            cc.c_engage => 1.0,
+            cc.c_release => 4.0,
+            cc.S11 => 0.144396, cc.S12 => -1.04444, cc.S13 => 0.0497274,
+            cc.S14 => -0.0910319, cc.S22 => 15.837, cc.S23 => -0.588979,
+            cc.S24 => 1.3186, cc.S33 => 0.0244188, cc.S34 => -0.0471712,
+            cc.S44 => 0.151749,
         ])
     end
     error("unknown controller config: $config")

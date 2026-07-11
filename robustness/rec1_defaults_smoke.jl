@@ -15,8 +15,8 @@ m_default = metrics(simulate(ssys, ov; tf = 10.0), ssys)
 println("pure defaults: success=$(m_default.success) catch=$(m_default.catch_time)")
 @assert m_default.success "out-of-the-box model failed to swing up"
 
-m2 = metrics(simulate(ssys, controller_overrides(ssys, "adaptive_ab"); tf = 10.0), ssys)
-println("defaults: catch=$(m_default.catch_time)  adaptive_ab config: catch=$(m2.catch_time)")
-@assert m_default.catch_time == m2.catch_time "defaults do not reproduce the adaptive_ab campaign config"
+m2 = metrics(simulate(ssys, controller_overrides(ssys, "adaptive_ab_newlqr"); tf = 10.0), ssys)
+println("defaults: catch=$(m_default.catch_time)  adaptive_ab_newlqr config: catch=$(m2.catch_time)")
+@assert m_default.catch_time == m2.catch_time "defaults do not reproduce the adaptive_ab_newlqr campaign config"
 
 println("rec 1 defaults smoke passed")

@@ -666,7 +666,7 @@ component ErefAdaptation@[input clk extends Discrete]
   alpha = RealInput@[clk]() {^alpha}
   "Estimated pendulum angular velocity"
   dalpha = RealInput@[clk]() {^dalpha}
-  "Stabilization-active flag from NearTop"
+  "Stabilization-active flag from the catch condition"
   neartop = RealInput@[clk]() {^neartop}
   "Adaptive relative energy-reference margin"
   eta = RealOutput@[clk]() {^eta}
@@ -785,11 +785,11 @@ component LQRstabilizer
   shoulder_velocity = Dyad.RealInput() {^shoulder_velocity}
   elbow_velocity = Dyad.RealInput() {^elbow_velocity}
   u = Dyad.RealOutput() {^u}
-  "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
-  parameter L1::Real = -9.625743176817387
-  parameter L2::Real = 394.43972658274106
-  parameter L3::Real = -7.461418005226849
-  parameter L4::Real = 84.42279971138271
+  "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. Discrete LQR from the plant linearization about upright with output weights diag([1000, 10, 1, 1]) and control weight 300, selected in robustness/08_lqr_redesign.jl for delay tolerance: catches with three samples of actuation delay where the previous gains failed with one, at equal catch capability."
+  parameter L1::Real = -1.7259853130770042
+  parameter L2::Real = 68.2810119491725
+  parameter L3::Real = -1.2317839406561077
+  parameter L4::Real = 7.7052139179986066
   variable e1::Real
   variable e2::Real
   variable e3::Real
@@ -859,7 +859,7 @@ component Swingup
   energyswingup = QuanserComponents.EnergySwingup() {^energyswingup}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
   lqrstabilizer = QuanserComponents.LQRstabilizer() {^lqrstabilizer}
-  neartop = QuanserComponents.NearTop() {^neartop}
+  catchcondition = QuanserComponents.CatchCondition() {^catchcondition}
   stabilizationswitch = QuanserComponents.StabilizationSwitch() {^stabilizationswitch}
   erefadaptation = QuanserComponents.ErefAdaptation() {^erefadaptation}
   alphabeta_shoulder = QuanserComponents.AlphaBetaEstimator() {^alphabeta_shoulder}
@@ -869,11 +869,11 @@ component Swingup
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
 relations
   connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle) {^id12}
-  connect(lqrstabilizer.shoulder_velocity, estimatorswitch_shoulder.y, energyswingup.shoulder_velocity) {^id13}
-  connect(neartop.u, anglenormalization.y) {^id14}
-  connect(lqrstabilizer.elbow_velocity, estimatorswitch_elbow.y, energyswingup.elbow_velocity) {^id15}
-  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, alphabeta_shoulder.pos, lqrstabilizer.shoulder_angle) {^id16}
-  connect(neartop.y, stabilizationswitch.neartop) {^id17}
+  connect(lqrstabilizer.shoulder_velocity, estimatorswitch_shoulder.y, energyswingup.shoulder_velocity, catchcondition.shoulder_velocity) {^id13}
+  connect(catchcondition.elbow_angle, anglenormalization.y) {^id14}
+  connect(lqrstabilizer.elbow_velocity, estimatorswitch_elbow.y, energyswingup.elbow_velocity, catchcondition.elbow_velocity) {^id15}
+  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, alphabeta_shoulder.pos, lqrstabilizer.shoulder_angle, catchcondition.shoulder_angle) {^id16}
+  connect(catchcondition.y, stabilizationswitch.neartop) {^id17}
   connect(energyswingup.realoutput, stabilizationswitch.u_swingup) {^id18}
   connect(lqrstabilizer.u, stabilizationswitch.u_lqr) {^id19}
   connect(velocityestimator_elbow.pos, elbow_angle, alphabeta_elbow.pos, anglenormalization.u) {^id20}
@@ -881,7 +881,7 @@ relations
   connect(gain.y, u) {^id22}
   connect(anglenormalization.y, erefadaptation.alpha) {^id23}
   connect(estimatorswitch_elbow.y, erefadaptation.dalpha) {^id24}
-  connect(neartop.y, erefadaptation.neartop) {^id25}
+  connect(catchcondition.y, erefadaptation.neartop) {^id25}
   connect(erefadaptation.eta, energyswingup.eta_adapt) {^id26}
   connect(velocityestimator_shoulder.vel, estimatorswitch_shoulder.v_old) {^id27}
   connect(alphabeta_shoulder.vel, estimatorswitch_shoulder.v_new) {^id28}
@@ -954,7 +954,7 @@ metadata {
         "tags": []
       }
     },
-    "neartop": {
+    "catchcondition": {
       "Dyad": {
         "placement": {
           "diagram": {"iconName": "default", "x1": 330, "y1": 20, "x2": 430, "y2": 120, "rot": 0}
@@ -1060,12 +1060,83 @@ metadata {
 }
 end
 
-component NearTop
-  extends BlockComponents.Interfaces.SISO
+"""
+Velocity-aware stabilization-engage condition with hysteresis.
+
+The stabilizer is engaged when the measured deviation from the upright
+equilibrium, e = [θ, φ - π, θ̇, φ̇], lies inside the ellipsoidal sublevel
+set V = e'Se ≤ 1 of a Lyapunov function of the implemented LQR loop, and
+disengaged only when V > c_release. Compared to the previous angle-only
+threshold this refuses handover at pendulum velocities the LQR cannot
+catch, and the hysteresis prevents chattering between the controllers.
+
+S is normalized so that the engage threshold is 1. Its default entries and
+c_release are designed and calibrated against empirical catch-region grids
+of perturbed plants in robustness/07_design_catch_condition.jl; the
+ellipsoid contains no state that failed to be caught on any tested plant.
+
+With `use_ellipsoid = false` (the default) the component reduces to the
+original angle-only condition |φ - π| < th without hysteresis. The
+ellipsoidal gate is opt-in: in the simulated mismatch campaign it lowers
+the success rate (failed catch attempts are cheap in simulation and the
+gate is computed from the nominal model, which is exactly what mismatch
+invalidates), but it produces gentle, chatter-free handovers — mean arrival
+speed less than half of the angle-only switch — which matters when failed
+catch attempts stress real hardware. See robustness/README.md.
+"""
+component CatchCondition@[input clk extends Discrete]
+  "Shoulder angle"
+  shoulder_angle = RealInput@[clk]() {^shoulder_angle}
+  "Normalized elbow angle in [0, 2pi), pi at upright"
+  elbow_angle = RealInput@[clk]() {^elbow_angle}
+  "Estimated shoulder velocity"
+  shoulder_velocity = RealInput@[clk]() {^shoulder_velocity}
+  "Estimated elbow velocity"
+  elbow_velocity = RealInput@[clk]() {^elbow_velocity}
+  "True when the stabilizing controller should be active"
+  y = RealOutput@[clk]() {^y}
+  "If true, use the ellipsoidal condition with hysteresis, otherwise the angle-only threshold"
+  parameter use_ellipsoid::Boolean = false
+  "Angle threshold of the fallback angle-only condition"
   parameter th::Real = 0.4
+  "Engage threshold: V = 1 is the largest sublevel set with no observed catch failure on any tested plant; larger values trade certain catches for earlier attempts"
+  parameter c_engage::Real = 1
+  "Release threshold of the hysteresis"
+  parameter c_release::Real = 4
+  parameter S11::Real = 0.156633
+  parameter S12::Real = -1.00123
+  parameter S13::Real = 0.0529337
+  parameter S14::Real = -0.119659
+  parameter S22::Real = 18.9434
+  parameter S23::Real = -0.562122
+  parameter S24::Real = 2.18534
+  parameter S33::Real = 0.026693
+  parameter S34::Real = -0.0670345
+  parameter S44::Real = 0.252618
+  "Deviation from the upright equilibrium"
+  variable e1::Real
+  variable e2::Real
+  variable e3::Real
+  variable e4::Real
+  "Lyapunov-function value, engage when at most 1"
+  variable V::Real
+  "Stabilizer-engaged state (hysteresis memory)"
+  variable engaged::Real
 relations
-  y = abs(u - π) < th
-metadata {"Dyad": {"icons": {"default": "dyad://DiscreteComponents/NearTop.svg"}}}
+  e1 = shoulder_angle
+  e2 = elbow_angle - pi
+  e3 = shoulder_velocity
+  e4 = elbow_velocity
+  V = S11 * e1 ^ 2 + S22 * e2 ^ 2 + S33 * e3 ^ 2 + S44 * e4 ^ 2 +
+      2 * (S12 * e1 * e2 + S13 * e1 * e3 + S14 * e1 * e4 +
+           S23 * e2 * e3 + S24 * e2 * e4 + S34 * e3 * e4)
+  engaged@clk = ifelse(use_ellipsoid == true,
+                       ifelse(engaged@(clk-1) > 0.5,
+                              ifelse(V <= c_release, 1, 0),
+                              ifelse(V <= c_engage, 1, 0)),
+                       ifelse(abs(elbow_angle - pi) < th, 1, 0))
+  y = engaged
+  initial engaged@(clk-1) = 0
 end
 
 component StabilizationSwitch
