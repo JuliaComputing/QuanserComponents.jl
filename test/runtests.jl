@@ -156,8 +156,116 @@ L = vec(lqr(Pd, Q1, Q2)*pinv(P.C))
 
 
 ##
+# Code generation for the Swingup controller.
+#
+# `QuanserComponents.generate_swingup_controller` / `SwingupController` compile the
+# discrete `Swingup` controller into a standalone SynchJulia node (Julia- or
+# C-executable), and `export_swingup_c` writes C sources. The tests below drive the
+# generated controller in closed loop against two plants:
+#   A) the Dyad `QubePendulum`, discretized with `SeeToDee.Rk4`, and
+#   B) `QuanserInterface.QubeServoPendulumSimulator` (the same interface the real
+#      `QubeServoPendulum` hardware uses).
+# The two plants use different parameters/sign conventions, so they do not behave
+# identically (see notes in test B).
 
-# bundle = generate_executable(model; MultibodyComponents.linsys...)
-# prob = ODEProblem(ssys, [], (0.0, 1.0))
-# rt = make_runtime(bundle, prob)
-# y = SynchToolkit.SynchJulia.step!(bundle.executable, 0.0, rt)
+using SeeToDee
+using StaticArrays
+using QuanserInterface
+import DyadCompilerPasses
+
+@testset "codegen" begin
+    Ts = 0.005
+
+    # ---- generated controller: compile once, run on both backends ----------
+    @testset "compile and step ($backend)" for backend in (:julia, :c)
+        ctrl = QuanserComponents.SwingupController(; Ts, backend)
+        # near hanging -> small command; near upright -> stabilizer engages
+        @test isfinite(ctrl(0.0, 0.01))
+        SynchToolkit.reset!(ctrl)
+        u_top = ctrl(0.0, Float64(π))
+        @test isfinite(u_top)
+    end
+
+    # :julia and :c backends must produce identical control signals
+    let cj = QuanserComponents.SwingupController(; Ts, backend=:julia),
+        cc = QuanserComponents.SwingupController(; Ts, backend=:c)
+        uj = [cj(0.0, el) for el in (0.01, 0.5, 1.5, Float64(π))]
+        uc = [cc(0.0, el) for el in (0.01, 0.5, 1.5, Float64(π))]
+        @test uj ≈ uc
+    end
+
+    # ---- C source export ----------------------------------------------------
+    @testset "C export" begin
+        dir = mktempdir()
+        r = QuanserComponents.export_swingup_c(dir; Ts)
+        @test isfile(joinpath(dir, "top.c"))
+        @test isfile(joinpath(dir, "top.h"))
+        csrc = read(joinpath(dir, "top.c"), String)
+        @test occursin("$(r.mangled)_step", csrc)
+        @test occursin("$(r.mangled)_reset", csrc)
+    end
+
+    # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------
+    @testset "swingup — Dyad plant (SeeToDee)" begin
+        @named world = MultibodyComponents.World(render=false)
+        @named plant = QuanserComponents.QubePendulum()
+        @named plantmodel = System(Equation[], ModelingToolkit.t_nounits; systems=[world, plant])
+        # Compile like `multibody()` (LDIV solves the mass matrix -> explicit ODE),
+        # declaring the motor voltage as the control input.
+        ssys_plant = mtkcompile(plantmodel; inputs=[plant.voltage],
+            MultibodyComponents.linsys..., optimize=[DyadCompilerPasses.LDIV_RULE])
+        res = ModelingToolkit.generate_control_function(ssys_plant, [plant.voltage])
+        f_oop = res.f[1]; io_sys = res.io_sys; dvs = res.dvs
+        meas = ModelingToolkit.build_explicit_observed_function(io_sys,
+            [plant.shoulder_angle, plant.elbow_angle]; inputs=[plant.voltage])
+        pp = ModelingToolkit.MTKParameters(io_sys, Dict(plant.voltage => 0.0))
+        f_disc = SeeToDee.Rk4(f_oop, Ts; supersample=4)
+
+        ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
+        N = round(Int, 12.0 / Ts)
+        x = zeros(length(dvs)); x[2] = deg2rad(0.15)   # near hanging
+        elbow = Float64[]; u = 0.0
+        for i in 1:N
+            y = meas(x, [u], pp, (i-1)*Ts)
+            u = ctrl(y[1], y[2])
+            @test isfinite(u) && abs(u) <= 10
+            x = f_disc(x, [u], pp, (i-1)*Ts)
+            push!(elbow, mod(y[2], 2π))
+        end
+        near_top = abs.(elbow .- π) .< 0.4
+        @test any(near_top)                       # reaches upright
+        @test all(near_top[end-40:end])           # and stays there (stabilized)
+    end
+
+    # ---- Test B: QuanserInterface simulator (hardware-compatible interface) --
+    # The QI `furuta` plant uses the opposite sign convention to the Dyad model for
+    # both the arm angle and the motor voltage, so the generated (Dyad-tuned)
+    # controller is applied through that transform. The Dyad-tuned energy target
+    # overshoots the QI plant's energy scale, so the controller swings the pendulum
+    # up to the top region but does not hold balance without QI-specific tuning —
+    # consistent with the two plants not behaving identically. This test exercises
+    # the full measure -> controller -> control loop (identical to the hardware loop)
+    # and checks the swing-up reaches upright.
+    @testset "swingup — QuanserInterface simulator" begin
+        process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
+        process.x = SA[0.0, 0.4, 0.0, 2.0]         # pendulum kicked from hanging
+        QuanserInterface.initialize(process)
+        ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia,
+            L = [-2.85, -24.4, -0.99, -2.0], umax = 10.0)
+        N = round(Int, 15.0 / Ts)
+        elbow = Float64[]
+        try
+            for i in 1:N
+                y = QuanserInterface.measure(process)     # [arm θ, pendulum α]
+                u = ctrl(-y[1], y[2])                     # QI arm-angle sign flip
+                @test isfinite(u) && abs(u) <= 10
+                QuanserInterface.control(process, [-u])   # QI voltage sign flip
+                push!(elbow, mod(y[2], 2π))
+            end
+        finally
+            QuanserInterface.control(process, [0.0])
+            QuanserInterface.finalize(process)
+        end
+        @test any(abs.(elbow .- π) .< 0.4)         # swing-up reaches the top region
+    end
+end

@@ -4,5 +4,7 @@ using MultibodyComponents
 
 
 include("../generated/module.jl")
-    
+
+include("codegen.jl")
+
 end # module QuanserComponents
