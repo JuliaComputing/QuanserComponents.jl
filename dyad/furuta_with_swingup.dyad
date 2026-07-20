@@ -134,7 +134,7 @@ component QubePendulum
   voltage = Dyad.RealInput() {^voltage}
   voltage_to_torque = BlockComponents.Math.Gain(final k = kt / Rm) {^voltage_to_torque}
   shoulder_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [0, 1, 0], color = [0.8, 0.8, 0.8, 1], radius = 0.01, cylinder_length = 0.03) {^shoulder_joint}
-  elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [1, 0, 0]) {^elbow_joint}
+  elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [-1, 0, 0]) {^elbow_joint}
   upper_arm = MultibodyComponents.BodyShape(final m = mr, final r = [r, 0, 0], final r_cm = [r / 2, 0, 0], final I_11 = 1e-9, final I_22 = Jr - mr * (r / 2) ^ 2, final I_33 = Jr - mr * (r / 2) ^ 2, radius = 0.0025, color = [0.9, 0.9, 0.9, 1], shapefile = joinpath("assets", "qube", "qube_arm.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0])) {^upper_arm}
   lower_arm = MultibodyComponents.BodyShape(final m = mp, final r = [0, -Lp, 0], final r_cm = [0, -l, 0], final I_11 = Jp - mp * l ^ 2, final I_22 = Jp - mp * l ^ 2, final I_33 = Jp - mp * l ^ 2, radius = 0.00986 / 2, color = [1, 0, 0, 1], shapefile = joinpath("assets", "qube", "qube_pole.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0])) {^lower_arm}
   elbow_sensor = RotationalComponents.Sensors.AngleSensor() {^elbow_sensor}
@@ -170,8 +170,8 @@ component QubePendulum
   parameter Lp::Dyad.Length = 0.129
   "Distance from elbow pivot to pendulum center of mass"
   parameter l::Dyad.Length = Lp / 2
-  "Pendulum moment of inertia about the elbow pivot"
-  parameter Jp::Dyad.Inertia = mp * Lp ^ 2 / 3
+  "Pendulum moment of inertia about the elbow pivot. Matched to the QuanserInterface.jl hardware-calibrated model (effective H22 = Jp + mp*Lp^2/4 = 7*mp*Lp^2/12), heavier than a uniform rod."
+  parameter Jp::Dyad.Inertia = 7 * mp * Lp ^ 2 / 12
   "Pendulum viscous damping coefficient"
   parameter bp::Dyad.RotationalDampingConstant = 0.05 * 5e-5
   "Edge length of the cubic base box (visualization only)"
@@ -538,8 +538,8 @@ component EnergySwingup
   constant1 = BlockComponents.Sources.Constant(k = pi) {^constant1}
   energy1 = QuanserComponents.Energy() {^energy1}
   constant2 = BlockComponents.Sources.Constant(k = 0) {^constant2}
-  gain = BlockComponents.Math.Gain(k = 80) {^gain}
-  arm_centering = BlockComponents.Math.Gain(k = -0.2) {^arm_centering}
+  gain = BlockComponents.Math.Gain(k = -100) {^gain}
+  arm_centering = BlockComponents.Math.Gain(k = -1.0) {^arm_centering}
   add_centering = BlockComponents.Math.Add() {^add_centering}
   sub_eref = BlockComponents.Math.Add(k2 = -1) {^sub_eref}
   product = BlockComponents.Math.Product() {^product}
@@ -550,7 +550,7 @@ component EnergySwingup
   cos = QuanserComponents.Cos() {^cos}
   gain1 = BlockComponents.Math.Gain(k = -1) {^gain1}
   "maximum control signal during swingup"
-  parameter umax::Real(min = 0.1, max = 50) = 2
+  parameter umax::Real(min = 0.1, max = 50) = 3
 relations
   connect(elbow_velocity, energy.dα, gain1.u) {^id21}
   connect(elbow_angle, sub_pi.u1) {^id22}
@@ -878,16 +878,16 @@ component LQRstabilizer
   elbow_velocity = Dyad.RealInput() {^elbow_velocity}
   u = Dyad.RealOutput() {^u}
   "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
-  parameter L1::Real = -9.625743176817387
-  parameter L2::Real = 394.43972658274106
-  parameter L3::Real = -7.461418005226849
-  parameter L4::Real = 84.42279971138271
+  parameter L1::Real = -9.2468
+  parameter L2::Real = -94.0578
+  parameter L3::Real = -3.6828
+  parameter L4::Real = -11.4374
   variable e1::Real
   variable e2::Real
   variable e3::Real
   variable e4::Real
   variable uraw::Real
-  parameter umax::Real = 3.0
+  parameter umax::Real = 10.0
 relations
   e1 = 0.0 - shoulder_angle
   e2 = pi - elbow_angle

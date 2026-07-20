@@ -18,7 +18,6 @@ end
 
 import BlockComponents
 import DiscreteComponents
-import DyadInterface
 import MultibodyComponents
 import RotationalComponents
 @doc Markdown.doc"""

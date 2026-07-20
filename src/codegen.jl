@@ -40,19 +40,14 @@ the periodic clock while leaving the two measured angles as free (input) signals
 Returns a named tuple with the `sys`, the `swingup` and `clock` subsystems, the
 `Clock` object `clk`, and the resolved parameter value map `values` (parameter =>
 `Float64`).
-"""
-function build_discrete_controller(; Ts = 0.005,
-        energyswingup_gain_k = 100.0,
-        energyswingup_arm_centering_k = -1.0,
-        energyswingup_umax = 3.0,
-        lqrstabilizer_umax = 10.0)
 
-    @named swingup = Swingup(;
-        var"energyswingup.gain.k" = energyswingup_gain_k,
-        var"energyswingup.arm_centering.k" = energyswingup_arm_centering_k,
-        var"energyswingup.umax" = energyswingup_umax,
-        var"lqrstabilizer.umax" = lqrstabilizer_umax,
-    )
+The controller uses the `Swingup` model's tuned defaults (energy-swingup gain,
+arm-centering, LQR gains and saturations), which are set for the QuanserInterface-
+matched `QubePendulum` plant. Pass `overrides` (e.g. `var"lqrstabilizer.umax" =>
+...`) to change them.
+"""
+function build_discrete_controller(; Ts = 0.005, overrides...)
+    @named swingup = Swingup(; overrides...)
     @named clock = PeriodicClock(dt = Ts)
     sys = System([clock.y ~ swingup.shoulder_angle], t;
                  systems = [swingup, clock], name = :controller)
@@ -117,15 +112,15 @@ function generate_swingup_controller(; Ts = 0.005, kwargs...)
 end
 
 """
-    SwingupController(; Ts=0.005, backend=:julia, L=nothing, umax=10.0, overrides...)
+    SwingupController(; Ts=0.005, backend=:julia, L=nothing, umax=nothing, overrides...)
 
 A ready-to-call runtime wrapper around the generated swing-up controller. Compiles
 the controller, builds a `SynchExecutable` on `backend` (`:julia` or `:c`), and
 populates the parameter structs. Call it as `u = controller(shoulder, elbow)` to
 advance one control step (ticking the periodic clock) and obtain the voltage.
 
-`L` overrides the LQR feedback gains `[L1, L2, L3, L4]` (defaults to the model's
-tuned gains); `umax` sets the stabilizer saturation.
+`L` overrides the LQR feedback gains `[L1, L2, L3, L4]` and `umax` the stabilizer
+saturation; both default to the model's tuned values.
 """
 struct SwingupController{E, G, A}
     exe::E
@@ -134,7 +129,7 @@ struct SwingupController{E, G, A}
 end
 
 function SwingupController(; Ts = 0.005, backend::Symbol = :julia,
-                            L = nothing, umax = 10.0, kwargs...)
+                            L = nothing, umax = nothing, kwargs...)
     gen = generate_swingup_controller(; Ts, kwargs...)
     return _make_runtime(gen; backend, L, umax)
 end
@@ -143,7 +138,7 @@ end
 # `stkcompile` evaluates a fresh module, so the generated `StaticGains`/`AutoPars`
 # types and `top` node may be newer than the current world age; reach them through
 # `invokelatest` so a one-shot `compile + build` in a single call still works.
-function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = 10.0)
+function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = nothing)
     topmod = gen.topmod
     node = Base.invokelatest(getproperty, topmod, :top)
     SG = Base.invokelatest(getproperty, topmod, :StaticGains)
@@ -161,7 +156,8 @@ function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = 10.0)
     Ldef = [vals[ModelingToolkit.unwrap(lqr.L1)], vals[ModelingToolkit.unwrap(lqr.L2)],
             vals[ModelingToolkit.unwrap(lqr.L3)], vals[ModelingToolkit.unwrap(lqr.L4)]]
     Lv = L === nothing ? Ldef : collect(L)
-    gains = Base.invokelatest(SG; L1 = Lv[1], L2 = Lv[2], L3 = Lv[3], L4 = Lv[4], umax = umax)
+    umaxv = umax === nothing ? vals[ModelingToolkit.unwrap(lqr.umax)] : umax
+    gains = Base.invokelatest(SG; L1 = Lv[1], L2 = Lv[2], L3 = Lv[3], L4 = Lv[4], umax = umaxv)
 
     exe = Base.invokelatest(SynchExecutable, node,
                             (Float64, Float64, Bool, typeof(gains), typeof(auto)); backend)

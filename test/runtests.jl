@@ -25,16 +25,8 @@ prob = ODEProblem(ssys, [
     ssys.qubependulum.elbow_joint.phi => 0+deg2rad(0.15)
     ssys.qubependulum.shoulder_joint.phi => 0.0
     ssys.gain.k => 1.0
-    ssys.swingup.lqrstabilizer.umax => 10
-    # ssys.qubependulum.Jp => 1e-1
-    # ssys.swingup.lqrstabilizer.L1 => L[1]
-    # ssys.swingup.lqrstabilizer.L2 => L[2]
-    # ssys.swingup.lqrstabilizer.L3 => L[3]
-    # ssys.swingup.lqrstabilizer.L4 => L[4]
-    # ssys.swingup.velocityestimator_elbow.discretederivative.u(k-1) => pi
-    ssys.swingup.energyswingup.umax => 3.0
-    ssys.swingup.energyswingup.gain.k => 100.0
-    ssys.swingup.energyswingup.arm_centering.k => -1.0
+    # Controller gains (energyswingup gain/arm_centering/umax, lqrstabilizer L/umax)
+    # now come from the model defaults, tuned for the QuanserInterface-matched plant.
 
     ssys.qubependulum.floor.r_shape => [0, -0.10, 0]
 
@@ -238,34 +230,32 @@ import DyadCompilerPasses
     end
 
     # ---- Test B: QuanserInterface simulator (hardware-compatible interface) --
-    # The QI `furuta` plant uses the opposite sign convention to the Dyad model for
-    # both the arm angle and the motor voltage, so the generated (Dyad-tuned)
-    # controller is applied through that transform. The Dyad-tuned energy target
-    # overshoots the QI plant's energy scale, so the controller swings the pendulum
-    # up to the top region but does not hold balance without QI-specific tuning —
-    # consistent with the two plants not behaving identically. This test exercises
-    # the full measure -> controller -> control loop (identical to the hardware loop)
-    # and checks the swing-up reaches upright.
+    # `QubePendulum` is matched to the QuanserInterface hardware-calibrated model
+    # (sign conventions and pendulum inertia), so the SAME generated controller —
+    # with no per-plant sign flips or retuning — swings up and stabilizes the QI
+    # simulator too. The loop is identical to the one that runs on the real
+    # `QubeServoPendulum` hardware (measure -> controller -> control).
     @testset "swingup — QuanserInterface simulator" begin
         process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
-        process.x = SA[0.0, 0.4, 0.0, 2.0]         # pendulum kicked from hanging
+        process.x = SA[0.0, deg2rad(0.15), 0.0, 0.0]   # near hanging
         QuanserInterface.initialize(process)
-        ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia,
-            L = [-2.85, -24.4, -0.99, -2.0], umax = 10.0)
+        ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
         N = round(Int, 15.0 / Ts)
         elbow = Float64[]
         try
             for i in 1:N
                 y = QuanserInterface.measure(process)     # [arm θ, pendulum α]
-                u = ctrl(-y[1], y[2])                     # QI arm-angle sign flip
+                u = ctrl(y[1], y[2])
                 @test isfinite(u) && abs(u) <= 10
-                QuanserInterface.control(process, [-u])   # QI voltage sign flip
+                QuanserInterface.control(process, [u])
                 push!(elbow, mod(y[2], 2π))
             end
         finally
             QuanserInterface.control(process, [0.0])
             QuanserInterface.finalize(process)
         end
-        @test any(abs.(elbow .- π) .< 0.4)         # swing-up reaches the top region
+        near_top = abs.(elbow .- π) .< 0.4
+        @test any(near_top)                        # reaches upright
+        @test all(near_top[end-100:end])           # and stabilizes there
     end
 end

@@ -13,11 +13,11 @@ import Moshi as __Ext__Moshi
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]                         | --  |   -9.625743176817387 |
-| `L2`         |                          | --  |   394.43972658274106 |
-| `L3`         |                          | --  |   -7.461418005226849 |
-| `L4`         |                          | --  |   84.42279971138271 |
-| `umax`         |                          | --  |   3.0 |
+| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]                         | --  |   -9.2468 |
+| `L2`         |                          | --  |   -94.0578 |
+| `L3`         |                          | --  |   -3.6828 |
+| `L4`         |                          | --  |   -11.4374 |
+| `umax`         |                          | --  |   10.0 |
 
 ## Connectors
 
@@ -37,7 +37,7 @@ import Moshi as __Ext__Moshi
 | `e4`         |                          | --  |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L1=-9.625743176817387, L2=394.43972658274106, L3=-7.461418005226849, L4=84.42279971138271, umax=Float64(3.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, L1=-9.2468, L2=-94.0578, L3=-3.6828, L4=-11.4374, umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -118,7 +118,7 @@ import Moshi as __Ext__Moshi
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
 
