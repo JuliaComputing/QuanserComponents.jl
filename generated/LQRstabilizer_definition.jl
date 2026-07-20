@@ -13,10 +13,10 @@ import Moshi as __Ext__Moshi
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]                         | --  |   -9.2468 |
-| `L2`         |                          | --  |   -94.0578 |
-| `L3`         |                          | --  |   -3.6828 |
-| `L4`         |                          | --  |   -11.4374 |
+| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum, discretized at Ts=0.005, with Q=diagm([1000,10,1,1]), R=300 (soft weighting to limit sensor-noise amplification / chatter).                         | --  |   -1.7247 |
+| `L2`         |                          | --  |   -46.0383 |
+| `L3`         |                          | --  |   -1.0580 |
+| `L4`         |                          | --  |   -5.4878 |
 | `umax`         |                          | --  |   10.0 |
 
 ## Connectors
@@ -37,7 +37,7 @@ import Moshi as __Ext__Moshi
 | `e4`         |                          | --  |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L1=-9.2468, L2=-94.0578, L3=-3.6828, L4=-11.4374, umax=Float64(10.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, L1=-1.7247, L2=-46.0383, L3=-1.058, L4=-5.4878, umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -69,7 +69,7 @@ import Moshi as __Ext__Moshi
 
   ### Symbolic Parameters
   __local__L1 = L1
-  append!(__params, @parameters (L1::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"])
+  append!(__params, @parameters (L1::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum, discretized at Ts=0.005, with Q=diagm([1000,10,1,1]), R=300 (soft weighting to limit sensor-noise amplification / chatter)."])
   __initial_conditions[L1] = __local__L1
   __local__L2 = L2
   append!(__params, @parameters (L2::Real))
