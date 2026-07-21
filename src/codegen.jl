@@ -47,7 +47,7 @@ matched `QubePendulum` plant. Pass `overrides` (e.g. `var"lqrstabilizer.umax" =>
 ...`) to change them.
 """
 function build_discrete_controller(; Ts = 0.005, overrides...)
-    @named swingup = Swingup(; overrides...)
+    @named swingup = SwingupWithHoming(; overrides...)
     @named clock = PeriodicClock(dt = Ts)
     sys = System([clock.y ~ swingup.shoulder_angle], t;
                  systems = [swingup, clock], name = :controller)
@@ -93,7 +93,7 @@ baked into `AutoPars`.
 """
 function generate_swingup_controller(; Ts = 0.005, kwargs...)
     c = build_discrete_controller(; Ts, kwargs...)
-    lqr = c.swingup.lqrstabilizer
+    lqr = c.swingup.runtime.swingup.lqrstabilizer
     gain_syms = OrderedDict{Any, Symbol}(
         ModelingToolkit.unwrap(lqr.L)   => :L,
         ModelingToolkit.unwrap(lqr.umax) => :umax,
@@ -152,7 +152,7 @@ function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = nothin
     apkw = Dict(f => vals[sym_by_name[f]] for f in apfields if haskey(sym_by_name, f))
     auto = Base.invokelatest(AP; apkw...)
 
-    lqr = gen.controller.swingup.lqrstabilizer
+    lqr = gen.controller.swingup.runtime.swingup.lqrstabilizer
     Ldef = vals[ModelingToolkit.unwrap(lqr.L)]                # model default (4-vector)
     Lv = L === nothing ? Ldef : collect(float.(L))
     umaxv = umax === nothing ? vals[ModelingToolkit.unwrap(lqr.umax)] : umax

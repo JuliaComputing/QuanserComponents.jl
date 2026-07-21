@@ -1,7 +1,7 @@
 using BlockComponents
 
 component FurutaSwingup
-  swingup = Swingup() {^swingup}
+  swingup = SwingupWithHoming() {^swingup}
   qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
   zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
   elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
@@ -1191,4 +1191,125 @@ component Cos
   extends BlockComponents.Interfaces.SISO
 relations
   y = cos(u)
+end
+
+# Overrides the swing-up/stabilizing command with a corrective term that drives the
+# arm back toward center when it swings past ±arm_limit, matching the out-of-bounds
+# guard in the hardware control loop.
+component ErrorRecovery
+  "Measured arm (shoulder) angle"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Command from the runtime (swing-up/stabilizing) controller"
+  u_swingup = Dyad.RealInput() {^u_swingup}
+  "Control command"
+  u = Dyad.RealOutput() {^u}
+  "Arm angle beyond which the corrective term takes over"
+  parameter arm_limit::Real = 1.9198621771937625
+  "Proportional gain applied to the arm angle when out of bounds"
+  parameter recovery_gain::Real = -0.5
+relations
+  u = ifelse(abs(shoulder_angle) > arm_limit, recovery_gain * shoulder_angle, u_swingup)
+end
+
+# Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
+# controller on the sliding surface s = arm_velocity + lambda*arm_angle, and reports
+# `done` once the arm has stayed near home (small angle and speed) for `home_time`.
+# Mirrors QuanserInterface.go_home.
+component GoHome@[input clk extends Discrete]
+  "Measured arm (shoulder) angle"
+  shoulder_angle = RealInput@[clk]() {^shoulder_angle}
+  "Homing control command"
+  u = RealOutput@[clk]() {^u}
+  "1 once the arm has been home for `home_time`, else 0"
+  done = RealOutput@[clk]() {^done}
+  velocityestimator = QuanserComponents.VelocityEstimator() {^velocityestimator}
+  structural parameter Ts::Real = SampleTime()
+  "Super-twisting control gain"
+  parameter k::Real = 0.2
+  "Super-twisting integral-term tuning"
+  parameter k2::Real = 1.1
+  "Homing control saturation"
+  parameter th::Real = 5.0
+  "Sliding-surface slope (velocity vs angle)"
+  parameter lambda::Real = 5.0
+  "Arm-angle tolerance for 'home'"
+  parameter angle_tol::Real = 0.17453292519943295
+  "Arm-speed tolerance for 'home'"
+  parameter vel_tol::Real = 0.5
+  "Time the arm must stay home before `done`"
+  parameter home_time::Real = 1.0
+  variable s::Real
+  variable xi::Real
+  variable uraw::Real
+  variable homed_now::Real
+  variable count::Real
+relations
+  connect(shoulder_angle, velocityestimator.pos)
+  s = velocityestimator.vel + lambda * shoulder_angle
+  xi@clk = xi@(clk-1) + Ts * (-k2 * k * sign(s))
+  uraw = -sqrt(k * abs(s)) * sign(s) + xi
+  u = clamp(uraw, -th, th)
+  homed_now = ifelse(abs(shoulder_angle) < angle_tol, ifelse(abs(velocityestimator.vel) < vel_tol, 1.0, 0.0), 0.0)
+  count@clk = ifelse(homed_now > 0.5, count@(clk-1) + Ts, 0.0)
+  done = ifelse(count >= home_time, 1.0, 0.0)
+  initial xi@(clk-1) = 0.0
+  initial count@(clk-1) = 0.0
+end
+
+# The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+# `ErrorRecovery`, which overrides the command to recover the arm when it swings
+# out of bounds.
+component RuntimeController
+  "Measured arm (shoulder) angle"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Measured pendulum (elbow) angle"
+  elbow_angle = Dyad.RealInput() {^elbow_angle}
+  "Control command"
+  u = Dyad.RealOutput() {^u}
+  swingup = QuanserComponents.Swingup() {^swingup}
+  errorrecovery = QuanserComponents.ErrorRecovery() {^errorrecovery}
+relations
+  connect(shoulder_angle, swingup.shoulder_angle, errorrecovery.shoulder_angle) {^id1}
+  connect(elbow_angle, swingup.elbow_angle) {^id2}
+  connect(swingup.u, errorrecovery.u_swingup) {^id3}
+  connect(errorrecovery.u, u) {^id4}
+end
+
+# Top-level controller with a two-state machine: it first runs `GoHome` to home the
+# arm, then switches to the `RuntimeController` (swing-up + stabilization + error
+# recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
+# `oob_threshold`), it switches back to `GoHome` and re-homes.
+component SwingupWithHoming@[input clk extends Discrete]
+  "Measured arm (shoulder) angle"
+  shoulder_angle = RealInput@[clk]() {^shoulder_angle}
+  "Measured pendulum (elbow) angle"
+  elbow_angle = RealInput@[clk]() {^elbow_angle}
+  "Control command"
+  u = RealOutput@[clk]() {^u}
+  gohome = QuanserComponents.GoHome() {^gohome}
+  runtime = QuanserComponents.RuntimeController() {^runtime}
+  "Arm angle beyond which the out-of-bounds counter accumulates"
+  parameter arm_limit::Real = 1.9198621771937625
+  "Amount added to the out-of-bounds counter each out-of-bounds step"
+  parameter oob_increment::Real = 20.0
+  "Out-of-bounds counter value that triggers re-homing"
+  parameter oob_threshold::Real = 1000.0
+  "1 while in the runtime state, 0 while homing"
+  variable in_runtime::Real
+  "Out-of-bounds accumulator (runtime state only)"
+  variable oob_counter::Real
+  "1 when the arm is currently out of bounds"
+  variable oob_now::Real
+  "1 when persistent out-of-bounds forces a re-home"
+  variable fault::Real
+relations
+  connect(shoulder_angle, gohome.shoulder_angle, runtime.shoulder_angle) {^id1}
+  connect(elbow_angle, runtime.elbow_angle) {^id2}
+  oob_now = ifelse(abs(shoulder_angle) > arm_limit, 1.0, 0.0)
+  oob_counter@clk = ifelse(in_runtime@(clk-1) > 0.5, ifelse(oob_now > 0.5, oob_counter@(clk-1) + oob_increment, max(0.0, oob_counter@(clk-1) - 1.0)), 0.0)
+  fault = ifelse(oob_counter > oob_threshold, 1.0, 0.0)
+  in_runtime@clk = ifelse(in_runtime@(clk-1) > 0.5, ifelse(fault > 0.5, 0.0, 1.0), ifelse(gohome.done > 0.5, 1.0, 0.0))
+  u = ifelse(in_runtime@clk > 0.5, runtime.u, gohome.u)
+  initial in_runtime@(clk-1) = 0.0
+  initial oob_counter@(clk-1) = 0.0
 end
