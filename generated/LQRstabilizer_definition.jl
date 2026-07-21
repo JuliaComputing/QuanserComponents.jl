@@ -7,16 +7,13 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   LQRstabilizer(; name, L1, L2, L3, L4, umax)
+   LQRstabilizer(; name, L, umax)
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `L1`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum, discretized at Ts=0.005, with Q=diagm([1000,10,1,1]), R=300 (soft weighting to limit sensor-noise amplification / chatter).                         | --  |   -1.7247 |
-| `L2`         |                          | --  |   -46.0383 |
-| `L3`         |                          | --  |   -1.0580 |
-| `L4`         |                          | --  |   -5.4878 |
+| `L`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum                         | --  |   [-2.8515070...3404759338] |
 | `umax`         |                          | --  |   10.0 |
 
 ## Connectors
@@ -31,13 +28,10 @@ import Moshi as __Ext__Moshi
 
 | Name         | Description                         | Units  | 
 | ------------ | ----------------------------------- | ------ |
-| `e1`         |                          | --  |
-| `e2`         |                          | --  |
-| `e3`         |                          | --  |
-| `e4`         |                          | --  |
+| `e`         |                          | --  |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L1=-1.7247, L2=-46.0383, L3=-1.058, L4=-5.4878, umax=Float64(10.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, L=[-2.8515070942708687 - 24.415803244034326 - 0.9920297324372649 - 1.9975963404759338], umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -68,18 +62,9 @@ import Moshi as __Ext__Moshi
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
-  __local__L1 = L1
-  append!(__params, @parameters (L1::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum, discretized at Ts=0.005, with Q=diagm([1000,10,1,1]), R=300 (soft weighting to limit sensor-noise amplification / chatter)."])
-  __initial_conditions[L1] = __local__L1
-  __local__L2 = L2
-  append!(__params, @parameters (L2::Real))
-  __initial_conditions[L2] = __local__L2
-  __local__L3 = L3
-  append!(__params, @parameters (L3::Real))
-  __initial_conditions[L3] = __local__L3
-  __local__L4 = L4
-  append!(__params, @parameters (L4::Real))
-  __initial_conditions[L4] = __local__L4
+  __local__L = L
+  append!(__params, @parameters (L[1:4]::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum"])
+  __initial_conditions[L] = __local__L
   __local__umax = umax
   append!(__params, @parameters (umax::Real))
   __initial_conditions[umax] = __local__umax
@@ -94,21 +79,12 @@ import Moshi as __Ext__Moshi
   append!(__vars, @variables (u(t)::Real), [output = true])
 
   ### Variables (declarations)
-  append!(__vars, @variables (e1(t)::Real))
-  append!(__vars, @variables (e2(t)::Real))
-  append!(__vars, @variables (e3(t)::Real))
-  append!(__vars, @variables (e4(t)::Real))
+  append!(__vars, @variables (e(t)[1:4]::Real))
   append!(__vars, @variables (uraw(t)::Real))
 
   ### Variables (assignments)
-  __ovr_e1 = pop!(__overrides, "e1", nothing); isnothing(__ovr_e1) || push!(__eqs, e1 ~ __ovr_e1)
-  __ovr_e1__initial = pop!(__overrides, "e1__initial", nothing); isnothing(__ovr_e1__initial) || (__initial_conditions[e1] = __ovr_e1__initial)
-  __ovr_e2 = pop!(__overrides, "e2", nothing); isnothing(__ovr_e2) || push!(__eqs, e2 ~ __ovr_e2)
-  __ovr_e2__initial = pop!(__overrides, "e2__initial", nothing); isnothing(__ovr_e2__initial) || (__initial_conditions[e2] = __ovr_e2__initial)
-  __ovr_e3 = pop!(__overrides, "e3", nothing); isnothing(__ovr_e3) || push!(__eqs, e3 ~ __ovr_e3)
-  __ovr_e3__initial = pop!(__overrides, "e3__initial", nothing); isnothing(__ovr_e3__initial) || (__initial_conditions[e3] = __ovr_e3__initial)
-  __ovr_e4 = pop!(__overrides, "e4", nothing); isnothing(__ovr_e4) || push!(__eqs, e4 ~ __ovr_e4)
-  __ovr_e4__initial = pop!(__overrides, "e4__initial", nothing); isnothing(__ovr_e4__initial) || (__initial_conditions[e4] = __ovr_e4__initial)
+  __ovr_e = pop!(__overrides, "e", nothing); isnothing(__ovr_e) || push!(__eqs, e ~ __ovr_e)
+  __ovr_e__initial = pop!(__overrides, "e__initial", nothing); isnothing(__ovr_e__initial) || (__initial_conditions[e] = __ovr_e__initial)
   __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
   __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
 
@@ -128,11 +104,8 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, e1 ~ 0.0 - shoulder_angle)
-  push!(__eqs, e2 ~ pi - elbow_angle)
-  push!(__eqs, e3 ~ 0.0 - shoulder_velocity)
-  push!(__eqs, e4 ~ 0.0 - elbow_velocity)
-  push!(__eqs, uraw ~ L1 * e1 + L2 * e2 + L3 * e3 + L4 * e4)
+  push!(__eqs, e ~ [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity])
+  push!(__eqs, uraw ~ dot(L, e))
   push!(__eqs, u ~ clamp(uraw, -umax, umax))
 
   # Return completely constructed System

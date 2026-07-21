@@ -137,7 +137,7 @@ Pd = c2d(ss(P), Ts)
 # example uses [θ_shoulder, φ_elbow, θ̇, φ̇] -> [1000, 10, 1, 1]; permute the
 # diagonal to match `state_names(P)` if the order differs.
 Q1 = P.C'Diagonal([1000.0, 10.0, 1.0, 1.0])*P.C
-Q2 = 10.0 * I(1)
+Q2 = 100.0 * I(1)
 
 L = vec(lqr(Pd, Q1, Q2)*pinv(P.C))
 @show L

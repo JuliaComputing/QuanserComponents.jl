@@ -92,10 +92,7 @@ function generate_swingup_controller(; Ts = 0.005, kwargs...)
     c = build_discrete_controller(; Ts, kwargs...)
     lqr = c.swingup.lqrstabilizer
     gain_syms = OrderedDict{Any, Symbol}(
-        ModelingToolkit.unwrap(lqr.L1)   => :L1,
-        ModelingToolkit.unwrap(lqr.L2)   => :L2,
-        ModelingToolkit.unwrap(lqr.L3)   => :L3,
-        ModelingToolkit.unwrap(lqr.L4)   => :L4,
+        ModelingToolkit.unwrap(lqr.L)   => :L,
         ModelingToolkit.unwrap(lqr.umax) => :umax,
     )
     inputs = [
@@ -157,7 +154,7 @@ function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = nothin
             vals[ModelingToolkit.unwrap(lqr.L3)], vals[ModelingToolkit.unwrap(lqr.L4)]]
     Lv = L === nothing ? Ldef : collect(L)
     umaxv = umax === nothing ? vals[ModelingToolkit.unwrap(lqr.umax)] : umax
-    gains = Base.invokelatest(SG; L1 = Lv[1], L2 = Lv[2], L3 = Lv[3], L4 = Lv[4], umax = umaxv)
+    gains = Base.invokelatest(SG; L = Lv, umax = umaxv)
 
     exe = Base.invokelatest(SynchExecutable, node,
                             (Float64, Float64, Bool, typeof(gains), typeof(auto)); backend)
