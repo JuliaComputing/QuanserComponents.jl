@@ -865,12 +865,10 @@ component LQRstabilizer
   u = Dyad.RealOutput() {^u}
   "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum"
   parameter L::Real[4] = [-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338]
-  variable e::Real[4]
   variable uraw::Real
   parameter umax::Real = 10.0
 relations
-  e = [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity]
-  uraw = dot(L, e)
+  uraw = dot(L, [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity])
   u = clamp(uraw, -umax, umax)
 metadata {
   "Dyad": {"icons": {"default": "dyad://DiscreteComponents/LQRstabilizer.svg"}},

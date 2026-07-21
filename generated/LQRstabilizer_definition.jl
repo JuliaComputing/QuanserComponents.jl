@@ -28,7 +28,6 @@ import Moshi as __Ext__Moshi
 
 | Name         | Description                         | Units  | 
 | ------------ | ----------------------------------- | ------ |
-| `e`         |                          | --  |
 | `uraw`         |                          | --  |
 """
 @component function LQRstabilizer(; name = nothing, L=[-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338], umax=Float64(10.0), kwargs...)
@@ -79,12 +78,9 @@ import Moshi as __Ext__Moshi
   append!(__vars, @variables (u(t)::Real), [output = true])
 
   ### Variables (declarations)
-  append!(__vars, @variables (e(t)[1:4]::Real))
   append!(__vars, @variables (uraw(t)::Real))
 
   ### Variables (assignments)
-  __ovr_e = pop!(__overrides, "e", nothing); isnothing(__ovr_e) || push!(__eqs, e ~ __ovr_e)
-  __ovr_e__initial = pop!(__overrides, "e__initial", nothing); isnothing(__ovr_e__initial) || (__initial_conditions[e] = __ovr_e__initial)
   __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
   __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
 
@@ -104,8 +100,7 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, e ~ [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity])
-  push!(__eqs, uraw ~ dot(L, e))
+  push!(__eqs, uraw ~ dot(L, [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity]))
   push!(__eqs, u ~ clamp(uraw, -umax, umax))
 
   # Return completely constructed System
