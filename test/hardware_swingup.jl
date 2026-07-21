@@ -1,5 +1,11 @@
 #=
-This script performs swingup of the pendulum using an energy-based controller, and stabilizes the pendulum at the top using an LQR controller. The controller gain is designed using furuta_lqg.jl
+This script runs the swing-up controller on the physical Furuta pendulum. The
+controller is the generated synchronous program `QuanserComponents.SwingupController`,
+which contains the complete state machine: it first homes the arm (`GoHome`), then
+switches to energy-based swing-up plus LQR stabilization wrapped by error recovery
+(`RuntimeController`), and re-homes if the arm stays out of bounds. All homing,
+saturation and out-of-bounds recovery therefore live inside the controller; the
+hardware loop just measures, calls the controller, and applies the returned voltage.
 =#
 using QuanserInterface
 using QuanserInterface.HardwareAbstractions
@@ -49,7 +55,7 @@ function plotD(D, th=0.2)
     plot!(diff(D[1,:]), sp=4, lab="Δt"); hline!([process.Ts], sp=4, framestyle=:zerolines, lab="Ts")
 end
 
-function swingup(process; Tf = 10, verbose=true, stab=true, umax=2.0)
+function swingup(process; Tf = 10, verbose=true)
     Ts = process.Ts
     N = round(Int, Tf/Ts)
     data = Vector{Vector{Float64}}(undef, 0)
@@ -57,52 +63,30 @@ function swingup(process; Tf = 10, verbose=true, stab=true, umax=2.0)
 
     simulation = processtype(process) isa SimulatedProcess
 
-    if simulation
-        u0 = 0.0
-    else
-        u0 = 0.5QuanserInterface.go_home(process)
-        @show u0
-    end
+    # Reset the controller's internal state so every run starts in the homing
+    # state of the state machine.
+    QuanserComponents.SynchToolkit.reset!(ctrl)
+
     y = QuanserInterface.measure(process)
     if verbose && !simulation
-        @info "Starting $(simulation ? "simulation" : "experiment") from y: $y, waiting for your input..."
-        # readline()
+        @info "Starting experiment from y: $y"
     end
-    yo = @SVector zeros(2)
-    dyf = @SVector zeros(2)
-    L =  SA[-2.8515070942708687 -24.415803244034326 -0.9920297324372649 -1.9975963404759338]
-    # L = [-7.410199310542298 -36.40730995983665 -2.0632501290782095 -3.149033572767301] # State-feedback gain Ts = 0.01
 
     try
         # GC.gc()
         GC.enable(false)
         t_start = time()
-        u = [0.0]
-        oob = 0
+        u = 0.0
         for i = 1:N
-            HardwareAbstractions.@periodically Ts begin 
+            HardwareAbstractions.@periodically Ts begin
                 t = simulation ? (i-1)*Ts : time() - t_start
                 y = QuanserInterface.measure(process)
-                # r = rr[]
-                if !(-deg2rad(110) <= y[1] <= deg2rad(110))
-                    u = SA[-0.5*y[1]]
-                    verbose && @warn "Correcting"
-                    control(process, Vector(u .+ u0))
-                    oob += 20
-                    if oob > 1000
-                        verbose && @error "Out of bounds"
-                        # QuanserInterface.go_home(process; th = 15)
-                        continue
-                    end
-                else
-                    oob = max(0, oob-1)
-                    u = ctrl(y[1], y[2])
-                    control(process, [u])
-                end
-                verbose && @info "t = $(round(t, digits=3)), u = $(u[])"
-                log = [t; y; u]
-                push!(data, log)
-                # yo = y
+                # The synchronous program handles homing, swing-up, stabilization
+                # and out-of-bounds recovery internally.
+                u = ctrl(y[1], y[2])
+                control(process, [u])
+                verbose && @info "t = $(round(t, digits=3)), u = $(round(u, digits=3))"
+                push!(data, [t; y; u])
             end
         end
     catch e
