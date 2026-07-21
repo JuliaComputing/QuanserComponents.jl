@@ -121,6 +121,10 @@ end
 
 runplot(process; Tf = 10)
 
+using DelimitedFiles
+writedlm("swingup.csv", permutedims([["time", "shoulder_angle", "elbow_angle", "control_input"] D]))
+
+
 # ## Simulated process
 # process = QuanserInterface.QubeServoPendulumSimulator(; Ts, p = QuanserInterface.pendulum_parameters(true));
 
