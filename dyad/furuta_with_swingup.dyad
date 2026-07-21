@@ -1181,9 +1181,11 @@ relations
   y = cos(u)
 end
 
-# Overrides the swing-up/stabilizing command with a corrective term that drives the
-# arm back toward center when it swings past ±arm_limit, matching the out-of-bounds
-# guard in the hardware control loop.
+"""
+Overrides the swing-up/stabilizing command with a corrective term that drives the
+arm back toward center when it swings past ±arm_limit, matching the out-of-bounds
+guard in the hardware control loop.
+"""
 component ErrorRecovery
   "Measured arm (shoulder) angle"
   shoulder_angle = Dyad.RealInput() {^shoulder_angle}
@@ -1198,6 +1200,7 @@ component ErrorRecovery
 relations
   u = ifelse(abs(shoulder_angle) > arm_limit, recovery_gain * shoulder_angle, u_swingup)
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/ErrorRecovery.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 190, "y2": 290}}}
@@ -1212,10 +1215,16 @@ metadata {
 }
 end
 
-# Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
-# controller on the sliding surface s = arm_velocity + lambda*arm_angle, and reports
-# `done` once the arm has stayed near home (small angle and speed) for `home_time`.
-# Mirrors QuanserInterface.go_home.
+"""
+Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
+controller on the sliding surface s = arm_velocity + lambda*arm_angle, and reports
+`done` once the arm has stayed near home (small angle and speed) for `home_time`.
+Mirrors QuanserInterface.go_home.
+
+The sliding-mode law is the shared `DiscreteComponents.SuperTwistingSMC` block; the
+sliding surface is formed by scaling the arm angle (`lambda_gain`) and adding the
+estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
+"""
 component GoHome@[input clk extends Discrete]
   "Measured arm (shoulder) angle"
   shoulder_angle = RealInput@[clk]() {^shoulder_angle}
@@ -1224,6 +1233,9 @@ component GoHome@[input clk extends Discrete]
   "1 once the arm has been home for `home_time`, else 0"
   done = RealOutput@[clk]() {^done}
   velocityestimator = QuanserComponents.VelocityEstimator() {^velocityestimator}
+  lambda_gain = BlockComponents.Math.Gain(k = lambda) {^lambda_gain}
+  surface = BlockComponents.Math.Add() {^surface}
+  smc = DiscreteComponents.SuperTwistingSMC(k = k, k2 = k2) {^smc}
   structural parameter Ts::Real = SampleTime()
   "Super-twisting control gain"
   parameter k::Real = 0.2
@@ -1239,23 +1251,20 @@ component GoHome@[input clk extends Discrete]
   parameter vel_tol::Real = 0.5
   "Time the arm must stay home before `done`"
   parameter home_time::Real = 1.0
-  variable s::Real
-  variable xi::Real
-  variable uraw::Real
   variable homed_now::Real
   variable count::Real
 relations
-  connect(shoulder_angle, velocityestimator.pos) {^id5}
-  s = velocityestimator.vel + lambda * shoulder_angle
-  xi@clk = xi@(clk-1) + Ts * (-k2 * k * sign(s))
-  uraw = -sqrt(k * abs(s)) * sign(s) + xi
-  u = clamp(uraw, -th, th)
+  connect(shoulder_angle, velocityestimator.pos, lambda_gain.u) {^id5}
+  connect(lambda_gain.y, surface.u1) {^id10}
+  connect(velocityestimator.vel, surface.u2) {^id11}
+  connect(surface.y, smc.s) {^id12}
+  u = clamp(smc.y, -th, th)
   homed_now = ifelse(abs(shoulder_angle) < angle_tol, ifelse(abs(velocityestimator.vel) < vel_tol, 1.0, 0.0), 0.0)
   count@clk = ifelse(homed_now > 0.5, count@(clk-1) + Ts, 0.0)
   done = ifelse(count >= home_time, 1.0, 0.0)
-  initial xi@(clk-1) = 0.0
   initial count@(clk-1) = 0.0
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/GoHome.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
@@ -1267,16 +1276,30 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 210, "y2": 310}}}
     },
     "velocityestimator": {
-      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 450, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 400, "y2": 500}}}
     },
-    "id5": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+    "lambda_gain": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 620, "y2": 720}}}
+    },
+    "surface": {
+      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 560, "y2": 660}}}
+    },
+    "smc": {
+      "Dyad": {"placement": {"diagram": {"x1": 680, "x2": 780, "y1": 480, "y2": 580}}}
+    },
+    "id5": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id10": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id11": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
   }
 }
 end
 
-# The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
-# `ErrorRecovery`, which overrides the command to recover the arm when it swings
-# out of bounds.
+"""
+The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+`ErrorRecovery`, which overrides the command to recover the arm when it swings
+out of bounds.
+"""
 component RuntimeController
   "Measured arm (shoulder) angle"
   shoulder_angle = Dyad.RealInput() {^shoulder_angle}
@@ -1292,6 +1315,7 @@ relations
   connect(errorrecovery.u, u) {^id8}
   connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle) {^id9}
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/RuntimeController.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}
@@ -1329,10 +1353,12 @@ metadata {
 }
 end
 
-# Top-level controller with a two-state machine: it first runs `GoHome` to home the
-# arm, then switches to the `RuntimeController` (swing-up + stabilization + error
-# recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
-# `oob_threshold`), it switches back to `GoHome` and re-homes.
+"""
+Top-level controller with a two-state machine: it first runs `GoHome` to home the
+arm, then switches to the `RuntimeController` (swing-up + stabilization + error
+recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
+`oob_threshold`), it switches back to `GoHome` and re-homes.
+"""
 component SwingupWithHoming@[input clk extends Discrete]
   "Measured arm (shoulder) angle"
   shoulder_angle = RealInput@[clk]() {^shoulder_angle}
@@ -1367,6 +1393,7 @@ relations
   initial oob_counter@(clk-1) = 0.0
   connect(shoulder_angle, runtime.shoulder_angle, gohome.shoulder_angle) {^id7}
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupWithHoming.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}

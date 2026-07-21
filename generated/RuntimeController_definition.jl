@@ -9,6 +9,10 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    RuntimeController(; name)
 
+The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+`ErrorRecovery`, which overrides the command to recover the arm when it swings
+out of bounds.
+
 ## Connectors
 
  * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
@@ -80,10 +84,10 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(shoulder_angle, swingup.shoulder_angle, errorrecovery.shoulder_angle))
   push!(__eqs, connect(elbow_angle, swingup.elbow_angle))
   push!(__eqs, connect(swingup.u, errorrecovery.u_swingup))
   push!(__eqs, connect(errorrecovery.u, u))
+  push!(__eqs, connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

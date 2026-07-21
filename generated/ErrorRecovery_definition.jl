@@ -9,6 +9,10 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    ErrorRecovery(; name, arm_limit, recovery_gain)
 
+Overrides the swing-up/stabilizing command with a corrective term that drives the
+arm back toward center when it swings past ±arm_limit, matching the out-of-bounds
+guard in the hardware control loop.
+
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |

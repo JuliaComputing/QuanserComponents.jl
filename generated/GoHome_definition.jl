@@ -9,6 +9,15 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    GoHome(; name, Ts, k, k2, th, lambda, angle_tol, vel_tol, home_time)
 
+Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
+controller on the sliding surface s = arm_velocity + lambda*arm_angle, and reports
+`done` once the arm has stayed near home (small angle and speed) for `home_time`.
+Mirrors QuanserInterface.go_home.
+
+The sliding-mode law is the shared `DiscreteComponents.SuperTwistingSMC` block; the
+sliding surface is formed by scaling the arm angle (`lambda_gain`) and adding the
+estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
+
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
@@ -32,9 +41,6 @@ import Moshi as __Ext__Moshi
 
 | Name         | Description                         | Units  | 
 | ------------ | ----------------------------------- | ------ |
-| `s`         |                          | --  |
-| `xi`         |                          | --  |
-| `uraw`         |                          | --  |
 | `homed_now`         |                          | --  |
 | `count`         |                          | --  |
 """
@@ -99,19 +105,10 @@ import Moshi as __Ext__Moshi
   append!(__vars, @variables (done(t)::Real), [output = true])
 
   ### Variables (declarations)
-  append!(__vars, @variables (s(t)::Real))
-  append!(__vars, @variables (xi(t)::Real))
-  append!(__vars, @variables (uraw(t)::Real))
   append!(__vars, @variables (homed_now(t)::Real))
   append!(__vars, @variables (count(t)::Real))
 
   ### Variables (assignments)
-  __ovr_s = pop!(__overrides, "s", nothing); isnothing(__ovr_s) || push!(__eqs, s ~ __ovr_s)
-  __ovr_s__initial = pop!(__overrides, "s__initial", nothing); isnothing(__ovr_s__initial) || (__initial_conditions[s] = __ovr_s__initial)
-  __ovr_xi = pop!(__overrides, "xi", nothing); isnothing(__ovr_xi) || push!(__eqs, xi ~ __ovr_xi)
-  __ovr_xi__initial = pop!(__overrides, "xi__initial", nothing); isnothing(__ovr_xi__initial) || (__initial_conditions[xi] = __ovr_xi__initial)
-  __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
-  __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
   __ovr_homed_now = pop!(__overrides, "homed_now", nothing); isnothing(__ovr_homed_now) || push!(__eqs, homed_now ~ __ovr_homed_now)
   __ovr_homed_now__initial = pop!(__overrides, "homed_now__initial", nothing); isnothing(__ovr_homed_now__initial) || (__initial_conditions[homed_now] = __ovr_homed_now__initial)
   __ovr_count = pop!(__overrides, "count", nothing); isnothing(__ovr_count) || push!(__eqs, count ~ __ovr_count)
@@ -124,6 +121,15 @@ import Moshi as __Ext__Moshi
   # Subcomponent velocityestimator of type QuanserComponents.VelocityEstimator
   velocityestimator_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator")
   push!(__systems, @named velocityestimator = QuanserComponents.VelocityEstimator(; velocityestimator_overrides...))
+  # Subcomponent lambda_gain of type BlockComponents.Math.Gain
+  lambda_gain_overrides = __pop_subcomponent_overrides!(__overrides, "lambda_gain")
+  push!(__systems, @named lambda_gain = BlockComponents.Math.Gain(; k=lambda, lambda_gain_overrides...))
+  # Subcomponent surface of type BlockComponents.Math.Add
+  surface_overrides = __pop_subcomponent_overrides!(__overrides, "surface")
+  push!(__systems, @named surface = BlockComponents.Math.Add(; surface_overrides...))
+  # Subcomponent smc of type DiscreteComponents.SuperTwistingSMC
+  smc_overrides = __pop_subcomponent_overrides!(__overrides, "smc")
+  push!(__systems, @named smc = DiscreteComponents.SuperTwistingSMC(; k=k, k2=k2, smc_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -131,21 +137,20 @@ import Moshi as __Ext__Moshi
   ### Guesses
 
   ### Initialization Equations
-  push!(__initialization_eqs, xi(ShiftIndex() -1) ~ 0.0)
   push!(__initialization_eqs, count(ShiftIndex() -1) ~ 0.0)
 
   ### Assertions
   __assertions = []
 
   ### Equations
-  push!(__eqs, s ~ velocityestimator.vel + lambda * shoulder_angle)
-  push!(__eqs, xi ~ xi(ShiftIndex() -1) + Ts * (-k2 * k * sign(s)))
-  push!(__eqs, uraw ~ -sqrt(k * abs(s)) * sign(s) + xi)
-  push!(__eqs, u ~ clamp(uraw, -th, th))
+  push!(__eqs, u ~ clamp(smc.y, -th, th))
   push!(__eqs, homed_now ~ ifelse(abs(shoulder_angle) < angle_tol, ifelse(abs(velocityestimator.vel) < vel_tol, 1.0, 0.0), 0.0))
   push!(__eqs, count ~ ifelse(homed_now > 0.5, count(ShiftIndex() -1) + Ts, 0.0))
   push!(__eqs, done ~ ifelse(count >= home_time, 1.0, 0.0))
-  push!(__eqs, connect(shoulder_angle, velocityestimator.pos))
+  push!(__eqs, connect(shoulder_angle, velocityestimator.pos, lambda_gain.u))
+  push!(__eqs, connect(lambda_gain.y, surface.u1))
+  push!(__eqs, connect(velocityestimator.vel, surface.u2))
+  push!(__eqs, connect(surface.y, smc.s))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

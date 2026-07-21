@@ -9,6 +9,11 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    SwingupWithHoming(; name, arm_limit, oob_increment, oob_threshold)
 
+Top-level controller with a two-state machine: it first runs `GoHome` to home the
+arm, then switches to the `RuntimeController` (swing-up + stabilization + error
+recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
+`oob_threshold`), it switches back to `GoHome` and re-homes.
+
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
@@ -125,8 +130,8 @@ import Moshi as __Ext__Moshi
   push!(__eqs, fault ~ ifelse(oob_counter > oob_threshold, 1.0, 0.0))
   push!(__eqs, in_runtime ~ ifelse(in_runtime(ShiftIndex() -1) > 0.5, ifelse(fault > 0.5, 0.0, 1.0), ifelse(gohome.done > 0.5, 1.0, 0.0)))
   push!(__eqs, u ~ ifelse(in_runtime > 0.5, runtime.u, gohome.u))
-  push!(__eqs, connect(shoulder_angle, gohome.shoulder_angle, runtime.shoulder_angle))
   push!(__eqs, connect(elbow_angle, runtime.elbow_angle))
+  push!(__eqs, connect(shoulder_angle, runtime.shoulder_angle, gohome.shoulder_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
