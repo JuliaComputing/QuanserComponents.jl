@@ -79,6 +79,18 @@ guard in the hardware control loop.
   __constants = Any[]
 
   ### Components
+  # Subcomponent abs_angle of type BlockComponents.Math.Abs
+  abs_angle_overrides = __pop_subcomponent_overrides!(__overrides, "abs_angle")
+  push!(__systems, @named abs_angle = BlockComponents.Math.Abs(; abs_angle_overrides...))
+  # Subcomponent out_of_bounds of type BlockComponents.Logical.GreaterThreshold
+  out_of_bounds_overrides = __pop_subcomponent_overrides!(__overrides, "out_of_bounds")
+  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; threshold=arm_limit, out_of_bounds_overrides...))
+  # Subcomponent recovery of type BlockComponents.Math.Gain
+  recovery_overrides = __pop_subcomponent_overrides!(__overrides, "recovery")
+  push!(__systems, @named recovery = BlockComponents.Math.Gain(; k=recovery_gain, recovery_overrides...))
+  # Subcomponent selector of type BlockComponents.Logical.Switch
+  selector_overrides = __pop_subcomponent_overrides!(__overrides, "selector")
+  push!(__systems, @named selector = BlockComponents.Logical.Switch(; selector_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -91,7 +103,13 @@ guard in the hardware control loop.
   __assertions = []
 
   ### Equations
-  push!(__eqs, u ~ ifelse(abs(shoulder_angle) > arm_limit, recovery_gain * shoulder_angle, u_swingup))
+  push!(__eqs, connect(shoulder_angle, abs_angle.u))
+  push!(__eqs, connect(shoulder_angle, recovery.u))
+  push!(__eqs, connect(abs_angle.y, out_of_bounds.u))
+  push!(__eqs, connect(out_of_bounds.y, selector.u2))
+  push!(__eqs, connect(recovery.y, selector.u1))
+  push!(__eqs, connect(u_swingup, selector.u3))
+  push!(__eqs, connect(selector.y, u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

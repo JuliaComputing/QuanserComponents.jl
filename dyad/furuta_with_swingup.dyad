@@ -1193,23 +1193,45 @@ component ErrorRecovery
   u_swingup = Dyad.RealInput() {^u_swingup}
   "Control command"
   u = Dyad.RealOutput() {^u}
+  abs_angle = BlockComponents.Math.Abs() {^abs_angle}
+  out_of_bounds = BlockComponents.Logical.GreaterThreshold(threshold = arm_limit) {^out_of_bounds}
+  recovery = BlockComponents.Math.Gain(k = recovery_gain) {^recovery}
+  selector = BlockComponents.Logical.Switch() {^selector}
   "Arm angle beyond which the corrective term takes over"
   parameter arm_limit::Real = 1.9198621771937625
   "Proportional gain applied to the arm angle when out of bounds"
   parameter recovery_gain::Real = -0.5
 relations
-  u = ifelse(abs(shoulder_angle) > arm_limit, recovery_gain * shoulder_angle, u_swingup)
+  connect(shoulder_angle, abs_angle.u)
+  connect(shoulder_angle, recovery.u)
+  connect(abs_angle.y, out_of_bounds.u)
+  connect(out_of_bounds.y, selector.u2)
+  connect(recovery.y, selector.u1)
+  connect(u_swingup, selector.u3)
+  connect(selector.y, u)
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/ErrorRecovery.svg"}},
   "_links": {
     "shoulder_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 190, "y2": 290}}}
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 150, "y2": 250}}}
     },
     "u_swingup": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 700, "y2": 800}}}
     },
     "u": {
-      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 1150, "x2": 1250, "y1": 450, "y2": 550}}}
+    },
+    "abs_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 200, "x2": 300, "y1": 150, "y2": 250}}}
+    },
+    "out_of_bounds": {
+      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 150, "y2": 250}}}
+    },
+    "recovery": {
+      "Dyad": {"placement": {"diagram": {"x1": 200, "x2": 300, "y1": 450, "y2": 550}}}
+    },
+    "selector": {
+      "Dyad": {"placement": {"diagram": {"x1": 800, "x2": 900, "y1": 400, "y2": 500}}}
     }
   }
 }
@@ -1225,18 +1247,30 @@ The sliding-mode law is the shared `DiscreteComponents.SuperTwistingSMC` block; 
 sliding surface is formed by scaling the arm angle (`lambda_gain`) and adding the
 estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
 """
-component GoHome@[input clk extends Discrete]
+component GoHome
   "Measured arm (shoulder) angle"
-  shoulder_angle = RealInput@[clk]() {^shoulder_angle}
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
   "Homing control command"
-  u = RealOutput@[clk]() {^u}
+  u = Dyad.RealOutput() {^u}
   "1 once the arm has been home for `home_time`, else 0"
-  done = RealOutput@[clk]() {^done}
+  done = Dyad.RealOutput() {^done}
   velocityestimator = QuanserComponents.VelocityEstimator() {^velocityestimator}
   lambda_gain = BlockComponents.Math.Gain(k = lambda) {^lambda_gain}
   surface = BlockComponents.Math.Add() {^surface}
   smc = DiscreteComponents.SuperTwistingSMC(k = k, k2 = k2) {^smc}
-  structural parameter Ts::Real = SampleTime()
+  limiter = BlockComponents.Nonlinear.Limiter(y_max = th) {^limiter}
+  abs_angle = BlockComponents.Math.Abs() {^abs_angle}
+  angle_ok = BlockComponents.Logical.LessThreshold(threshold = angle_tol) {^angle_ok}
+  abs_vel = BlockComponents.Math.Abs() {^abs_vel}
+  vel_ok = BlockComponents.Logical.LessThreshold(threshold = vel_tol) {^vel_ok}
+  homed = BlockComponents.Logical.And() {^homed}
+  dwell = DiscreteComponents.SampleTimeSource() {^dwell}
+  count_inc = BlockComponents.Math.Add() {^count_inc}
+  zero = BlockComponents.Sources.Constant(k = 0) {^zero}
+  count_switch = BlockComponents.Logical.Switch() {^count_switch}
+  count_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^count_delay}
+  done_cmp = BlockComponents.Logical.GreaterEqualThreshold(threshold = home_time) {^done_cmp}
+  done_flag = BlockComponents.Math.BooleanToReal() {^done_flag}
   "Super-twisting control gain"
   parameter k::Real = 0.2
   "Super-twisting integral-term tuning"
@@ -1251,18 +1285,33 @@ component GoHome@[input clk extends Discrete]
   parameter vel_tol::Real = 0.5
   "Time the arm must stay home before `done`"
   parameter home_time::Real = 1.0
-  variable homed_now::Real
-  variable count::Real
 relations
-  connect(shoulder_angle, velocityestimator.pos, lambda_gain.u) {^id5}
-  connect(lambda_gain.y, surface.u1) {^id10}
-  connect(velocityestimator.vel, surface.u2) {^id11}
-  connect(surface.y, smc.s) {^id12}
-  u = clamp(smc.y, -th, th)
-  homed_now = ifelse(abs(shoulder_angle) < angle_tol, ifelse(abs(velocityestimator.vel) < vel_tol, 1.0, 0.0), 0.0)
-  count@clk = ifelse(homed_now > 0.5, count@(clk-1) + Ts, 0.0)
-  done = ifelse(count >= home_time, 1.0, 0.0)
-  initial count@(clk-1) = 0.0
+  # Sliding-mode homing law: s = arm_velocity + lambda*arm_angle, saturated to ±th
+  connect(shoulder_angle, velocityestimator.pos)
+  connect(shoulder_angle, lambda_gain.u)
+  connect(lambda_gain.y, surface.u1)
+  connect(velocityestimator.vel, surface.u2)
+  connect(surface.y, smc.s)
+  connect(smc.y, limiter.u)
+  connect(limiter.y, u)
+  # Home detection: |arm_angle| < angle_tol AND |arm_velocity| < vel_tol
+  connect(shoulder_angle, abs_angle.u)
+  connect(abs_angle.y, angle_ok.u)
+  connect(velocityestimator.vel, abs_vel.u)
+  connect(abs_vel.y, vel_ok.u)
+  connect(angle_ok.y, homed.u1)
+  connect(vel_ok.y, homed.u2)
+  # Dwell counter: accumulate Ts while homed, reset to 0 otherwise
+  connect(count_delay.y, count_inc.u1)
+  connect(dwell.y, count_inc.u2)
+  connect(count_inc.y, count_switch.u1)
+  connect(zero.y, count_switch.u3)
+  connect(homed.y, count_switch.u2)
+  connect(count_switch.y, count_delay.u)
+  # done once the dwell time reaches home_time
+  connect(count_switch.y, done_cmp.u)
+  connect(done_cmp.y, done_flag.u)
+  connect(done_flag.y, done)
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/GoHome.svg"}},
   "_links": {
@@ -1270,27 +1319,62 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
     },
     "u": {
-      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 730, "y2": 830}}}
+      "Dyad": {"placement": {"diagram": {"x1": 1300, "x2": 1400, "y1": 550, "y2": 650}}}
     },
     "done": {
-      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 210, "y2": 310}}}
+      "Dyad": {"placement": {"diagram": {"x1": 1650, "x2": 1750, "y1": 100, "y2": 200}}}
     },
     "velocityestimator": {
-      "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 400, "y2": 500}}}
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 700, "y2": 800}}}
     },
     "lambda_gain": {
-      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 620, "y2": 720}}}
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 470, "y2": 570}}}
     },
     "surface": {
-      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 560, "y2": 660}}}
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 500, "y2": 600}}}
     },
     "smc": {
-      "Dyad": {"placement": {"diagram": {"x1": 680, "x2": 780, "y1": 480, "y2": 580}}}
+      "Dyad": {"placement": {"diagram": {"x1": 650, "x2": 750, "y1": 500, "y2": 600}}}
     },
-    "id5": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id10": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id11": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+    "limiter": {
+      "Dyad": {"placement": {"diagram": {"x1": 950, "x2": 1050, "y1": 550, "y2": 650}}}
+    },
+    "abs_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 100, "y2": 200}}}
+    },
+    "angle_ok": {
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 100, "y2": 200}}}
+    },
+    "abs_vel": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 250, "y2": 350}}}
+    },
+    "vel_ok": {
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 250, "y2": 350}}}
+    },
+    "homed": {
+      "Dyad": {"placement": {"diagram": {"x1": 650, "x2": 750, "y1": 150, "y2": 250}}}
+    },
+    "dwell": {
+      "Dyad": {"placement": {"diagram": {"x1": 650, "x2": 750, "y1": 320, "y2": 420}}}
+    },
+    "count_inc": {
+      "Dyad": {"placement": {"diagram": {"x1": 850, "x2": 950, "y1": 330, "y2": 430}}}
+    },
+    "zero": {
+      "Dyad": {"placement": {"diagram": {"x1": 850, "x2": 950, "y1": 100, "y2": 200}}}
+    },
+    "count_switch": {
+      "Dyad": {"placement": {"diagram": {"x1": 1050, "x2": 1150, "y1": 200, "y2": 300}}}
+    },
+    "count_delay": {
+      "Dyad": {"placement": {"diagram": {"x1": 1050, "x2": 1150, "y1": 450, "y2": 550}}}
+    },
+    "done_cmp": {
+      "Dyad": {"placement": {"diagram": {"x1": 1300, "x2": 1400, "y1": 100, "y2": 200}}}
+    },
+    "done_flag": {
+      "Dyad": {"placement": {"diagram": {"x1": 1500, "x2": 1600, "y1": 100, "y2": 200}}}
+    }
   }
 }
 end
@@ -1359,71 +1443,153 @@ arm, then switches to the `RuntimeController` (swing-up + stabilization + error
 recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
 `oob_threshold`), it switches back to `GoHome` and re-homes.
 """
-component SwingupWithHoming@[input clk extends Discrete]
+component SwingupWithHoming
   "Measured arm (shoulder) angle"
-  shoulder_angle = RealInput@[clk]() {^shoulder_angle}
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
   "Measured pendulum (elbow) angle"
-  elbow_angle = RealInput@[clk]() {^elbow_angle}
+  elbow_angle = Dyad.RealInput() {^elbow_angle}
   "Control command"
-  u = RealOutput@[clk]() {^u}
+  u = Dyad.RealOutput() {^u}
   gohome = QuanserComponents.GoHome() {^gohome}
   runtime = QuanserComponents.RuntimeController() {^runtime}
+  abs_arm = BlockComponents.Math.Abs() {^abs_arm}
+  out_of_bounds = BlockComponents.Logical.GreaterThreshold(threshold = arm_limit) {^out_of_bounds}
+  oob_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^oob_delay}
+  increment = BlockComponents.Sources.Constant(k = oob_increment) {^increment}
+  count_up = BlockComponents.Math.Add() {^count_up}
+  one = BlockComponents.Sources.Constant(k = 1) {^one}
+  count_down = BlockComponents.Math.Add(k2 = -1) {^count_down}
+  zero = BlockComponents.Sources.Constant(k = 0) {^zero}
+  count_down_clamped = BlockComponents.Math.Max() {^count_down_clamped}
+  accumulate = BlockComponents.Logical.Switch() {^accumulate}
+  runtime_gate = BlockComponents.Logical.Switch() {^runtime_gate}
+  fault = BlockComponents.Logical.GreaterThreshold(threshold = oob_threshold) {^fault}
+  in_runtime_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^in_runtime_delay}
+  was_runtime = BlockComponents.Logical.GreaterThreshold(threshold = 0.5) {^was_runtime}
+  not_fault = BlockComponents.Logical.Not() {^not_fault}
+  stay_flag = BlockComponents.Math.BooleanToReal() {^stay_flag}
+  in_runtime_switch = BlockComponents.Logical.Switch() {^in_runtime_switch}
+  in_runtime_now = BlockComponents.Logical.GreaterThreshold(threshold = 0.5) {^in_runtime_now}
+  command_switch = BlockComponents.Logical.Switch() {^command_switch}
   "Arm angle beyond which the out-of-bounds counter accumulates"
   parameter arm_limit::Real = 1.9198621771937625
   "Amount added to the out-of-bounds counter each out-of-bounds step"
   parameter oob_increment::Real = 20.0
   "Out-of-bounds counter value that triggers re-homing"
   parameter oob_threshold::Real = 1000.0
-  "1 while in the runtime state, 0 while homing"
-  variable in_runtime::Real
-  "Out-of-bounds accumulator (runtime state only)"
-  variable oob_counter::Real
-  "1 when the arm is currently out of bounds"
-  variable oob_now::Real
-  "1 when persistent out-of-bounds forces a re-home"
-  variable fault::Real
 relations
-  connect(elbow_angle, runtime.elbow_angle) {^id6}
-  oob_now = ifelse(abs(shoulder_angle) > arm_limit, 1.0, 0.0)
-  oob_counter@clk = ifelse(in_runtime@(clk-1) > 0.5, ifelse(oob_now > 0.5, oob_counter@(clk-1) + oob_increment, max(0.0, oob_counter@(clk-1) - 1.0)), 0.0)
-  fault = ifelse(oob_counter > oob_threshold, 1.0, 0.0)
-  in_runtime@clk = ifelse(in_runtime@(clk-1) > 0.5, ifelse(fault > 0.5, 0.0, 1.0), ifelse(gohome.done > 0.5, 1.0, 0.0))
-  u = ifelse(in_runtime@clk > 0.5, runtime.u, gohome.u)
-  initial in_runtime@(clk-1) = 0.0
-  initial oob_counter@(clk-1) = 0.0
-  connect(shoulder_angle, runtime.shoulder_angle, gohome.shoulder_angle) {^id7}
+  # Route measurements to both sub-controllers
+  connect(shoulder_angle, runtime.shoulder_angle)
+  connect(shoulder_angle, gohome.shoulder_angle)
+  connect(shoulder_angle, abs_arm.u)
+  connect(elbow_angle, runtime.elbow_angle)
+  # Out-of-bounds detection: |arm_angle| > arm_limit
+  connect(abs_arm.y, out_of_bounds.u)
+  # Out-of-bounds accumulator (runtime state only):
+  #   was_runtime ? (out_of_bounds ? prev + oob_increment : max(prev - 1, 0)) : 0
+  connect(oob_delay.y, count_up.u1)
+  connect(increment.y, count_up.u2)
+  connect(oob_delay.y, count_down.u1)
+  connect(one.y, count_down.u2)
+  connect(count_down.y, count_down_clamped.u1)
+  connect(zero.y, count_down_clamped.u2)
+  connect(count_up.y, accumulate.u1)
+  connect(count_down_clamped.y, accumulate.u3)
+  connect(out_of_bounds.y, accumulate.u2)
+  connect(accumulate.y, runtime_gate.u1)
+  connect(zero.y, runtime_gate.u3)
+  connect(was_runtime.y, runtime_gate.u2)
+  connect(runtime_gate.y, oob_delay.u)
+  connect(runtime_gate.y, fault.u)
+  # Runtime/home latch:
+  #   was_runtime ? (fault ? 0 : 1) : (gohome.done ? 1 : 0)
+  connect(in_runtime_delay.y, was_runtime.u)
+  connect(fault.y, not_fault.u)
+  connect(not_fault.y, stay_flag.u)
+  connect(stay_flag.y, in_runtime_switch.u1)
+  connect(gohome.done, in_runtime_switch.u3)
+  connect(was_runtime.y, in_runtime_switch.u2)
+  connect(in_runtime_switch.y, in_runtime_delay.u)
+  connect(in_runtime_switch.y, in_runtime_now.u)
+  # Command selection: in_runtime ? runtime.u : gohome.u
+  connect(in_runtime_now.y, command_switch.u2)
+  connect(runtime.u, command_switch.u1)
+  connect(gohome.u, command_switch.u3)
+  connect(command_switch.y, u)
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupWithHoming.svg"}},
   "_links": {
     "shoulder_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 400, "y2": 500}}}
     },
     "elbow_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 680, "y2": 780}}}
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 1050, "y2": 1150}}}
     },
     "u": {
-      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 2350, "x2": 2450, "y1": 300, "y2": 400}}}
     },
     "gohome": {
-      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 100, "y2": 200}}}
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 50, "y2": 150}}}
     },
     "runtime": {
-      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 240, "y2": 340}}}
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 1050, "y2": 1150}}}
     },
-    "id6": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 392.5, "y": 730}, {"x": 392.5, "y": 314}], "E": 2}]
-      }
+    "abs_arm": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 400, "y2": 500}}}
     },
-    "id7": {
-      "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": -50, "y": 266}], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 420, "y": 150}], "E": -1}
-        ],
-        "junctions": [{"x": 420, "y": 266}]
-      }
+    "out_of_bounds": {
+      "Dyad": {"placement": {"diagram": {"x1": 350, "x2": 450, "y1": 400, "y2": 500}}}
+    },
+    "oob_delay": {
+      "Dyad": {"placement": {"diagram": {"x1": 350, "x2": 450, "y1": 650, "y2": 750}}}
+    },
+    "increment": {
+      "Dyad": {"placement": {"diagram": {"x1": 500, "x2": 600, "y1": 550, "y2": 650}}}
+    },
+    "count_up": {
+      "Dyad": {"placement": {"diagram": {"x1": 700, "x2": 800, "y1": 600, "y2": 700}}}
+    },
+    "one": {
+      "Dyad": {"placement": {"diagram": {"x1": 500, "x2": 600, "y1": 800, "y2": 900}}}
+    },
+    "count_down": {
+      "Dyad": {"placement": {"diagram": {"x1": 700, "x2": 800, "y1": 800, "y2": 900}}}
+    },
+    "zero": {
+      "Dyad": {"placement": {"diagram": {"x1": 700, "x2": 800, "y1": 1000, "y2": 1100}}}
+    },
+    "count_down_clamped": {
+      "Dyad": {"placement": {"diagram": {"x1": 900, "x2": 1000, "y1": 850, "y2": 950}}}
+    },
+    "accumulate": {
+      "Dyad": {"placement": {"diagram": {"x1": 1100, "x2": 1200, "y1": 700, "y2": 800}}}
+    },
+    "runtime_gate": {
+      "Dyad": {"placement": {"diagram": {"x1": 1350, "x2": 1450, "y1": 600, "y2": 700}}}
+    },
+    "fault": {
+      "Dyad": {"placement": {"diagram": {"x1": 1600, "x2": 1700, "y1": 600, "y2": 700}}}
+    },
+    "in_runtime_delay": {
+      "Dyad": {"placement": {"diagram": {"x1": 1350, "x2": 1450, "y1": 850, "y2": 950}}}
+    },
+    "was_runtime": {
+      "Dyad": {"placement": {"diagram": {"x1": 1600, "x2": 1700, "y1": 850, "y2": 950}}}
+    },
+    "not_fault": {
+      "Dyad": {"placement": {"diagram": {"x1": 1800, "x2": 1900, "y1": 600, "y2": 700}}}
+    },
+    "stay_flag": {
+      "Dyad": {"placement": {"diagram": {"x1": 1950, "x2": 2050, "y1": 550, "y2": 650}}}
+    },
+    "in_runtime_switch": {
+      "Dyad": {"placement": {"diagram": {"x1": 2100, "x2": 2200, "y1": 400, "y2": 500}}}
+    },
+    "in_runtime_now": {
+      "Dyad": {"placement": {"diagram": {"x1": 2100, "x2": 2200, "y1": 150, "y2": 250}}}
+    },
+    "command_switch": {
+      "Dyad": {"placement": {"diagram": {"x1": 2200, "x2": 2300, "y1": 250, "y2": 350}}}
     }
   }
 }

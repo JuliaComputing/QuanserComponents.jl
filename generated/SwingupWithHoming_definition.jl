@@ -27,15 +27,6 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
  * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
-
-## Variables
-
-| Name         | Description                         | Units  | 
-| ------------ | ----------------------------------- | ------ |
-| `in_runtime`         | 1 while in the runtime state, 0 while homing                         | --  |
-| `oob_counter`         | Out-of-bounds accumulator (runtime state only)                         | --  |
-| `oob_now`         | 1 when the arm is currently out of bounds                         | --  |
-| `fault`         | 1 when persistent out-of-bounds forces a re-home                         | --  |
 """
 @component function SwingupWithHoming(; name = nothing, arm_limit=1.9198621771937625, oob_increment=Float64(20.0), oob_threshold=Float64(1000.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
@@ -86,20 +77,8 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   append!(__vars, @variables (u(t)::Real), [output = true])
 
   ### Variables (declarations)
-  append!(__vars, @variables (in_runtime(t)::Real), [description = "1 while in the runtime state, 0 while homing"])
-  append!(__vars, @variables (oob_counter(t)::Real), [description = "Out-of-bounds accumulator (runtime state only)"])
-  append!(__vars, @variables (oob_now(t)::Real), [description = "1 when the arm is currently out of bounds"])
-  append!(__vars, @variables (fault(t)::Real), [description = "1 when persistent out-of-bounds forces a re-home"])
 
   ### Variables (assignments)
-  __ovr_in_runtime = pop!(__overrides, "in_runtime", nothing); isnothing(__ovr_in_runtime) || push!(__eqs, in_runtime ~ __ovr_in_runtime)
-  __ovr_in_runtime__initial = pop!(__overrides, "in_runtime__initial", nothing); isnothing(__ovr_in_runtime__initial) || (__initial_conditions[in_runtime] = __ovr_in_runtime__initial)
-  __ovr_oob_counter = pop!(__overrides, "oob_counter", nothing); isnothing(__ovr_oob_counter) || push!(__eqs, oob_counter ~ __ovr_oob_counter)
-  __ovr_oob_counter__initial = pop!(__overrides, "oob_counter__initial", nothing); isnothing(__ovr_oob_counter__initial) || (__initial_conditions[oob_counter] = __ovr_oob_counter__initial)
-  __ovr_oob_now = pop!(__overrides, "oob_now", nothing); isnothing(__ovr_oob_now) || push!(__eqs, oob_now ~ __ovr_oob_now)
-  __ovr_oob_now__initial = pop!(__overrides, "oob_now__initial", nothing); isnothing(__ovr_oob_now__initial) || (__initial_conditions[oob_now] = __ovr_oob_now__initial)
-  __ovr_fault = pop!(__overrides, "fault", nothing); isnothing(__ovr_fault) || push!(__eqs, fault ~ __ovr_fault)
-  __ovr_fault__initial = pop!(__overrides, "fault__initial", nothing); isnothing(__ovr_fault__initial) || (__initial_conditions[fault] = __ovr_fault__initial)
 
   ### Constants
   __constants = Any[]
@@ -111,6 +90,63 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   # Subcomponent runtime of type QuanserComponents.RuntimeController
   runtime_overrides = __pop_subcomponent_overrides!(__overrides, "runtime")
   push!(__systems, @named runtime = QuanserComponents.RuntimeController(; runtime_overrides...))
+  # Subcomponent abs_arm of type BlockComponents.Math.Abs
+  abs_arm_overrides = __pop_subcomponent_overrides!(__overrides, "abs_arm")
+  push!(__systems, @named abs_arm = BlockComponents.Math.Abs(; abs_arm_overrides...))
+  # Subcomponent out_of_bounds of type BlockComponents.Logical.GreaterThreshold
+  out_of_bounds_overrides = __pop_subcomponent_overrides!(__overrides, "out_of_bounds")
+  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; threshold=arm_limit, out_of_bounds_overrides...))
+  # Subcomponent oob_delay of type DiscreteComponents.UnitDelay
+  oob_delay_overrides = __pop_subcomponent_overrides!(__overrides, "oob_delay")
+  push!(__systems, @named oob_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), oob_delay_overrides...))
+  # Subcomponent increment of type BlockComponents.Sources.Constant
+  increment_overrides = __pop_subcomponent_overrides!(__overrides, "increment")
+  push!(__systems, @named increment = BlockComponents.Sources.Constant(; k=oob_increment, increment_overrides...))
+  # Subcomponent count_up of type BlockComponents.Math.Add
+  count_up_overrides = __pop_subcomponent_overrides!(__overrides, "count_up")
+  push!(__systems, @named count_up = BlockComponents.Math.Add(; count_up_overrides...))
+  # Subcomponent one of type BlockComponents.Sources.Constant
+  one_overrides = __pop_subcomponent_overrides!(__overrides, "one")
+  push!(__systems, @named one = BlockComponents.Sources.Constant(; k=Float64(1), one_overrides...))
+  # Subcomponent count_down of type BlockComponents.Math.Add
+  count_down_overrides = __pop_subcomponent_overrides!(__overrides, "count_down")
+  push!(__systems, @named count_down = BlockComponents.Math.Add(; k2=Float64(-1), count_down_overrides...))
+  # Subcomponent zero of type BlockComponents.Sources.Constant
+  zero_overrides = __pop_subcomponent_overrides!(__overrides, "zero")
+  push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), zero_overrides...))
+  # Subcomponent count_down_clamped of type BlockComponents.Math.Max
+  count_down_clamped_overrides = __pop_subcomponent_overrides!(__overrides, "count_down_clamped")
+  push!(__systems, @named count_down_clamped = BlockComponents.Math.Max(; count_down_clamped_overrides...))
+  # Subcomponent accumulate of type BlockComponents.Logical.Switch
+  accumulate_overrides = __pop_subcomponent_overrides!(__overrides, "accumulate")
+  push!(__systems, @named accumulate = BlockComponents.Logical.Switch(; accumulate_overrides...))
+  # Subcomponent runtime_gate of type BlockComponents.Logical.Switch
+  runtime_gate_overrides = __pop_subcomponent_overrides!(__overrides, "runtime_gate")
+  push!(__systems, @named runtime_gate = BlockComponents.Logical.Switch(; runtime_gate_overrides...))
+  # Subcomponent fault of type BlockComponents.Logical.GreaterThreshold
+  fault_overrides = __pop_subcomponent_overrides!(__overrides, "fault")
+  push!(__systems, @named fault = BlockComponents.Logical.GreaterThreshold(; threshold=oob_threshold, fault_overrides...))
+  # Subcomponent in_runtime_delay of type DiscreteComponents.UnitDelay
+  in_runtime_delay_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_delay")
+  push!(__systems, @named in_runtime_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), in_runtime_delay_overrides...))
+  # Subcomponent was_runtime of type BlockComponents.Logical.GreaterThreshold
+  was_runtime_overrides = __pop_subcomponent_overrides!(__overrides, "was_runtime")
+  push!(__systems, @named was_runtime = BlockComponents.Logical.GreaterThreshold(; threshold=0.5, was_runtime_overrides...))
+  # Subcomponent not_fault of type BlockComponents.Logical.Not
+  not_fault_overrides = __pop_subcomponent_overrides!(__overrides, "not_fault")
+  push!(__systems, @named not_fault = BlockComponents.Logical.Not(; not_fault_overrides...))
+  # Subcomponent stay_flag of type BlockComponents.Math.BooleanToReal
+  stay_flag_overrides = __pop_subcomponent_overrides!(__overrides, "stay_flag")
+  push!(__systems, @named stay_flag = BlockComponents.Math.BooleanToReal(; stay_flag_overrides...))
+  # Subcomponent in_runtime_switch of type BlockComponents.Logical.Switch
+  in_runtime_switch_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_switch")
+  push!(__systems, @named in_runtime_switch = BlockComponents.Logical.Switch(; in_runtime_switch_overrides...))
+  # Subcomponent in_runtime_now of type BlockComponents.Logical.GreaterThreshold
+  in_runtime_now_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_now")
+  push!(__systems, @named in_runtime_now = BlockComponents.Logical.GreaterThreshold(; threshold=0.5, in_runtime_now_overrides...))
+  # Subcomponent command_switch of type BlockComponents.Logical.Switch
+  command_switch_overrides = __pop_subcomponent_overrides!(__overrides, "command_switch")
+  push!(__systems, @named command_switch = BlockComponents.Logical.Switch(; command_switch_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -118,20 +154,42 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   ### Guesses
 
   ### Initialization Equations
-  push!(__initialization_eqs, in_runtime(ShiftIndex() -1) ~ 0.0)
-  push!(__initialization_eqs, oob_counter(ShiftIndex() -1) ~ 0.0)
 
   ### Assertions
   __assertions = []
 
   ### Equations
-  push!(__eqs, oob_now ~ ifelse(abs(shoulder_angle) > arm_limit, 1.0, 0.0))
-  push!(__eqs, oob_counter ~ ifelse(in_runtime(ShiftIndex() -1) > 0.5, ifelse(oob_now > 0.5, oob_counter(ShiftIndex() -1) + oob_increment, max(0.0, oob_counter(ShiftIndex() -1) - 1.0)), 0.0))
-  push!(__eqs, fault ~ ifelse(oob_counter > oob_threshold, 1.0, 0.0))
-  push!(__eqs, in_runtime ~ ifelse(in_runtime(ShiftIndex() -1) > 0.5, ifelse(fault > 0.5, 0.0, 1.0), ifelse(gohome.done > 0.5, 1.0, 0.0)))
-  push!(__eqs, u ~ ifelse(in_runtime > 0.5, runtime.u, gohome.u))
+  push!(__eqs, connect(shoulder_angle, runtime.shoulder_angle))
+  push!(__eqs, connect(shoulder_angle, gohome.shoulder_angle))
+  push!(__eqs, connect(shoulder_angle, abs_arm.u))
   push!(__eqs, connect(elbow_angle, runtime.elbow_angle))
-  push!(__eqs, connect(shoulder_angle, runtime.shoulder_angle, gohome.shoulder_angle))
+  push!(__eqs, connect(abs_arm.y, out_of_bounds.u))
+  push!(__eqs, connect(oob_delay.y, count_up.u1))
+  push!(__eqs, connect(increment.y, count_up.u2))
+  push!(__eqs, connect(oob_delay.y, count_down.u1))
+  push!(__eqs, connect(one.y, count_down.u2))
+  push!(__eqs, connect(count_down.y, count_down_clamped.u1))
+  push!(__eqs, connect(zero.y, count_down_clamped.u2))
+  push!(__eqs, connect(count_up.y, accumulate.u1))
+  push!(__eqs, connect(count_down_clamped.y, accumulate.u3))
+  push!(__eqs, connect(out_of_bounds.y, accumulate.u2))
+  push!(__eqs, connect(accumulate.y, runtime_gate.u1))
+  push!(__eqs, connect(zero.y, runtime_gate.u3))
+  push!(__eqs, connect(was_runtime.y, runtime_gate.u2))
+  push!(__eqs, connect(runtime_gate.y, oob_delay.u))
+  push!(__eqs, connect(runtime_gate.y, fault.u))
+  push!(__eqs, connect(in_runtime_delay.y, was_runtime.u))
+  push!(__eqs, connect(fault.y, not_fault.u))
+  push!(__eqs, connect(not_fault.y, stay_flag.u))
+  push!(__eqs, connect(stay_flag.y, in_runtime_switch.u1))
+  push!(__eqs, connect(gohome.done, in_runtime_switch.u3))
+  push!(__eqs, connect(was_runtime.y, in_runtime_switch.u2))
+  push!(__eqs, connect(in_runtime_switch.y, in_runtime_delay.u))
+  push!(__eqs, connect(in_runtime_switch.y, in_runtime_now.u))
+  push!(__eqs, connect(in_runtime_now.y, command_switch.u2))
+  push!(__eqs, connect(runtime.u, command_switch.u1))
+  push!(__eqs, connect(gohome.u, command_switch.u3))
+  push!(__eqs, connect(command_switch.y, u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   GoHome(; name, Ts, k, k2, th, lambda, angle_tol, vel_tol, home_time)
+   GoHome(; name, k, k2, th, lambda, angle_tol, vel_tol, home_time)
 
 Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
 controller on the sliding surface s = arm_velocity + lambda*arm_angle, and reports
@@ -22,7 +22,6 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Ts`         |                          | --  |   SampleTime() |
 | `k`         | Super-twisting control gain                         | --  |   0.2 |
 | `k2`         | Super-twisting integral-term tuning                         | --  |   1.1 |
 | `th`         | Homing control saturation                         | --  |   5.0 |
@@ -36,15 +35,8 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
  * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `done` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
-
-## Variables
-
-| Name         | Description                         | Units  | 
-| ------------ | ----------------------------------- | ------ |
-| `homed_now`         |                          | --  |
-| `count`         |                          | --  |
 """
-@component function GoHome(; name = nothing, Ts=SampleTime(), k=0.2, k2=1.1, th=Float64(5.0), lambda=Float64(5.0), angle_tol=0.17453292519943295, vel_tol=0.5, home_time=Float64(1.0), kwargs...)
+@component function GoHome(; name = nothing, k=0.2, k2=1.1, th=Float64(5.0), lambda=Float64(5.0), angle_tol=0.17453292519943295, vel_tol=0.5, home_time=Float64(1.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -105,14 +97,8 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
   append!(__vars, @variables (done(t)::Real), [output = true])
 
   ### Variables (declarations)
-  append!(__vars, @variables (homed_now(t)::Real))
-  append!(__vars, @variables (count(t)::Real))
 
   ### Variables (assignments)
-  __ovr_homed_now = pop!(__overrides, "homed_now", nothing); isnothing(__ovr_homed_now) || push!(__eqs, homed_now ~ __ovr_homed_now)
-  __ovr_homed_now__initial = pop!(__overrides, "homed_now__initial", nothing); isnothing(__ovr_homed_now__initial) || (__initial_conditions[homed_now] = __ovr_homed_now__initial)
-  __ovr_count = pop!(__overrides, "count", nothing); isnothing(__ovr_count) || push!(__eqs, count ~ __ovr_count)
-  __ovr_count__initial = pop!(__overrides, "count__initial", nothing); isnothing(__ovr_count__initial) || (__initial_conditions[count] = __ovr_count__initial)
 
   ### Constants
   __constants = Any[]
@@ -130,6 +116,45 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
   # Subcomponent smc of type DiscreteComponents.SuperTwistingSMC
   smc_overrides = __pop_subcomponent_overrides!(__overrides, "smc")
   push!(__systems, @named smc = DiscreteComponents.SuperTwistingSMC(; k=k, k2=k2, smc_overrides...))
+  # Subcomponent limiter of type BlockComponents.Nonlinear.Limiter
+  limiter_overrides = __pop_subcomponent_overrides!(__overrides, "limiter")
+  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_max=th, limiter_overrides...))
+  # Subcomponent abs_angle of type BlockComponents.Math.Abs
+  abs_angle_overrides = __pop_subcomponent_overrides!(__overrides, "abs_angle")
+  push!(__systems, @named abs_angle = BlockComponents.Math.Abs(; abs_angle_overrides...))
+  # Subcomponent angle_ok of type BlockComponents.Logical.LessThreshold
+  angle_ok_overrides = __pop_subcomponent_overrides!(__overrides, "angle_ok")
+  push!(__systems, @named angle_ok = BlockComponents.Logical.LessThreshold(; threshold=angle_tol, angle_ok_overrides...))
+  # Subcomponent abs_vel of type BlockComponents.Math.Abs
+  abs_vel_overrides = __pop_subcomponent_overrides!(__overrides, "abs_vel")
+  push!(__systems, @named abs_vel = BlockComponents.Math.Abs(; abs_vel_overrides...))
+  # Subcomponent vel_ok of type BlockComponents.Logical.LessThreshold
+  vel_ok_overrides = __pop_subcomponent_overrides!(__overrides, "vel_ok")
+  push!(__systems, @named vel_ok = BlockComponents.Logical.LessThreshold(; threshold=vel_tol, vel_ok_overrides...))
+  # Subcomponent homed of type BlockComponents.Logical.And
+  homed_overrides = __pop_subcomponent_overrides!(__overrides, "homed")
+  push!(__systems, @named homed = BlockComponents.Logical.And(; homed_overrides...))
+  # Subcomponent dwell of type DiscreteComponents.SampleTimeSource
+  dwell_overrides = __pop_subcomponent_overrides!(__overrides, "dwell")
+  push!(__systems, @named dwell = DiscreteComponents.SampleTimeSource(; dwell_overrides...))
+  # Subcomponent count_inc of type BlockComponents.Math.Add
+  count_inc_overrides = __pop_subcomponent_overrides!(__overrides, "count_inc")
+  push!(__systems, @named count_inc = BlockComponents.Math.Add(; count_inc_overrides...))
+  # Subcomponent zero of type BlockComponents.Sources.Constant
+  zero_overrides = __pop_subcomponent_overrides!(__overrides, "zero")
+  push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), zero_overrides...))
+  # Subcomponent count_switch of type BlockComponents.Logical.Switch
+  count_switch_overrides = __pop_subcomponent_overrides!(__overrides, "count_switch")
+  push!(__systems, @named count_switch = BlockComponents.Logical.Switch(; count_switch_overrides...))
+  # Subcomponent count_delay of type DiscreteComponents.UnitDelay
+  count_delay_overrides = __pop_subcomponent_overrides!(__overrides, "count_delay")
+  push!(__systems, @named count_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), count_delay_overrides...))
+  # Subcomponent done_cmp of type BlockComponents.Logical.GreaterEqualThreshold
+  done_cmp_overrides = __pop_subcomponent_overrides!(__overrides, "done_cmp")
+  push!(__systems, @named done_cmp = BlockComponents.Logical.GreaterEqualThreshold(; threshold=home_time, done_cmp_overrides...))
+  # Subcomponent done_flag of type BlockComponents.Math.BooleanToReal
+  done_flag_overrides = __pop_subcomponent_overrides!(__overrides, "done_flag")
+  push!(__systems, @named done_flag = BlockComponents.Math.BooleanToReal(; done_flag_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -137,20 +162,33 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
   ### Guesses
 
   ### Initialization Equations
-  push!(__initialization_eqs, count(ShiftIndex() -1) ~ 0.0)
 
   ### Assertions
   __assertions = []
 
   ### Equations
-  push!(__eqs, u ~ clamp(smc.y, -th, th))
-  push!(__eqs, homed_now ~ ifelse(abs(shoulder_angle) < angle_tol, ifelse(abs(velocityestimator.vel) < vel_tol, 1.0, 0.0), 0.0))
-  push!(__eqs, count ~ ifelse(homed_now > 0.5, count(ShiftIndex() -1) + Ts, 0.0))
-  push!(__eqs, done ~ ifelse(count >= home_time, 1.0, 0.0))
-  push!(__eqs, connect(shoulder_angle, velocityestimator.pos, lambda_gain.u))
+  push!(__eqs, connect(shoulder_angle, velocityestimator.pos))
+  push!(__eqs, connect(shoulder_angle, lambda_gain.u))
   push!(__eqs, connect(lambda_gain.y, surface.u1))
   push!(__eqs, connect(velocityestimator.vel, surface.u2))
   push!(__eqs, connect(surface.y, smc.s))
+  push!(__eqs, connect(smc.y, limiter.u))
+  push!(__eqs, connect(limiter.y, u))
+  push!(__eqs, connect(shoulder_angle, abs_angle.u))
+  push!(__eqs, connect(abs_angle.y, angle_ok.u))
+  push!(__eqs, connect(velocityestimator.vel, abs_vel.u))
+  push!(__eqs, connect(abs_vel.y, vel_ok.u))
+  push!(__eqs, connect(angle_ok.y, homed.u1))
+  push!(__eqs, connect(vel_ok.y, homed.u2))
+  push!(__eqs, connect(count_delay.y, count_inc.u1))
+  push!(__eqs, connect(dwell.y, count_inc.u2))
+  push!(__eqs, connect(count_inc.y, count_switch.u1))
+  push!(__eqs, connect(zero.y, count_switch.u3))
+  push!(__eqs, connect(homed.y, count_switch.u2))
+  push!(__eqs, connect(count_switch.y, count_delay.u))
+  push!(__eqs, connect(count_switch.y, done_cmp.u))
+  push!(__eqs, connect(done_cmp.y, done_flag.u))
+  push!(__eqs, connect(done_flag.y, done))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
