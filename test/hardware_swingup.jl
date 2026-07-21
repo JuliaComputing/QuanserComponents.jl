@@ -7,6 +7,7 @@ using QuanserComponents
 # using ControlSystemsBase
 using QuanserInterface: energy, measure
 using StaticArrays
+using Plots
 
 
 const rr = Ref([0, pi, 0, 0])
@@ -15,6 +16,21 @@ nx  = 4     # number of states
 Ts  = 0.005 # sampling time
 ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
 
+
+using Statistics
+function centraldiff(v::AbstractMatrix)
+    dv = Base.diff(v, dims=1)/2
+    a1 = [dv[[1],:];dv]
+    a2 = [dv;dv[[end],:]]
+    a = a1+a2
+end
+
+function centraldiff(v::AbstractVector)
+    dv = Base.diff(v)/2
+    a1 = [dv[1];dv]
+    a2 = [dv;dv[end]]
+    a = a1+a2
+end
 function plotD(D, th=0.2)
     if size(D, 2) > 200*200
         return
@@ -28,9 +44,9 @@ function plotD(D, th=0.2)
     plot(tvec, y, sp=[1 2], lab = ["arm" "pend"] .* " meas", framestyle=:zerolines, layout=4)
     hline!([-pi pi], lab="", sp=2)
     hline!([-pi-th -pi+th pi-th pi+th], lab="", l=(:black, :dash), sp=2)
-    plot!(tvec, centraldiff(y) ./ median(diff(tvec)), sp=[3 4], lab="central diff")
-    plot!(tvec, u, sp=5, lab = "u", framestyle=:zerolines)
-    plot!(diff(D[1,:]), sp=6, lab="Δt"); hline!([process.Ts], sp=6, framestyle=:zerolines, lab="Ts")
+    # plot!(tvec, centraldiff(y) ./ median(diff(tvec)), sp=[3 4], lab="central diff")
+    plot!(tvec, u, sp=3, lab = "u", framestyle=:zerolines)
+    plot!(diff(D[1,:]), sp=4, lab="Δt"); hline!([process.Ts], sp=4, framestyle=:zerolines, lab="Ts")
 end
 
 function swingup(process; Tf = 10, verbose=true, stab=true, umax=2.0)
@@ -64,7 +80,7 @@ function swingup(process; Tf = 10, verbose=true, stab=true, umax=2.0)
         u = [0.0]
         oob = 0
         for i = 1:N
-            HardwareAbstractions.@periodically_yielding Ts begin 
+            HardwareAbstractions.@periodically Ts begin 
                 t = simulation ? (i-1)*Ts : time() - t_start
                 y = QuanserInterface.measure(process)
                 # r = rr[]
@@ -119,7 +135,7 @@ function runplot(process; kwargs...)
     plotD(D)
 end
 
-runplot(process; Tf = 20)
+runplot(process; Tf = 10)
 
 # ## Simulated process
 # process = QuanserInterface.QubeServoPendulumSimulator(; Ts, p = QuanserInterface.pendulum_parameters(true));
