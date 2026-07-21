@@ -57,7 +57,7 @@ function build_discrete_controller(; Ts = 0.005, overrides...)
     # other parameters (e.g. `energy.l => Lp/2`), so substitute to a fixed point.
     ss = ModelingToolkit.expand_connections(sys)
     dv = ModelingToolkit.default_values(ss)
-    values = Dict{Any, Float64}()
+    values = Dict{Any, Any}()
     for p in ModelingToolkit.parameters(ss)
         pu = ModelingToolkit.unwrap(p)
         values[pu] = _resolve_value(dv[pu], dv)
@@ -66,13 +66,16 @@ function build_discrete_controller(; Ts = 0.005, overrides...)
     return (; sys, swingup, clock, clk = ModelingToolkit.Clock(Ts), values)
 end
 
+# Resolve a possibly-symbolic default to a concrete number (or vector of numbers for
+# array parameters), substituting the default map to a fixed point.
 function _resolve_value(v, dv)
     x = ModelingToolkit.unwrap(v)
     for _ in 1:20
-        x isa Number && break
+        (x isa Number || x isa AbstractArray{<:Number}) && break
         x = ModelingToolkit.unwrap(ModelingToolkit.fixpoint_sub(x, dv))
     end
-    return Float64(Symbolics.value(x))
+    xv = Symbolics.value(x)
+    return xv isa AbstractArray ? Float64.(vec(collect(xv))) : Float64(xv)
 end
 
 """
@@ -150,9 +153,8 @@ function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = nothin
     auto = Base.invokelatest(AP; apkw...)
 
     lqr = gen.controller.swingup.lqrstabilizer
-    Ldef = [vals[ModelingToolkit.unwrap(lqr.L1)], vals[ModelingToolkit.unwrap(lqr.L2)],
-            vals[ModelingToolkit.unwrap(lqr.L3)], vals[ModelingToolkit.unwrap(lqr.L4)]]
-    Lv = L === nothing ? Ldef : collect(L)
+    Ldef = vals[ModelingToolkit.unwrap(lqr.L)]                # model default (4-vector)
+    Lv = L === nothing ? Ldef : collect(float.(L))
     umaxv = umax === nothing ? vals[ModelingToolkit.unwrap(lqr.umax)] : umax
     gains = Base.invokelatest(SG; L = Lv, umax = umaxv)
 

@@ -31,7 +31,7 @@ import Moshi as __Ext__Moshi
 | `e`         |                          | --  |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L=[-2.8515070942708687 - 24.415803244034326 - 0.9920297324372649 - 1.9975963404759338], umax=Float64(10.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, L=[-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338], umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
