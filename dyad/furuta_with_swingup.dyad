@@ -24,12 +24,7 @@ relations
 metadata {
   "_links": {
     "swingup": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 180, "y1": 440, "x2": 280, "y2": 340, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 180, "y1": 340, "x2": 280, "y2": 440}}}
     },
     "qubependulum": {
       "Dyad": {
@@ -88,20 +83,16 @@ metadata {
       }
     },
     "id9": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 160, "y": 630}, {"x": 160, "y": 419}], "E": 2}],
-        "renderStyle": "standard"
-      }
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 160, "y": 630}, {"x": 160, "y": 413}], "E": 2}]}
     },
     "id10": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
-          {"S": -1, "M": [{"x": 130, "y": 760}, {"x": 130, "y": 372}], "E": 2},
+          {"S": -1, "M": [{"x": 130, "y": 760}, {"x": 130, "y": 366}], "E": 2},
           {"S": 3, "M": [{"x": 520, "y": 910}], "E": -1}
         ],
-        "junctions": [{"x": 520, "y": 760}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 520, "y": 760}]
       }
     },
     "id11": {
@@ -883,10 +874,7 @@ component LQRstabilizer
   variable uraw::Real
   parameter umax::Real = 10.0
 relations
-  e = [0.0 - shoulder_angle,
-       pi - elbow_angle,
-       0.0 - shoulder_velocity,
-       0.0 - elbow_velocity]
+  e = [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity]
   uraw = dot(L, e)
   u = clamp(uraw, -umax, umax)
 metadata {
@@ -1209,6 +1197,19 @@ component ErrorRecovery
   parameter recovery_gain::Real = -0.5
 relations
   u = ifelse(abs(shoulder_angle) > arm_limit, recovery_gain * shoulder_angle, u_swingup)
+metadata {
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 190, "y2": 290}}}
+    },
+    "u_swingup": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 700, "y2": 800}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    }
+  }
+}
 end
 
 # Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
@@ -1244,7 +1245,7 @@ component GoHome@[input clk extends Discrete]
   variable homed_now::Real
   variable count::Real
 relations
-  connect(shoulder_angle, velocityestimator.pos)
+  connect(shoulder_angle, velocityestimator.pos) {^id5}
   s = velocityestimator.vel + lambda * shoulder_angle
   xi@clk = xi@(clk-1) + Ts * (-k2 * k * sign(s))
   uraw = -sqrt(k * abs(s)) * sign(s) + xi
@@ -1254,6 +1255,23 @@ relations
   done = ifelse(count >= home_time, 1.0, 0.0)
   initial xi@(clk-1) = 0.0
   initial count@(clk-1) = 0.0
+metadata {
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 730, "y2": 830}}}
+    },
+    "done": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 210, "y2": 310}}}
+    },
+    "velocityestimator": {
+      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 450, "y2": 550}}}
+    },
+    "id5": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+  }
+}
 end
 
 # The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
@@ -1269,10 +1287,46 @@ component RuntimeController
   swingup = QuanserComponents.Swingup() {^swingup}
   errorrecovery = QuanserComponents.ErrorRecovery() {^errorrecovery}
 relations
-  connect(shoulder_angle, swingup.shoulder_angle, errorrecovery.shoulder_angle) {^id1}
-  connect(elbow_angle, swingup.elbow_angle) {^id2}
-  connect(swingup.u, errorrecovery.u_swingup) {^id3}
-  connect(errorrecovery.u, u) {^id4}
+  connect(elbow_angle, swingup.elbow_angle) {^id6}
+  connect(swingup.u, errorrecovery.u_swingup) {^id7}
+  connect(errorrecovery.u, u) {^id8}
+  connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle) {^id9}
+metadata {
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}
+    },
+    "elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 690, "y2": 790}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
+    "swingup": {
+      "Dyad": {"placement": {"diagram": {"x1": 310, "x2": 410, "y1": 570, "y2": 470}}}
+    },
+    "errorrecovery": {
+      "Dyad": {"placement": {"diagram": {"x1": 620, "x2": 720, "y1": 450, "y2": 550}}}
+    },
+    "id6": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 130, "y": 740}, {"x": 130, "y": 549}], "E": 2}]}
+    },
+    "id7": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 575, "y": 520}, {"x": 575, "y": 525}], "E": 2}]}
+    },
+    "id8": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id9": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 575, "y": 474}, {"x": 575, "y": 400}], "E": -1},
+          {"S": -1, "M": [{"x": -50, "y": 400}], "E": 2},
+          {"S": 3, "M": [{"x": 250, "y": 502}], "E": -1}
+        ],
+        "junctions": [{"x": 250, "y": 400}]
+      }
+    }
+  }
+}
 end
 
 # Top-level controller with a two-state machine: it first runs `GoHome` to home the
@@ -1303,8 +1357,7 @@ component SwingupWithHoming@[input clk extends Discrete]
   "1 when persistent out-of-bounds forces a re-home"
   variable fault::Real
 relations
-  connect(shoulder_angle, gohome.shoulder_angle, runtime.shoulder_angle) {^id1}
-  connect(elbow_angle, runtime.elbow_angle) {^id2}
+  connect(elbow_angle, runtime.elbow_angle) {^id6}
   oob_now = ifelse(abs(shoulder_angle) > arm_limit, 1.0, 0.0)
   oob_counter@clk = ifelse(in_runtime@(clk-1) > 0.5, ifelse(oob_now > 0.5, oob_counter@(clk-1) + oob_increment, max(0.0, oob_counter@(clk-1) - 1.0)), 0.0)
   fault = ifelse(oob_counter > oob_threshold, 1.0, 0.0)
@@ -1312,4 +1365,39 @@ relations
   u = ifelse(in_runtime@clk > 0.5, runtime.u, gohome.u)
   initial in_runtime@(clk-1) = 0.0
   initial oob_counter@(clk-1) = 0.0
+  connect(shoulder_angle, runtime.shoulder_angle, gohome.shoulder_angle) {^id7}
+metadata {
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}
+    },
+    "elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 680, "y2": 780}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
+    "gohome": {
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 100, "y2": 200}}}
+    },
+    "runtime": {
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 240, "y2": 340}}}
+    },
+    "id6": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 392.5, "y": 730}, {"x": 392.5, "y": 314}], "E": 2}]
+      }
+    },
+    "id7": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": -50, "y": 266}], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": 3, "M": [{"x": 420, "y": 150}], "E": -1}
+        ],
+        "junctions": [{"x": 420, "y": 266}]
+      }
+    }
+  }
+}
 end
