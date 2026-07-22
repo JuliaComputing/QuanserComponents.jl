@@ -1,0 +1,19 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Circular arrow (mod 2pi concept) -->
+<path d="M500 240 A260 260 0 1 1 350 280" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+<!-- Arrowhead on circular arrow -->
+<polygon points="350,280 380,220 410,290" fill="#131316"/>
+<!-- "mod" text in center -->
+<text x="500" y="540" font-family="Arial, Helvetica, sans-serif" font-size="200" font-weight="bold" fill="#131316" text-anchor="middle">mod</text>
+<!-- "2π" below -->
+<text x="500" y="720" font-family="Arial, Helvetica, sans-serif" font-size="160" fill="#A1A1AA" text-anchor="middle">2π</text>
+</g>
+<defs>
+<clipPath id="clip0">
+<rect width="1000" height="1000" fill="white"/>
+</clipPath>
+</defs>
+</svg>

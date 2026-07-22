@@ -1,0 +1,24 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Pivot point -->
+<circle cx="500" cy="550" r="14" fill="#A1A1AA"/>
+<!-- "Near top" acceptance region (shaded wedge) -->
+<path d="M500 550 L420 280 A240 240 0 0 1 580 280 Z" fill="#131316" fill-opacity="0.1" stroke="#131316" stroke-width="4" stroke-dasharray="12,8"/>
+<!-- Pendulum rod (near top position) -->
+<line x1="500" y1="550" x2="480" y2="310" stroke="#131316" stroke-width="10" stroke-linecap="round"/>
+<!-- Pendulum bob -->
+<circle cx="480" cy="310" r="28" fill="#131316"/>
+<!-- Check mark -->
+<path d="M680 380 L730 440 L810 320" stroke="#131316" stroke-width="18" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- Angle indicator arcs -->
+<path d="M500 420 L480 430" stroke="#A1A1AA" stroke-width="3"/>
+<path d="M500 420 L520 430" stroke="#A1A1AA" stroke-width="3"/>
+</g>
+<defs>
+<clipPath id="clip0">
+<rect width="1000" height="1000" fill="white"/>
+</clipPath>
+</defs>
+</svg>
