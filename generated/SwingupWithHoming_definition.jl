@@ -95,13 +95,25 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   push!(__systems, @named abs_arm = BlockComponents.Math.Abs(; abs_arm_overrides...))
   # Subcomponent out_of_bounds of type BlockComponents.Logical.GreaterThreshold
   out_of_bounds_overrides = __pop_subcomponent_overrides!(__overrides, "out_of_bounds")
-  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; threshold=arm_limit, out_of_bounds_overrides...))
+  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; out_of_bounds_overrides...))
+  __bindings[out_of_bounds.threshold] = arm_limit
+  # Now remove initial conditions in out_of_bounds that correspond to the bindings just added
+  __out_of_bounds_ics = ModelingToolkit.get_initial_conditions(out_of_bounds)
+  __no_namespace_out_of_bounds = ModelingToolkit.toggle_namespacing(out_of_bounds, false)
+  __out_of_bounds_threshold = Symbolics.unwrap(__no_namespace_out_of_bounds.threshold)::Symbolics.SymbolicT
+  delete!(__out_of_bounds_ics, __out_of_bounds_threshold)
   # Subcomponent oob_delay of type DiscreteComponents.UnitDelay
   oob_delay_overrides = __pop_subcomponent_overrides!(__overrides, "oob_delay")
   push!(__systems, @named oob_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), oob_delay_overrides...))
   # Subcomponent increment of type BlockComponents.Sources.Constant
   increment_overrides = __pop_subcomponent_overrides!(__overrides, "increment")
-  push!(__systems, @named increment = BlockComponents.Sources.Constant(; k=oob_increment, increment_overrides...))
+  push!(__systems, @named increment = BlockComponents.Sources.Constant(; increment_overrides...))
+  __bindings[increment.k] = oob_increment
+  # Now remove initial conditions in increment that correspond to the bindings just added
+  __increment_ics = ModelingToolkit.get_initial_conditions(increment)
+  __no_namespace_increment = ModelingToolkit.toggle_namespacing(increment, false)
+  __increment_k = Symbolics.unwrap(__no_namespace_increment.k)::Symbolics.SymbolicT
+  delete!(__increment_ics, __increment_k)
   # Subcomponent count_up of type BlockComponents.Math.Add
   count_up_overrides = __pop_subcomponent_overrides!(__overrides, "count_up")
   push!(__systems, @named count_up = BlockComponents.Math.Add(; count_up_overrides...))
@@ -125,7 +137,13 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   push!(__systems, @named runtime_gate = BlockComponents.Logical.Switch(; runtime_gate_overrides...))
   # Subcomponent fault of type BlockComponents.Logical.GreaterThreshold
   fault_overrides = __pop_subcomponent_overrides!(__overrides, "fault")
-  push!(__systems, @named fault = BlockComponents.Logical.GreaterThreshold(; threshold=oob_threshold, fault_overrides...))
+  push!(__systems, @named fault = BlockComponents.Logical.GreaterThreshold(; fault_overrides...))
+  __bindings[fault.threshold] = oob_threshold
+  # Now remove initial conditions in fault that correspond to the bindings just added
+  __fault_ics = ModelingToolkit.get_initial_conditions(fault)
+  __no_namespace_fault = ModelingToolkit.toggle_namespacing(fault, false)
+  __fault_threshold = Symbolics.unwrap(__no_namespace_fault.threshold)::Symbolics.SymbolicT
+  delete!(__fault_ics, __fault_threshold)
   # Subcomponent in_runtime_delay of type DiscreteComponents.UnitDelay
   in_runtime_delay_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_delay")
   push!(__systems, @named in_runtime_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), in_runtime_delay_overrides...))
@@ -159,14 +177,10 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(shoulder_angle, runtime.shoulder_angle))
-  push!(__eqs, connect(shoulder_angle, gohome.shoulder_angle))
-  push!(__eqs, connect(shoulder_angle, abs_arm.u))
-  push!(__eqs, connect(elbow_angle, runtime.elbow_angle))
+  push!(__eqs, connect(runtime.shoulder_angle, abs_arm.u, shoulder_angle, gohome.shoulder_angle))
   push!(__eqs, connect(abs_arm.y, out_of_bounds.u))
-  push!(__eqs, connect(oob_delay.y, count_up.u1))
+  push!(__eqs, connect(oob_delay.y, count_down.u1, count_up.u1))
   push!(__eqs, connect(increment.y, count_up.u2))
-  push!(__eqs, connect(oob_delay.y, count_down.u1))
   push!(__eqs, connect(one.y, count_down.u2))
   push!(__eqs, connect(count_down.y, count_down_clamped.u1))
   push!(__eqs, connect(zero.y, count_down_clamped.u2))
@@ -190,6 +204,7 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   push!(__eqs, connect(runtime.u, command_switch.u1))
   push!(__eqs, connect(gohome.u, command_switch.u3))
   push!(__eqs, connect(command_switch.y, u))
+  push!(__eqs, connect(runtime.elbow_angle, elbow_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

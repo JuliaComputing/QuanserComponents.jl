@@ -84,10 +84,22 @@ guard in the hardware control loop.
   push!(__systems, @named abs_angle = BlockComponents.Math.Abs(; abs_angle_overrides...))
   # Subcomponent out_of_bounds of type BlockComponents.Logical.GreaterThreshold
   out_of_bounds_overrides = __pop_subcomponent_overrides!(__overrides, "out_of_bounds")
-  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; threshold=arm_limit, out_of_bounds_overrides...))
+  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; out_of_bounds_overrides...))
+  __bindings[out_of_bounds.threshold] = arm_limit
+  # Now remove initial conditions in out_of_bounds that correspond to the bindings just added
+  __out_of_bounds_ics = ModelingToolkit.get_initial_conditions(out_of_bounds)
+  __no_namespace_out_of_bounds = ModelingToolkit.toggle_namespacing(out_of_bounds, false)
+  __out_of_bounds_threshold = Symbolics.unwrap(__no_namespace_out_of_bounds.threshold)::Symbolics.SymbolicT
+  delete!(__out_of_bounds_ics, __out_of_bounds_threshold)
   # Subcomponent recovery of type BlockComponents.Math.Gain
   recovery_overrides = __pop_subcomponent_overrides!(__overrides, "recovery")
-  push!(__systems, @named recovery = BlockComponents.Math.Gain(; k=recovery_gain, recovery_overrides...))
+  push!(__systems, @named recovery = BlockComponents.Math.Gain(; recovery_overrides...))
+  __bindings[recovery.k] = recovery_gain
+  # Now remove initial conditions in recovery that correspond to the bindings just added
+  __recovery_ics = ModelingToolkit.get_initial_conditions(recovery)
+  __no_namespace_recovery = ModelingToolkit.toggle_namespacing(recovery, false)
+  __recovery_k = Symbolics.unwrap(__no_namespace_recovery.k)::Symbolics.SymbolicT
+  delete!(__recovery_ics, __recovery_k)
   # Subcomponent selector of type BlockComponents.Logical.Switch
   selector_overrides = __pop_subcomponent_overrides!(__overrides, "selector")
   push!(__systems, @named selector = BlockComponents.Logical.Switch(; selector_overrides...))
@@ -103,8 +115,7 @@ guard in the hardware control loop.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(shoulder_angle, abs_angle.u))
-  push!(__eqs, connect(shoulder_angle, recovery.u))
+  push!(__eqs, connect(shoulder_angle, recovery.u, abs_angle.u))
   push!(__eqs, connect(abs_angle.y, out_of_bounds.u))
   push!(__eqs, connect(out_of_bounds.y, selector.u2))
   push!(__eqs, connect(recovery.y, selector.u1))

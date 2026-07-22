@@ -464,7 +464,7 @@ end
 
 component VelocityEstimator
   discretederivative = DiscreteComponents.DiscreteDerivative() {^discretederivative}
-  exponentialfilter = DiscreteComponents.ExponentialFilter(a = filter_param) {^exponentialfilter}
+  exponentialfilter = DiscreteComponents.ExponentialFilter(final a = filter_param) {^exponentialfilter}
   pos = Dyad.RealInput() {^pos}
   vel = Dyad.RealOutput() {^vel}
   parameter filter_param::Real(min = 0, max = 1) = 0.5
@@ -532,7 +532,7 @@ component EnergySwingup
   sign = QuanserComponents.Sign() {^sign}
   product1 = BlockComponents.Math.Product() {^product1}
   realoutput = Dyad.RealOutput() {^realoutput}
-  limiter = BlockComponents.Nonlinear.Limiter(y_max = umax) {^limiter}
+  limiter = BlockComponents.Nonlinear.Limiter(final y_max = umax, y_min = -umax) {^limiter}
   cos = QuanserComponents.Cos() {^cos}
   gain1 = BlockComponents.Math.Gain(k = -1) {^gain1}
   "maximum control signal during swingup"
@@ -1187,8 +1187,8 @@ component ErrorRecovery
   "Control command"
   u = Dyad.RealOutput() {^u}
   abs_angle = BlockComponents.Math.Abs() {^abs_angle}
-  out_of_bounds = BlockComponents.Logical.GreaterThreshold(threshold = arm_limit) {^out_of_bounds}
-  recovery = BlockComponents.Math.Gain(k = recovery_gain) {^recovery}
+  out_of_bounds = BlockComponents.Logical.GreaterThreshold(final threshold = arm_limit) {^out_of_bounds}
+  recovery = BlockComponents.Math.Gain(final k = recovery_gain) {^recovery}
   selector = BlockComponents.Logical.Switch() {^selector}
   "Arm angle beyond which the corrective term takes over"
   parameter arm_limit::Real = 1.9198621771937625
@@ -1266,21 +1266,21 @@ component GoHome
   "1 once the arm has been home for `home_time`, else 0"
   done = Dyad.RealOutput() {^done}
   velocityestimator = QuanserComponents.VelocityEstimator() {^velocityestimator}
-  lambda_gain = BlockComponents.Math.Gain(k = lambda) {^lambda_gain}
+  lambda_gain = BlockComponents.Math.Gain(final k = lambda) {^lambda_gain}
   surface = BlockComponents.Math.Add() {^surface}
-  smc = DiscreteComponents.SuperTwistingSMC(k = k, k2 = k2) {^smc}
-  limiter = BlockComponents.Nonlinear.Limiter(y_max = th) {^limiter}
+  smc = DiscreteComponents.SuperTwistingSMC(final k = k, final k2 = k2) {^smc}
+  limiter = BlockComponents.Nonlinear.Limiter(final y_max = th, y_min = -th) {^limiter}
   abs_angle = BlockComponents.Math.Abs() {^abs_angle}
-  angle_ok = BlockComponents.Logical.LessThreshold(threshold = angle_tol) {^angle_ok}
+  angle_ok = BlockComponents.Logical.LessThreshold(final threshold = angle_tol) {^angle_ok}
   abs_vel = BlockComponents.Math.Abs() {^abs_vel}
-  vel_ok = BlockComponents.Logical.LessThreshold(threshold = vel_tol) {^vel_ok}
+  vel_ok = BlockComponents.Logical.LessThreshold(final threshold = vel_tol) {^vel_ok}
   homed = BlockComponents.Logical.And() {^homed}
   dwell = DiscreteComponents.SampleTimeSource() {^dwell}
   count_inc = BlockComponents.Math.Add() {^count_inc}
   zero = BlockComponents.Sources.Constant(k = 0) {^zero}
   count_switch = BlockComponents.Logical.Switch() {^count_switch}
   count_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^count_delay}
-  done_cmp = BlockComponents.Logical.GreaterEqualThreshold(threshold = home_time) {^done_cmp}
+  done_cmp = BlockComponents.Logical.GreaterEqualThreshold(final threshold = home_time) {^done_cmp}
   done_flag = BlockComponents.Math.BooleanToReal() {^done_flag}
   "Super-twisting control gain"
   parameter k::Real = 0.2
@@ -1529,9 +1529,9 @@ component SwingupWithHoming
   gohome = QuanserComponents.GoHome() {^gohome}
   runtime = QuanserComponents.RuntimeController() {^runtime}
   abs_arm = BlockComponents.Math.Abs() {^abs_arm}
-  out_of_bounds = BlockComponents.Logical.GreaterThreshold(threshold = arm_limit) {^out_of_bounds}
+  out_of_bounds = BlockComponents.Logical.GreaterThreshold(final threshold = arm_limit) {^out_of_bounds}
   oob_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^oob_delay}
-  increment = BlockComponents.Sources.Constant(k = oob_increment) {^increment}
+  increment = BlockComponents.Sources.Constant(final k = oob_increment) {^increment}
   count_up = BlockComponents.Math.Add() {^count_up}
   one = BlockComponents.Sources.Constant(k = 1) {^one}
   count_down = BlockComponents.Math.Add(k2 = -1) {^count_down}
@@ -1539,7 +1539,7 @@ component SwingupWithHoming
   count_down_clamped = BlockComponents.Math.Max() {^count_down_clamped}
   accumulate = BlockComponents.Logical.Switch() {^accumulate}
   runtime_gate = BlockComponents.Logical.Switch() {^runtime_gate}
-  fault = BlockComponents.Logical.GreaterThreshold(threshold = oob_threshold) {^fault}
+  fault = BlockComponents.Logical.GreaterThreshold(final threshold = oob_threshold) {^fault}
   in_runtime_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^in_runtime_delay}
   was_runtime = BlockComponents.Logical.GreaterThreshold(threshold = 0.5) {^was_runtime}
   not_fault = BlockComponents.Logical.Not() {^not_fault}

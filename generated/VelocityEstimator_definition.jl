@@ -74,7 +74,13 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named discretederivative = DiscreteComponents.DiscreteDerivative(; discretederivative_overrides...))
   # Subcomponent exponentialfilter of type DiscreteComponents.ExponentialFilter
   exponentialfilter_overrides = __pop_subcomponent_overrides!(__overrides, "exponentialfilter")
-  push!(__systems, @named exponentialfilter = DiscreteComponents.ExponentialFilter(; a=filter_param, exponentialfilter_overrides...))
+  push!(__systems, @named exponentialfilter = DiscreteComponents.ExponentialFilter(; exponentialfilter_overrides...))
+  __bindings[exponentialfilter.a] = filter_param
+  # Now remove initial conditions in exponentialfilter that correspond to the bindings just added
+  __exponentialfilter_ics = ModelingToolkit.get_initial_conditions(exponentialfilter)
+  __no_namespace_exponentialfilter = ModelingToolkit.toggle_namespacing(exponentialfilter, false)
+  __exponentialfilter_a = Symbolics.unwrap(__no_namespace_exponentialfilter.a)::Symbolics.SymbolicT
+  delete!(__exponentialfilter_ics, __exponentialfilter_a)
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))

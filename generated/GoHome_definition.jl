@@ -26,7 +26,7 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
 | `k2`         | Super-twisting integral-term tuning                         | --  |   1.1 |
 | `th`         | Homing control saturation                         | --  |   5.0 |
 | `lambda`         | Sliding-surface slope (velocity vs angle)                         | --  |   5.0 |
-| `angle_tol`         | Arm-angle tolerance for 'home'                         | --  |   0.17453292519943295 |
+| `angle_tol`         | Arm-angle tolerance for 'home'                         | --  |   deg2rad(10) |
 | `vel_tol`         | Arm-speed tolerance for 'home'                         | --  |   0.5 |
 | `home_time`         | Time the arm must stay home before `done`                         | --  |   1.0 |
 
@@ -36,7 +36,7 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `done` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function GoHome(; name = nothing, k=0.2, k2=1.1, th=Float64(5.0), lambda=Float64(5.0), angle_tol=0.17453292519943295, vel_tol=0.5, home_time=Float64(1.0), kwargs...)
+@component function GoHome(; name = nothing, k=0.2, k2=1.1, th=Float64(5.0), lambda=Float64(5.0), angle_tol=deg2rad(10), vel_tol=0.5, home_time=Float64(1.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -109,28 +109,61 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
   push!(__systems, @named velocityestimator = QuanserComponents.VelocityEstimator(; velocityestimator_overrides...))
   # Subcomponent lambda_gain of type BlockComponents.Math.Gain
   lambda_gain_overrides = __pop_subcomponent_overrides!(__overrides, "lambda_gain")
-  push!(__systems, @named lambda_gain = BlockComponents.Math.Gain(; k=lambda, lambda_gain_overrides...))
+  push!(__systems, @named lambda_gain = BlockComponents.Math.Gain(; lambda_gain_overrides...))
+  __bindings[lambda_gain.k] = lambda
+  # Now remove initial conditions in lambda_gain that correspond to the bindings just added
+  __lambda_gain_ics = ModelingToolkit.get_initial_conditions(lambda_gain)
+  __no_namespace_lambda_gain = ModelingToolkit.toggle_namespacing(lambda_gain, false)
+  __lambda_gain_k = Symbolics.unwrap(__no_namespace_lambda_gain.k)::Symbolics.SymbolicT
+  delete!(__lambda_gain_ics, __lambda_gain_k)
   # Subcomponent surface of type BlockComponents.Math.Add
   surface_overrides = __pop_subcomponent_overrides!(__overrides, "surface")
   push!(__systems, @named surface = BlockComponents.Math.Add(; surface_overrides...))
   # Subcomponent smc of type DiscreteComponents.SuperTwistingSMC
   smc_overrides = __pop_subcomponent_overrides!(__overrides, "smc")
-  push!(__systems, @named smc = DiscreteComponents.SuperTwistingSMC(; k=k, k2=k2, smc_overrides...))
+  push!(__systems, @named smc = DiscreteComponents.SuperTwistingSMC(; smc_overrides...))
+  __bindings[smc.k] = k
+  __bindings[smc.k2] = k2
+  # Now remove initial conditions in smc that correspond to the bindings just added
+  __smc_ics = ModelingToolkit.get_initial_conditions(smc)
+  __no_namespace_smc = ModelingToolkit.toggle_namespacing(smc, false)
+  __smc_k = Symbolics.unwrap(__no_namespace_smc.k)::Symbolics.SymbolicT
+  delete!(__smc_ics, __smc_k)
+  __smc_k2 = Symbolics.unwrap(__no_namespace_smc.k2)::Symbolics.SymbolicT
+  delete!(__smc_ics, __smc_k2)
   # Subcomponent limiter of type BlockComponents.Nonlinear.Limiter
   limiter_overrides = __pop_subcomponent_overrides!(__overrides, "limiter")
-  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_max=th, limiter_overrides...))
+  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_min=-th, limiter_overrides...))
+  __bindings[limiter.y_max] = th
+  # Now remove initial conditions in limiter that correspond to the bindings just added
+  __limiter_ics = ModelingToolkit.get_initial_conditions(limiter)
+  __no_namespace_limiter = ModelingToolkit.toggle_namespacing(limiter, false)
+  __limiter_y_max = Symbolics.unwrap(__no_namespace_limiter.y_max)::Symbolics.SymbolicT
+  delete!(__limiter_ics, __limiter_y_max)
   # Subcomponent abs_angle of type BlockComponents.Math.Abs
   abs_angle_overrides = __pop_subcomponent_overrides!(__overrides, "abs_angle")
   push!(__systems, @named abs_angle = BlockComponents.Math.Abs(; abs_angle_overrides...))
   # Subcomponent angle_ok of type BlockComponents.Logical.LessThreshold
   angle_ok_overrides = __pop_subcomponent_overrides!(__overrides, "angle_ok")
-  push!(__systems, @named angle_ok = BlockComponents.Logical.LessThreshold(; threshold=angle_tol, angle_ok_overrides...))
+  push!(__systems, @named angle_ok = BlockComponents.Logical.LessThreshold(; angle_ok_overrides...))
+  __bindings[angle_ok.threshold] = angle_tol
+  # Now remove initial conditions in angle_ok that correspond to the bindings just added
+  __angle_ok_ics = ModelingToolkit.get_initial_conditions(angle_ok)
+  __no_namespace_angle_ok = ModelingToolkit.toggle_namespacing(angle_ok, false)
+  __angle_ok_threshold = Symbolics.unwrap(__no_namespace_angle_ok.threshold)::Symbolics.SymbolicT
+  delete!(__angle_ok_ics, __angle_ok_threshold)
   # Subcomponent abs_vel of type BlockComponents.Math.Abs
   abs_vel_overrides = __pop_subcomponent_overrides!(__overrides, "abs_vel")
   push!(__systems, @named abs_vel = BlockComponents.Math.Abs(; abs_vel_overrides...))
   # Subcomponent vel_ok of type BlockComponents.Logical.LessThreshold
   vel_ok_overrides = __pop_subcomponent_overrides!(__overrides, "vel_ok")
-  push!(__systems, @named vel_ok = BlockComponents.Logical.LessThreshold(; threshold=vel_tol, vel_ok_overrides...))
+  push!(__systems, @named vel_ok = BlockComponents.Logical.LessThreshold(; vel_ok_overrides...))
+  __bindings[vel_ok.threshold] = vel_tol
+  # Now remove initial conditions in vel_ok that correspond to the bindings just added
+  __vel_ok_ics = ModelingToolkit.get_initial_conditions(vel_ok)
+  __no_namespace_vel_ok = ModelingToolkit.toggle_namespacing(vel_ok, false)
+  __vel_ok_threshold = Symbolics.unwrap(__no_namespace_vel_ok.threshold)::Symbolics.SymbolicT
+  delete!(__vel_ok_ics, __vel_ok_threshold)
   # Subcomponent homed of type BlockComponents.Logical.And
   homed_overrides = __pop_subcomponent_overrides!(__overrides, "homed")
   push!(__systems, @named homed = BlockComponents.Logical.And(; homed_overrides...))
@@ -151,7 +184,13 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
   push!(__systems, @named count_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), count_delay_overrides...))
   # Subcomponent done_cmp of type BlockComponents.Logical.GreaterEqualThreshold
   done_cmp_overrides = __pop_subcomponent_overrides!(__overrides, "done_cmp")
-  push!(__systems, @named done_cmp = BlockComponents.Logical.GreaterEqualThreshold(; threshold=home_time, done_cmp_overrides...))
+  push!(__systems, @named done_cmp = BlockComponents.Logical.GreaterEqualThreshold(; done_cmp_overrides...))
+  __bindings[done_cmp.threshold] = home_time
+  # Now remove initial conditions in done_cmp that correspond to the bindings just added
+  __done_cmp_ics = ModelingToolkit.get_initial_conditions(done_cmp)
+  __no_namespace_done_cmp = ModelingToolkit.toggle_namespacing(done_cmp, false)
+  __done_cmp_threshold = Symbolics.unwrap(__no_namespace_done_cmp.threshold)::Symbolics.SymbolicT
+  delete!(__done_cmp_ics, __done_cmp_threshold)
   # Subcomponent done_flag of type BlockComponents.Math.BooleanToReal
   done_flag_overrides = __pop_subcomponent_overrides!(__overrides, "done_flag")
   push!(__systems, @named done_flag = BlockComponents.Math.BooleanToReal(; done_flag_overrides...))
@@ -167,14 +206,12 @@ estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(shoulder_angle, velocityestimator.pos))
-  push!(__eqs, connect(shoulder_angle, lambda_gain.u))
+  push!(__eqs, connect(abs_angle.u, shoulder_angle, lambda_gain.u, velocityestimator.pos))
   push!(__eqs, connect(lambda_gain.y, surface.u1))
   push!(__eqs, connect(velocityestimator.vel, surface.u2))
   push!(__eqs, connect(surface.y, smc.s))
   push!(__eqs, connect(smc.y, limiter.u))
   push!(__eqs, connect(limiter.y, u))
-  push!(__eqs, connect(shoulder_angle, abs_angle.u))
   push!(__eqs, connect(abs_angle.y, angle_ok.u))
   push!(__eqs, connect(velocityestimator.vel, abs_vel.u))
   push!(__eqs, connect(abs_vel.y, vel_ok.u))

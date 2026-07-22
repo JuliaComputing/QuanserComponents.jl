@@ -113,7 +113,13 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named product1 = BlockComponents.Math.Product(; product1_overrides...))
   # Subcomponent limiter of type BlockComponents.Nonlinear.Limiter
   limiter_overrides = __pop_subcomponent_overrides!(__overrides, "limiter")
-  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_max=umax, limiter_overrides...))
+  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_min=-umax, limiter_overrides...))
+  __bindings[limiter.y_max] = umax
+  # Now remove initial conditions in limiter that correspond to the bindings just added
+  __limiter_ics = ModelingToolkit.get_initial_conditions(limiter)
+  __no_namespace_limiter = ModelingToolkit.toggle_namespacing(limiter, false)
+  __limiter_y_max = Symbolics.unwrap(__no_namespace_limiter.y_max)::Symbolics.SymbolicT
+  delete!(__limiter_ics, __limiter_y_max)
   # Subcomponent cos of type QuanserComponents.Cos
   cos_overrides = __pop_subcomponent_overrides!(__overrides, "cos")
   push!(__systems, @named cos = QuanserComponents.Cos(; cos_overrides...))
