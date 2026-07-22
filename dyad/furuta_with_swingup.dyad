@@ -24,7 +24,7 @@ relations
 metadata {
   "_links": {
     "swingup": {
-      "Dyad": {"placement": {"diagram": {"x1": 180, "y1": 440, "x2": 280, "y2": 340}}}
+      "Dyad": {"placement": {"diagram": {"x1": 90, "y1": 300, "x2": 270, "y2": 480}}}
     },
     "qubependulum": {
       "Dyad": {
@@ -78,13 +78,21 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 320, "y1": 340, "x2": 420, "y2": 440}}}
     },
     "id9": {
-      "Dyad": {"edges": [{"S": 1, "M": [{"x": 160, "y": 630}, {"x": 160, "y": 414}], "E": 2}]}
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 60, "y": 630}, {"x": 60, "y": 430}, {"x": 81, "y": 430}],
+            "E": 2
+          }
+        ]
+      }
     },
     "id10": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
-          {"S": -1, "M": [{"x": 130, "y": 760}, {"x": 130, "y": 367}], "E": 2},
+          {"S": -1, "M": [{"x": 30, "y": 760}, {"x": 30, "y": 332.4}], "E": 2},
           {"S": 3, "M": [{"x": 520, "y": 910}], "E": -1}
         ],
         "junctions": [{"x": 520, "y": 760}]
@@ -432,7 +440,7 @@ component Energy
 relations
   E = 0.5 * Jp_cm * dα ^ 2 + mp * g * l * (1 + cos(α))
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/Energy.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Energy.svg"}},
   "_links": {
     "α": {
       "Dyad": {
@@ -473,7 +481,7 @@ relations
   connect(pos, discretederivative.u) {^id6}
   connect(exponentialfilter.y, vel) {^id7}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/VelocityEstimator.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/VelocityEstimator.svg"}},
   "_links": {
     "discretederivative": {
       "Dyad": {
@@ -562,7 +570,7 @@ metadata {
     "experiments": {},
     "tests": {},
     "labels": [],
-    "icons": {"default": "dyad://DiscreteComponents/EnergySwingup.svg"},
+    "icons": {"default": "dyad://QuanserComponents/EnergySwingup.svg"},
     "path": {},
     "doc": {"behavior": true}
   },
@@ -845,7 +853,7 @@ component Sign
   extends BlockComponents.Interfaces.SISO
 relations
   y = sign(u)
-metadata {"Dyad": {"icons": {"default": "dyad://DiscreteComponents/Sign.svg"}}}
+metadata {"Dyad": {"icons": {"default": "dyad://QuanserComponents/Sign.svg"}}}
 end
 
 component AngleNormalization
@@ -853,7 +861,7 @@ component AngleNormalization
 relations
   y = mod(u, 2 * pi)
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/AngleNormalization.svg"}}
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/AngleNormalization.svg"}}
 }
 end
 
@@ -871,7 +879,7 @@ relations
   uraw = dot(L, [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity])
   u = clamp(uraw, -umax, umax)
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/LQRstabilizer.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/LQRstabilizer.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {
@@ -927,22 +935,21 @@ component Swingup
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
   lqrstabilizer = QuanserComponents.LQRstabilizer() {^lqrstabilizer}
   neartop = QuanserComponents.NearTop() {^neartop}
-  stabilizationswitch = QuanserComponents.StabilizationSwitch() {^stabilizationswitch}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
+  switch1 = BlockComponents.Logical.Switch() {^switch1}
 relations
-  connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle) {^id12}
+  connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u) {^id12}
   connect(lqrstabilizer.shoulder_velocity, velocityestimator_shoulder.vel, energyswingup.shoulder_velocity) {^id13}
-  connect(neartop.u, anglenormalization.y) {^id14}
-  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id15}
-  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id16}
-  connect(neartop.y, stabilizationswitch.neartop) {^id17}
-  connect(energyswingup.realoutput, stabilizationswitch.u_swingup) {^id18}
-  connect(lqrstabilizer.u, stabilizationswitch.u_lqr) {^id19}
-  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id20}
-  connect(stabilizationswitch.u, gain.u) {^id21}
-  connect(gain.y, u) {^id22}
+  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id14}
+  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id15}
+  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id16}
+  connect(gain.y, u) {^id17}
+  connect(energyswingup.realoutput, switch1.u1) {^id18}
+  connect(neartop.y, switch1.u2) {^id19}
+  connect(lqrstabilizer.u, switch1.u3) {^id20}
+  connect(switch1.y, gain.u) {^id21}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/Swingup.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Swingup.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {
@@ -977,192 +984,109 @@ metadata {
       }
     },
     "velocityestimator_elbow": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 60, "y1": 270, "x2": 160, "y2": 370, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 60, "y1": 220, "x2": 160, "y2": 320}}}
     },
     "energyswingup": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 360, "y1": 390, "x2": 520, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 290, "x2": 520, "y2": 450}}}
     },
-    "anglenormalization": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 100, "y1": 20, "x2": 200, "y2": 120, "rot": 0}
-        },
-        "tags": []
-      }
-    },
+    "anglenormalization": {"Dyad": {"placement": {"diagram": {"x1": 60, "y1": 80, "x2": 160, "y2": 180}}}},
     "lqrstabilizer": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 360, "y1": 690, "x2": 510, "y2": 840, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 690, "x2": 530, "y2": 860}}}
     },
     "neartop": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 330, "y1": 20, "x2": 430, "y2": 120, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "stabilizationswitch": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 650, "y1": 450, "x2": 750, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 520, "x2": 460, "y2": 620}}}
     },
     "gain": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 830, "y1": 450, "x2": 930, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 820, "y1": 450, "x2": 920, "y2": 550}}}
+    },
+    "switch1": {
+      "Dyad": {"placement": {"diagram": {"x1": 640, "x2": 740, "y1": 450, "y2": 550}}}
     },
     "id12": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [{"x": 230, "y": 70}], "E": -1},
-          {"S": -1, "M": [{"x": 230, "y": 700.5}], "E": 2},
-          {"S": 3, "M": [{"x": 291.8, "y": 412.4}, {"x": 291.8, "y": 410}], "E": -1}
+          {"S": 1, "M": [{"x": 230, "y": 130}], "E": -1},
+          {"S": 2, "M": [{"x": 291.8, "y": 312.4}, {"x": 291.8, "y": 310}], "E": -1},
+          {"S": -1, "M": [], "E": -2},
+          {"S": -2, "M": [{"x": 230, "y": 701.9}], "E": 3},
+          {"S": 4, "M": [], "E": -2}
         ],
-        "junctions": [{"x": 230, "y": 410}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 230, "y": 310}, {"x": 230, "y": 570}]
       }
     },
     "id13": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [{"x": 220, "y": 820.5}, {"x": 220, "y": 870}], "E": -1},
+          {"S": 1, "M": [{"x": 220, "y": 837.9}, {"x": 220, "y": 870}], "E": -1},
           {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 190, "y": 532.4}], "E": -1}
+          {"S": 3, "M": [{"x": 190, "y": 432.4}], "E": -1}
         ],
-        "junctions": [{"x": 190, "y": 870}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 190, "y": 870}]
       }
     },
-    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id14": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 250, "y": 744.4}], "E": -1},
+          {"S": -1, "M": [{"x": 250, "y": 270}], "E": 2},
+          {"S": 3, "M": [{"x": 301, "y": 350.8}, {"x": 301, "y": 350}], "E": -1}
+        ],
+        "junctions": [{"x": 250, "y": 350}]
+      }
+    },
     "id15": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [{"x": 250, "y": 738}], "E": -1},
-          {"S": -1, "M": [{"x": 250, "y": 320}], "E": 2},
-          {"S": 3, "M": [{"x": 301, "y": 450.8}, {"x": 301, "y": 450}], "E": -1}
+          {"S": -1, "M": [], "E": 1},
+          {"S": 2, "M": [{"x": 20, "y": 390.8}], "E": -1},
+          {"S": 3, "M": [{"x": 20, "y": 870}], "E": -2},
+          {"S": -2, "M": [], "E": -1},
+          {"S": 4, "M": [{"x": 186.25, "y": 798.8}, {"x": 186.25, "y": 800}], "E": -2}
         ],
-        "junctions": [{"x": 250, "y": 450}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 20, "y": 680}, {"x": 20, "y": 800}]
       }
     },
     "id16": {
       "Dyad": {
         "edges": [
-          {"S": -1, "M": [], "E": 1},
-          {"S": 2, "M": [{"x": 20, "y": 490.8}], "E": -1},
-          {"S": 3, "M": [{"x": 20, "y": 870}], "E": -2},
-          {"S": -2, "M": [], "E": -1},
-          {"S": 4, "M": [{"x": 186.25, "y": 786}, {"x": 186.25, "y": 780}], "E": -2}
+          {"S": 1, "M": [{"x": 20, "y": 270}], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": 3, "M": [{"x": 20, "y": 130}], "E": -1}
         ],
-        "junctions": [{"x": 20, "y": 680}, {"x": 20, "y": 780}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 20, "y": 210}]
       }
     },
-    "id17": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 700, "y": 70}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
+    "id17": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
     "id18": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 630.7, "y": 470}, {"x": 630.7, "y": 472}], "E": 2}],
-        "renderStyle": "standard"
-      }
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 580, "y": 370}, {"x": 580, "y": 468}], "E": 2}]}
     },
     "id19": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 631.25, "y": 765}, {"x": 631.25, "y": 522}], "E": 2}],
-        "renderStyle": "standard"
-      }
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 550, "y": 570}, {"x": 550, "y": 500}], "E": 2}]}
     },
     "id20": {
       "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": 40, "y": 320}, {"x": 40, "y": 210}], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 40, "y": 70}], "E": -1}
-        ],
-        "junctions": [{"x": 40, "y": 210}],
-        "renderStyle": "standard"
+        "edges": [{"S": 1, "M": [{"x": 575.75, "y": 775}, {"x": 575.75, "y": 532}], "E": 2}]
       }
     },
-    "id21": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
-    "id22": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}}
+    "id21": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
   }
 }
 end
 
 component NearTop
-  extends BlockComponents.Interfaces.SISO
+  y = BooleanOutput() {^y}
+  u = RealInput() {^u}
   parameter th::Real = 0.4
 relations
   y = abs(u - π) < th
-metadata {"Dyad": {"icons": {"default": "dyad://DiscreteComponents/NearTop.svg"}}}
-end
-
-component StabilizationSwitch
-  neartop = RealInput() {^neartop}
-  u_lqr = RealInput() {^u_lqr}
-  u_swingup = RealInput() {^u_swingup}
-  u = RealOutput() {^u}
-relations
-  u = ifelse(neartop == true, u_lqr, u_swingup)
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/StabilizationSwitch.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/NearTop.svg"}},
   "_links": {
-    "neartop": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 450, "y1": -100, "x2": 550, "y2": 0, "rot": 90}
-        },
-        "tags": []
-      }
-    },
-    "u_lqr": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -100, "y1": 670, "x2": 0, "y2": 770, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "u_swingup": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -100, "y1": 170, "x2": 0, "y2": 270, "rot": 0}
-        },
-        "tags": []
-      }
+    "y": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
     },
     "u": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 1000, "y1": 450, "x2": 1100, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
     }
   }
 }
@@ -1593,10 +1517,10 @@ metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupWithHoming.svg"}},
   "_links": {
     "shoulder_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 680, "y2": 780}}}
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 130, "y2": 230}}}
     },
     "elbow_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 680, "y2": 780}}}
     },
     "u": {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
@@ -1674,10 +1598,10 @@ metadata {
           {"S": -1, "M": [{"x": 60, "y": -52.8}], "E": 1},
           {"S": 2, "M": [], "E": -1},
           {"S": 3, "M": [], "E": -2},
-          {"S": -2, "M": [{"x": 60, "y": 730}], "E": -1},
+          {"S": -2, "M": [], "E": -1},
           {"S": 4, "M": [{"x": 60, "y": 945}], "E": -2}
         ],
-        "junctions": [{"x": 60, "y": 410}, {"x": 60, "y": 730}]
+        "junctions": [{"x": 60, "y": 410}, {"x": 60, "y": 180}]
       }
     },
     "id26": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
@@ -1765,7 +1689,11 @@ metadata {
       }
     },
     "id52": {
-      "Dyad": {"edges": [{"S": 1, "M": [{"x": -50, "y": 52.80000000000001}], "E": 2}]}
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 30, "y": 52.80000000000001}, {"x": 30, "y": 730}], "E": 2}
+        ]
+      }
     }
   }
 }
