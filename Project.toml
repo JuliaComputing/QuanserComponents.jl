@@ -5,6 +5,8 @@ authors = ["Fredrik Bagge Carlson <baggepinnen@gmail.com>"]
 
 [deps]
 BlockComponents = "1ef5d832-be8e-447f-9f2c-8b5d17d15fd3"
+ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
+ControlSystemsMTK = "687d7614-c7e5-45fc-bfc3-9ee385575c88"
 DiscreteComponents = "b5590941-51af-4a5a-9bca-5ae7cd448b75"
 DyadData = "cab12561-e36c-4498-ae70-c9a5e79fef2a"
 DyadInterface = "99806f68-afab-45ca-9d8c-ceff6bc61f54"
@@ -27,6 +29,8 @@ ThermalComponents = "084a29d9-4f48-4925-95b4-b7d4c79725f4"
 TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 
 [compat]
+ControlSystemsBase = "1"
+ControlSystemsMTK = "2"
 DyadInterface = "7.1.0"
 ElectricalComponents = "2.2.1"
 HydraulicComponents = "2.0.3"

@@ -1,0 +1,14 @@
+partial analysis FurutaExportC
+  extends Analysis
+  model::Dyad.EmptyComponent = Dyad.EmptyComponent()
+  "Directory to write the generated C sources into (top.c/.h/.pc, synchjulia.h). Created if missing."
+  parameter output_dir::String = "furuta_c"
+  "Controller sample time [s]"
+  parameter Ts::Real = 0.005
+  "LQR state-penalty diagonal in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
+  parameter Q1::Real[4] = [1000.0, 10.0, 1.0, 1.0]
+  "LQR control-penalty weight"
+  parameter Q2::Real = 100.0
+  "Stabilizer saturation [V]"
+  parameter umax::Real = 10.0
+end

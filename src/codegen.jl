@@ -22,9 +22,12 @@ using ModelingToolkit
 using ModelingToolkit: t_nounits as t
 using DiscreteComponents: PeriodicClock
 using OrderedCollections: OrderedDict
+using ControlSystemsMTK: named_ss
+using ControlSystemsBase: c2d, ss, lqr
+using LinearAlgebra: Diagonal, I, pinv
 
 export build_discrete_controller, generate_swingup_controller, export_swingup_c,
-       SwingupController
+       SwingupController, design_lqr
 
 """
     build_discrete_controller(; Ts=0.005, overrides...)
@@ -45,12 +48,23 @@ The controller uses the `Swingup` model's tuned defaults (energy-swingup gain,
 arm-centering, LQR gains and saturations), which are set for the QuanserInterface-
 matched `QubePendulum` plant. Pass `overrides` (e.g. `var"lqrstabilizer.umax" =>
 ...`) to change them.
+
+`L` (a 4-vector) and `umax` override the stabilizer feedback gain and saturation
+directly: they are written into the wrapper system's `defaults`, so both the resolved
+`values` map and the code-generated `StaticGains` struct defaults reflect them.
 """
-function build_discrete_controller(; Ts = 0.005, overrides...)
+function build_discrete_controller(; Ts = 0.005, L = nothing, umax = nothing, overrides...)
     @named swingup = SwingupWithHoming(; overrides...)
     @named clock = PeriodicClock(dt = Ts)
+    lqr_stab = swingup.runtime.swingup.lqrstabilizer
+    # Dyad parameter values live in `initial_conditions` (not `getdefault`), so override
+    # the stabilizer gain/saturation there: this feeds both the resolved `values` map
+    # below and SynchToolkit's `StaticGains` struct defaults.
+    ics = Dict{Any, Any}()
+    L    === nothing || (ics[lqr_stab.L]    = collect(float.(L)))
+    umax === nothing || (ics[lqr_stab.umax] = float(umax))
     sys = System([clock.y ~ swingup.shoulder_angle], t;
-                 systems = [swingup, clock], name = :controller)
+                 systems = [swingup, clock], name = :controller, initial_conditions = ics)
 
     # Resolve every parameter to a concrete number. Dyad components store values in
     # `default_values` (as `initial_conditions`), and some values are expressions of
@@ -76,6 +90,50 @@ function _resolve_value(v, dv)
     end
     xv = Symbolics.value(x)
     return xv isa AbstractArray ? Float64.(vec(collect(xv))) : Float64(xv)
+end
+
+"""
+    design_lqr(; Ts=0.005, Q1=[1000.0, 10.0, 1.0, 1.0], Q2=100.0) -> L::Vector{Float64}
+
+Design the LQR state-feedback gain `L` for the `LQRstabilizer`. The `FurutaSwingup`
+plant is linearized about the upright equilibrium (with the controller loop opened at
+the `u_plant`/`shoulder_y`/`elbow_y` analysis points), discretized at sample time `Ts`,
+and an LQR problem is solved with state penalty `Q1` and control penalty `Q2`.
+
+`Q1` is the diagonal of the state cost in the order `[shoulder_angle, elbow_angle,
+shoulder_velocity, elbow_velocity]`; `Q2` is the scalar control cost. The returned `L`
+is the 4-element gain expected by `LQRstabilizer.L`.
+"""
+function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
+    @named model = FurutaSwingup()
+    ssys = multibody(model, additional_passes = [SynchToolkit.compile_lustre])
+    op = Dict(
+        ssys.qubependulum.elbow_joint.phi    => pi,
+        ssys.qubependulum.shoulder_joint.phi => 0.0,
+        ssys.qubependulum.elbow_joint.w      => 0.0,
+        ssys.qubependulum.shoulder_joint.w   => 0.0,
+        ssys.qubependulum.voltage            => 0.0,
+        ssys.elbow_sampler.u    => 0.0,
+        ssys.shoulder_sampler.u => 0.0,
+    )
+    # Outputs define the order of the `Q1` diagonal below.
+    outputs = [
+        ssys.qubependulum.shoulder_angle,
+        ssys.qubependulum.elbow_angle,
+        ssys.qubependulum.shoulder_joint.w,
+        ssys.qubependulum.elbow_joint.w,
+    ]
+    P = named_ss(model, [ssys.u_plant], outputs;
+        op,
+        loop_openings = [ssys.u_plant, ssys.shoulder_y, ssys.elbow_y],
+        warn_empty_op = true,
+        additional_passes = [SynchToolkit.compile_lustre],
+        MultibodyComponents.linsys...,
+    )
+    Pd = c2d(ss(P), Ts)
+    Q1mat = P.C' * Diagonal(collect(float.(Q1))) * P.C
+    Q2mat = float(Q2) * I(1)
+    return vec(lqr(Pd, Q1mat, Q2mat) * pinv(P.C))
 end
 
 """

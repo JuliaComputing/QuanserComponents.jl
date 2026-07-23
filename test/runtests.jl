@@ -98,48 +98,15 @@ sol[ssys.qubependulum.lower_arm.m]
 
 
 ##
-# Linearize the plant about the upright equilibrium with the controller loop
-# opened at the u_plant analysis point, then design an LQR feedback gain.
-using ControlSystemsMTK
-using ControlSystemsBase
-
-op = Dict(
-    ssys.qubependulum.elbow_joint.phi    => π,
-    ssys.qubependulum.shoulder_joint.phi => 0.0,
-    ssys.qubependulum.elbow_joint.w      => 0.0,
-    ssys.qubependulum.shoulder_joint.w   => 0.0,
-    ssys.qubependulum.voltage            => 0.0,
-    ssys.elbow_sampler.u => 0.0,
-    ssys.shoulder_sampler.u => 0.0,
-)
-
-
-outputs = [
-    ssys.qubependulum.shoulder_angle
-    ssys.qubependulum.elbow_angle
-    ssys.qubependulum.shoulder_joint.w
-    ssys.qubependulum.elbow_joint.w
-]
-
-P = named_ss(model, [ssys.u_plant], outputs;
-    op,
-    loop_openings = [ssys.u_plant, ssys.shoulder_y, ssys.elbow_y],
-    warn_empty_op = true,
-    additional_passes=[SynchToolkit.compile_lustre], 
-    MultibodyComponents.linsys...,
-)
-@show state_names(P)
-
+# Design the upright-stabilizing LQR feedback gain. `design_lqr` linearizes the plant
+# about the upright equilibrium (control loop opened at the u_plant/shoulder_y/elbow_y
+# analysis points), discretizes, and solves the LQR problem. Encapsulated in
+# QuanserComponents so this script and the `FurutaExportC` codegen analysis share one
+# implementation. `Q1` is the state-penalty diagonal in the order
+# [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]; `Q2` is the control
+# penalty.
 Ts = 0.005
-Pd = c2d(ss(P), Ts)
-
-# Q1 weights are in the order printed by `state_names(P)`. The QuanserInterface
-# example uses [θ_shoulder, φ_elbow, θ̇, φ̇] -> [1000, 10, 1, 1]; permute the
-# diagonal to match `state_names(P)` if the order differs.
-Q1 = P.C'Diagonal([1000.0, 10.0, 1.0, 1.0])*P.C
-Q2 = 100.0 * I(1)
-
-L = vec(lqr(Pd, Q1, Q2)*pinv(P.C))
+L = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
 @show L
 
 
@@ -195,6 +162,29 @@ import DyadCompilerPasses
         csrc = read(joinpath(dir, "top.c"), String)
         @test occursin("$(r.mangled)_step", csrc)
         @test occursin("$(r.mangled)_reset", csrc)
+    end
+
+    # ---- FurutaExportC analysis (Dyad analysis wrapper) --------------------
+    # Designs the LQR gain from the penalty weights Q1/Q2, then exports the C.
+    @testset "FurutaExportC analysis" begin
+        DI = QuanserComponents.DyadInterface
+        dir = mktempdir()
+        sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts)
+        @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "top.h"))
+        @test !isempty(sol.mangled)
+        @test length(sol.L) == 4 && all(isfinite, sol.L)
+        # analysis-designed L matches the standalone helper for the same weights
+        @test sol.L ≈ QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
+        # metadata advertises the file-listing artifact, which lists the generated files
+        md = DI.AnalysisSolutionMetadata(sol)
+        @test any(a -> a.name === :GeneratedFiles, md.artifacts)
+        tbl = DI.artifacts(sol, :GeneratedFiles)
+        @test Set(tbl.file) == Set(readdir(dir))
+        @test occursin("$(sol.mangled)_step", join(tbl.symbol))
+        @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
+        # Q1/Q2 are the user-facing knob: changing them changes the designed gain
+        L2 = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 50.0)
+        @test !(L2 ≈ sol.L)
     end
 
     # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------
