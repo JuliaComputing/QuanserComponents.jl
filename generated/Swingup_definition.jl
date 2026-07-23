@@ -80,12 +80,12 @@ import Moshi as __Ext__Moshi
   # Subcomponent neartop of type QuanserComponents.NearTop
   neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
   push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))
-  # Subcomponent stabilizationswitch of type QuanserComponents.StabilizationSwitch
-  stabilizationswitch_overrides = __pop_subcomponent_overrides!(__overrides, "stabilizationswitch")
-  push!(__systems, @named stabilizationswitch = QuanserComponents.StabilizationSwitch(; stabilizationswitch_overrides...))
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
   push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
+  # Subcomponent switch1 of type BlockComponents.Logical.Switch
+  switch1_overrides = __pop_subcomponent_overrides!(__overrides, "switch1")
+  push!(__systems, @named switch1 = BlockComponents.Logical.Switch(; switch1_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -98,17 +98,16 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle))
+  push!(__eqs, connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u))
   push!(__eqs, connect(velocityestimator_shoulder.vel, lqrstabilizer.shoulder_velocity, energyswingup.shoulder_velocity))
-  push!(__eqs, connect(anglenormalization.y, neartop.u))
   push!(__eqs, connect(velocityestimator_elbow.vel, lqrstabilizer.elbow_velocity, energyswingup.elbow_velocity))
   push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle))
-  push!(__eqs, connect(neartop.y, stabilizationswitch.neartop))
-  push!(__eqs, connect(energyswingup.realoutput, stabilizationswitch.u_swingup))
-  push!(__eqs, connect(lqrstabilizer.u, stabilizationswitch.u_lqr))
   push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u))
-  push!(__eqs, connect(stabilizationswitch.u, gain.u))
   push!(__eqs, connect(gain.y, u))
+  push!(__eqs, connect(energyswingup.realoutput, switch1.u1))
+  push!(__eqs, connect(neartop.y, switch1.u2))
+  push!(__eqs, connect(lqrstabilizer.u, switch1.u3))
+  push!(__eqs, connect(switch1.y, gain.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

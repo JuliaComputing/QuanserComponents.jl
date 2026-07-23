@@ -1,58 +1,26 @@
-# Dyad analysis `FurutaExportC`: export the swing-up controller as standalone C.
+# Implementation of the FurutaExportC analysis: export the swing-up controller as C.
 #
-# The analysis designs the LQR feedback gain from the user-facing penalty weights
-# `Q1` (state) and `Q2` (control) via [`design_lqr`](@ref), then generates the
-# SynchToolkit C sources for the controller into `output_dir` via
-# [`export_swingup_c`](@ref). The generated `StaticGains` struct carries the designed
-# gain `L` and the saturation `umax` as its defaults.
-#
-# This is the runnable, package-shipped form (a `partial analysis` in
-# `dyad/furuta_export_c.dyad`), mirroring `DyadFMUGeneration`: `run_analysis` writes
-# files and reports them through a single table artifact.
+# `FurutaExportC` is a concrete `analysis` in `dyad/furuta_export_c.dyad`; the Dyad
+# compiler generates its spec/entry point (generated/FurutaExportC_definition.jl), whose
+# `run_analysis` forwards to `FurutaExportCBaseSpec` (defined in export_analysis_base.jl).
+# This file provides `run_analysis(::FurutaExportCBaseSpec)` — designing the LQR feedback
+# gain from the penalty weights `Q1`/`Q2` via `design_lqr`, then generating the SynchToolkit
+# C sources into `output_dir` via `export_swingup_c` — plus the solution type and its
+# artifacts. Results are reported through a single table artifact.
 
-import DyadInterface
-using DyadInterface: AbstractAnalysisSpec, AbstractAnalysisSolution, ArtifactMetadata,
+using DyadInterface: AbstractAnalysisSolution, ArtifactMetadata,
                      ArtifactType, AnalysisSolutionMetadata
 
-export FurutaExportCSpec, FurutaExportC, FurutaExportCSolution
-
-abstract type AbstractFurutaExportCSpec <: AbstractAnalysisSpec end
-
-"""
-    FurutaExportCSpec(; output_dir="furuta_c", Ts=0.005,
-                        Q1=[1000.0, 10.0, 1.0, 1.0], Q2=100.0, umax=10.0)
-
-Specification for the `FurutaExportC` analysis. Designs the LQR stabilizer gain from the
-penalty weights `Q1` (state-cost diagonal, in the order `[shoulder_angle, elbow_angle,
-shoulder_velocity, elbow_velocity]`) and `Q2` (scalar control cost), then exports the
-swing-up controller as standalone C into `output_dir` at sample time `Ts`, with the
-stabilizer saturation `umax`.
-"""
-@kwdef struct FurutaExportCSpec{M} <: AbstractFurutaExportCSpec
-    name::Symbol = :FurutaExportC
-    model::M = nothing
-    output_dir::String = "furuta_c"
-    Ts::Float64 = 0.005
-    Q1::Vector{Float64} = [1000.0, 10.0, 1.0, 1.0]
-    Q2::Float64 = 100.0
-    umax::Float64 = 10.0
-end
-
-"""
-    FurutaExportC(; kwargs...)
-
-Convenience entry point equivalent to `run_analysis(FurutaExportCSpec(; kwargs...))`.
-"""
-FurutaExportC(; kwargs...) = DyadInterface.run_analysis(FurutaExportCSpec(; kwargs...))
+export FurutaExportCSolution
 
 """
     FurutaExportCSolution
 
-Result of [`FurutaExportC`](@ref): the `output_dir` written to, the list of generated
-`files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions,
-and the designed LQR gain `L`.
+Result of the `FurutaExportC` analysis: the `output_dir` written to, the list of generated
+`files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions, and
+the designed LQR gain `L`.
 """
-struct FurutaExportCSolution{SP <: FurutaExportCSpec} <: AbstractAnalysisSolution
+struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAnalysisSolution
     spec::SP
     output_dir::String
     files::Vector{String}
@@ -60,7 +28,7 @@ struct FurutaExportCSolution{SP <: FurutaExportCSpec} <: AbstractAnalysisSolutio
     L::Vector{Float64}
 end
 
-function DyadInterface.run_analysis(spec::FurutaExportCSpec)
+function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
     mkpath(spec.output_dir)
     L = design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
     res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax)

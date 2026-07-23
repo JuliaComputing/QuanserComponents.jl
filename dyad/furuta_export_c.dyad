@@ -1,4 +1,4 @@
-partial analysis FurutaExportC
+partial analysis FurutaExportCBase
   extends Analysis
   model::Dyad.EmptyComponent = Dyad.EmptyComponent()
   "Directory to write the generated C sources into (top.c/.h/.pc, synchjulia.h). Created if missing."
@@ -11,4 +11,9 @@ partial analysis FurutaExportC
   parameter Q2::Real = 100.0
   "Stabilizer saturation [V]"
   parameter umax::Real = 10.0
+end
+
+analysis FurutaExportC
+  extends FurutaExportCBase()
+  model = SwingupWithHoming()
 end
