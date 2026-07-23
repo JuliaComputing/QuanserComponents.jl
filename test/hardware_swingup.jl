@@ -21,7 +21,7 @@ nu  = 1     # number of controls
 nx  = 4     # number of states
 Ts  = 0.005 # sampling time
 ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
-
+# ctrl = QuanserComponents.SwingupController(; Ts, backend=:c)
 
 using Statistics
 function centraldiff(v::AbstractMatrix)

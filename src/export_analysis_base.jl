@@ -22,5 +22,7 @@ abstract type AbstractFurutaExportCBaseSpec <: DyadInterface.AbstractAnalysisSpe
     Q1::Vector{Float64} = [1000.0, 10.0, 1.0, 1.0]
     Q2::Float64 = 100.0
     umax::Float64 = 10.0
+    run::Bool = false
+    Tf::Float64 = 10.0
     model::Union{Nothing, System} = nothing
 end

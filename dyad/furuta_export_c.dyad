@@ -11,6 +11,10 @@ partial analysis FurutaExportCBase
   parameter Q2::Real = 100.0
   "Stabilizer saturation [V]"
   parameter umax::Real = 10.0
+  "Compile and run the generated C control loop on the hardware after export"
+  parameter run::Boolean = false
+  "Duration [s] of the hardware run when `run = true`"
+  parameter Tf::Real = 10.0
 end
 
 analysis FurutaExportC

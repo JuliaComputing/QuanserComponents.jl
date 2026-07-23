@@ -18,7 +18,8 @@ export FurutaExportCSolution
 
 Result of the `FurutaExportC` analysis: the `output_dir` written to, the list of generated
 `files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions, and
-the designed LQR gain `L`.
+the designed LQR gain `L`. When the analysis was run with `run = true`, `ran` is `true` and
+`log` is the path to the hardware run's CSV log (otherwise `nothing`).
 """
 struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAnalysisSolution
     spec::SP
@@ -26,15 +27,24 @@ struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAna
     files::Vector{String}
     mangled::String
     L::Vector{Float64}
+    ran::Bool
+    log::Union{Nothing, String}
 end
 
 function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
     mkpath(spec.output_dir)
     L = design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
-    res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax)
+    res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax, Tf = spec.Tf)
+    # `run = true` compiles the emitted C control loop and executes it on the physical
+    # pendulum for `Tf` seconds, capturing the trace as the `:RunLog` artifact.
+    log = nothing
+    if spec.run
+        exe = compile_hardware_harness(spec.output_dir)
+        log = run_hardware_harness(exe)
+    end
     files = sort!(filter(f -> isfile(joinpath(spec.output_dir, f)),
                          readdir(spec.output_dir)))
-    return FurutaExportCSolution(spec, spec.output_dir, files, res.mangled, L)
+    return FurutaExportCSolution(spec, spec.output_dir, files, res.mangled, L, spec.run, log)
 end
 
 function DyadInterface.AnalysisSolutionMetadata(sol::FurutaExportCSolution)
@@ -42,20 +52,48 @@ function DyadInterface.AnalysisSolutionMetadata(sol::FurutaExportCSolution)
         "Generated C files",
         "The SynchToolkit-generated C sources for the swing-up controller, with the \
          exported step/reset symbol names.")]
+    if sol.ran
+        push!(arts, ArtifactMetadata(:RunLog, ArtifactType.DataFrame,
+            "Hardware run log",
+            "Time series logged while running the generated controller on the hardware: \
+             time [s], shoulder/elbow angles [rad] and the commanded control voltage [V]."))
+    end
     AnalysisSolutionMetadata(arts, Symbol[])
 end
 
-# Returns a column table (Tables.jl-compatible NamedTuple of vectors) listing each
-# generated file, its size in bytes, and the exported C symbol on the source/header rows.
+# `:GeneratedFiles` returns a column table (Tables.jl-compatible NamedTuple of vectors)
+# listing each generated file, its size in bytes, and the exported C symbol on the
+# source/header rows. `:RunLog` (only when the analysis was run) returns the hardware
+# trace parsed from `run_hardware.csv`.
 function DyadInterface.artifacts(sol::FurutaExportCSolution, name::Symbol)
-    name === :GeneratedFiles || throw(ArgumentError("Unknown artifact `$name`"))
-    files = sol.files
-    bytes = [filesize(joinpath(sol.output_dir, f)) for f in files]
-    symbol = map(files) do f
-        f == "top.c" ? "$(sol.mangled)_step" :
-        f == "top.h" ? "$(sol.mangled)_reset" : ""
+    if name === :GeneratedFiles
+        files = sol.files
+        bytes = [filesize(joinpath(sol.output_dir, f)) for f in files]
+        symbol = map(files) do f
+            f == "top.c" ? "$(sol.mangled)_step" :
+            f == "top.h" ? "$(sol.mangled)_reset" : ""
+        end
+        return (; file = files, bytes = bytes, symbol = symbol)
+    elseif name === :RunLog
+        (sol.ran && sol.log !== nothing && isfile(sol.log)) ||
+            throw(ArgumentError("No run log available (run the analysis with `run = true`)"))
+        return _read_run_log(sol.log)
+    else
+        throw(ArgumentError("Unknown artifact `$name`"))
     end
-    return (; file = files, bytes = bytes, symbol = symbol)
+end
+
+# Parse the harness-written CSV (header + numeric rows) into a Tables.jl column table.
+function _read_run_log(path)
+    empty = (; time = Float64[], shoulder_angle = Float64[],
+               elbow_angle = Float64[], control_input = Float64[])
+    lines = readlines(path)
+    length(lines) > 1 || return empty
+    rows = [parse.(Float64, split(l, ',')) for l in lines[2:end] if !isempty(strip(l))]
+    isempty(rows) && return empty
+    mat = reduce(vcat, permutedims.(rows))
+    return (; time = mat[:, 1], shoulder_angle = mat[:, 2],
+              elbow_angle = mat[:, 3], control_input = mat[:, 4])
 end
 
 function Base.show(io::IO, ::MIME"text/plain", sol::FurutaExportCSolution)
@@ -65,4 +103,7 @@ function Base.show(io::IO, ::MIME"text/plain", sol::FurutaExportCSolution)
     println(io, "files: ", join(sol.files, ", "))
     println(io, "step/reset: ", sol.mangled, "_step / ", sol.mangled, "_reset")
     println(io, "designed L: ", sol.L)
+    if sol.ran
+        println(io, "hardware run log: ", sol.log === nothing ? "(none)" : sol.log)
+    end
 end

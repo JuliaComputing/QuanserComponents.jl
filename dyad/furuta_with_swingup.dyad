@@ -1,5 +1,3 @@
-using BlockComponents
-
 component FurutaSwingup
   swingup = SwingupWithHoming() {^swingup}
   qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
@@ -1245,7 +1243,37 @@ relations
   connect(done_cmp.y, done_flag.u) {^id39}
   connect(done_flag.y, done) {^id40}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://QuanserComponents/GoHome.svg"}},
+  "Dyad": {
+    "icons": {"default": "dyad://QuanserComponents/GoHome.svg"},
+    "labels": [
+      {
+        "label": "State machine determining whether or not the homing procedure is done, it's done when it has been home and still for dwell (1s)",
+        "x": 720,
+        "y": 20,
+        "rot": 0,
+        "layer": "diagram",
+        "attrs": {
+          "fill": "black",
+          "font-size": "20",
+          "dominant-baseline": "central",
+          "text-anchor": "middle"
+        }
+      },
+      {
+        "label": "Actual go home controller",
+        "x": 400,
+        "y": 980,
+        "rot": 0,
+        "layer": "diagram",
+        "attrs": {
+          "fill": "black",
+          "font-size": "20",
+          "dominant-baseline": "central",
+          "text-anchor": "middle"
+        }
+      }
+    ]
+  },
   "_links": {
     "shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
