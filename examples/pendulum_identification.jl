@@ -43,7 +43,7 @@ const NDATA     = 1000         # number of samples to use
 # QuanserInterface ML-optimized reference values (for comparison only)
 const QI_OPTIMIZED = Dict("Jr" => 1.112300869775737e-5, "Jp" => 1.9808351489259391e-4)
 # Gains currently baked into the LQRstabilizer component
-const L_BAKED = [-9.625743176817387, 394.43972658274106, -7.461418005226849, 84.42279971138271]
+const L_BAKED = [-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338]
 
 # =============================================================================
 ## 1. Load data
@@ -74,10 +74,11 @@ uvv = SVector{1,Float64}.(uvec)
 # (compiling before generate_control_function is essential: calling
 #  generate_control_function directly on the raw model produces a pathological
 #  6-state realization in which the input enters at the jerk level).
-sysio = multibody(idmodel; inputs = [qubependulum.voltage],
+inputs = [qubependulum.voltage]
+sysio = multibody(idmodel; inputs,
                   additional_passes = [SynchToolkit.compile_lustre])
 (f_oop, _), x_sym, ps, iosys =
-    ModelingToolkit.generate_control_function(sysio, [qubependulum.voltage];
+    ModelingToolkit.generate_control_function(sysio, inputs;
                                               simplify = false, split = false)
 
 nx = length(x_sym)
@@ -94,7 +95,12 @@ p0    = prob0.p
 # =============================================================================
 ## 3. Tunable parameters  --  THE SINGLE EXTENSION POINT
 # =============================================================================
-tunable_syms = [qubependulum.Jr, qubependulum.Jp]   # add .br, .bp, .kt, .Rm, ...
+tunable_syms = [
+    qubependulum.Jr,
+    qubependulum.Jp,
+    qubependulum.br,
+    qubependulum.bp,
+]   # add .br, .bp, .kt, .Rm, ...
 set_tunable! = ModelingToolkit.setp(iosys, tunable_syms)
 get_tunable  = ModelingToolkit.getp(iosys, tunable_syms)
 p_nominal    = collect(get_tunable(p0))
@@ -125,17 +131,19 @@ R2 = Matrix((2π / 2048) * I(ny))                       # measurement noise: one
 # State order is [shoulder_angle, elbow_angle, elbow_vel, shoulder_vel], so each
 # joint's (angle, velocity) pair sits at indices (1,4) for the shoulder and (2,3)
 # for the elbow.
-σ2_shoulder = 2.0      # shoulder acceleration-disturbance intensity (tune)
-σ2_elbow    = 2.0      # elbow    acceleration-disturbance intensity (tune)
+σ2_shoulder = 1e0      # shoulder acceleration-disturbance intensity (tune)
+σ2_elbow    = 1e-2      # elbow    acceleration-disturbance intensity (tune)
 R1 = zeros(nx, nx)
 R1[[1, 4], [1, 4]] .= LLPF.double_integrator_covariance_smooth(Ts, σ2_shoulder)
 R1[[2, 3], [2, 3]] .= LLPF.double_integrator_covariance_smooth(Ts, σ2_elbow)
 R1 += 1e-12 * I        # tiny regularization for numerical positive-definiteness
+
+# R1 = Matrix(Diagonal([1e-7, 1e-7, 1e-2, 1e-2])) 
 x0 = SVector{nx,Float64}(yvv[1][1], yvv[1][2], 0, 0)
 P0 = Matrix(Diagonal([1e-4, 1e-4, 1e-1, 1e-1]))        # initial state covariance
 
 make_ukf(p) = UnscentedKalmanFilter(discrete_dynamics, measurement, R1, R2,
-                                    MvNormal(Vector(x0), P0); ny, nu, p)
+                                    MvNormal(Vector(x0), P0); ny, nu, p, names=SignalNames(name="UKF", x=string.(x_sym), y=["shoulde", "elbow"], u=string.(inputs)))
 
 # =============================================================================
 ## 6. Sanity check with nominal params
@@ -143,6 +151,7 @@ make_ukf(p) = UnscentedKalmanFilter(discrete_dynamics, measurement, R1, R2,
 sol0   = forward_trajectory(make_ukf(p_nominal), uvv, yvv)
 innov0 = [yvv[k] - SA[sol0.x[k][1], sol0.x[k][2]] for k in eachindex(yvv)]
 @info "nominal filter" loglik=LLPF.loglik(make_ukf(p_nominal), uvv, yvv, p_nominal) innov_rms=sqrt(mean(x->sum(abs2, x), innov0))
+plot(sol0, plote=true, plotx=false, plotxt=false, plotxht=false, plotu=false)
 
 # =============================================================================
 ## 7. Gauss-Newton estimation (Levenberg-Marquardt on whitened prediction errors)
@@ -165,8 +174,10 @@ end
 
 lsq    = LeastSquaresProblem(x = log10.(p_nominal), f! = residuals!,
                              output_length = length(yvv) * ny, autodiff = :central)
-result = optimize!(lsq, LevenbergMarquardt())
+result = optimize!(lsq, LevenbergMarquardt(), show_trace=true, show_every=1, iterations=25)
 p_id   = exp10.(result.minimizer)
+sol_id   = forward_trajectory(make_ukf(p_id), uvv, yvv)
+plot(sol_id, plote=true, plotx=false, plotxt=false, plotxht=false, plotu=false)
 
 # =============================================================================
 ## 8. Report identified parameters
@@ -202,7 +213,7 @@ function design_L(Jrv, Jpv; Ts_lqr = 0.005)
     P  = named_ss(idmodel, [qubependulum.voltage], outs; op, MultibodyComponents.linsys...)
     Pd = c2d(ss(P), Ts_lqr)
     Q1 = P.C' * Diagonal([1000.0, 10.0, 1.0, 1.0]) * P.C
-    Q2 = 10.0 * I(1)
+    Q2 = 100.0 * I(1)
     vec(lqr(Pd, Q1, Q2) * pinv(P.C))
 end
 

@@ -18,12 +18,12 @@ import Moshi as __Ext__Moshi
 | `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   0.042 |
 | `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   0.095 |
 | `r`         | Rotary arm (rod) length                         | m  |   0.085 |
-| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   mr * r ^ 2 / 3 |
+| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   mr * r ^ 2 ...(r / 2) ^ 2 |
 | `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.05e-3 |
 | `mp`         | Pendulum mass                         | kg  |   0.024 |
 | `Lp`         | Pendulum length                         | m  |   0.129 |
 | `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   Lp / 2 |
-| `Jp`         | Pendulum moment of inertia about the elbow pivot. Matched to the QuanserInterface.jl hardware-calibrated model (effective H22 = Jp + mp*Lp^2/4 = 7*mp*Lp^2/12), heavier than a uniform rod.                         | kg.m2  |   7 * mp * Lp ^ 2 / 12 |
+| `Jp`         | Pendulum moment of inertia about the elbow pivot.                         | kg.m2  |   7 * mp * Lp... mp * l ^ 2 |
 | `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 5e-5 |
 | `base_size`         | Edge length of the cubic base box (visualization only)                         | m  |   0.1 |
 
@@ -33,7 +33,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, Jr=mr * r ^ 2 / 3, l=Lp / 2, Jp=7 * mp * Lp ^ 2 / 12, kwargs...)
+@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, Jr=mr * r ^ 2 / 3 - mr * (r / 2) ^ 2, l=Lp / 2, Jp=7 * mp * Lp ^ 2 / 12 - mp * l ^ 2, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -95,7 +95,7 @@ import Moshi as __Ext__Moshi
   append!(__params, @parameters (l::Real), [description = "Distance from elbow pivot to pendulum center of mass"])
   __initial_conditions[l] = __local__l
   __local__Jp = Jp
-  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot. Matched to the QuanserInterface.jl hardware-calibrated model (effective H22 = Jp + mp*Lp^2/4 = 7*mp*Lp^2/12), heavier than a uniform rod."])
+  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot."])
   __initial_conditions[Jp] = __local__Jp
   __local__bp = bp
   append!(__params, @parameters (bp::Real), [description = "Pendulum viscous damping coefficient"])
@@ -144,8 +144,8 @@ import Moshi as __Ext__Moshi
   __bindings[upper_arm.r] = [r, Float64(0), Float64(0)]
   __bindings[upper_arm.r_cm] = [r / 2, Float64(0), Float64(0)]
   __bindings[upper_arm.I_11] = 1e-9
-  __bindings[upper_arm.I_22] = Jr - mr * (r / 2) ^ 2
-  __bindings[upper_arm.I_33] = Jr - mr * (r / 2) ^ 2
+  __bindings[upper_arm.I_22] = Jr
+  __bindings[upper_arm.I_33] = Jr
   # Now remove initial conditions in upper_arm that correspond to the bindings just added
   __upper_arm_ics = ModelingToolkit.get_initial_conditions(upper_arm)
   __no_namespace_upper_arm = ModelingToolkit.toggle_namespacing(upper_arm, false)
@@ -167,9 +167,9 @@ import Moshi as __Ext__Moshi
   __bindings[lower_arm.m] = mp
   __bindings[lower_arm.r] = [Float64(0), -Lp, Float64(0)]
   __bindings[lower_arm.r_cm] = [Float64(0), -l, Float64(0)]
-  __bindings[lower_arm.I_11] = Jp - mp * l ^ 2
-  __bindings[lower_arm.I_22] = Jp - mp * l ^ 2
-  __bindings[lower_arm.I_33] = Jp - mp * l ^ 2
+  __bindings[lower_arm.I_11] = Jp
+  __bindings[lower_arm.I_22] = Jp
+  __bindings[lower_arm.I_33] = Jp
   # Now remove initial conditions in lower_arm that correspond to the bindings just added
   __lower_arm_ics = ModelingToolkit.get_initial_conditions(lower_arm)
   __no_namespace_lower_arm = ModelingToolkit.toggle_namespacing(lower_arm, false)
