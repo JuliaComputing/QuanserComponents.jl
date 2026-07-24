@@ -56,7 +56,8 @@ function DyadInterface.AnalysisSolutionMetadata(sol::FurutaExportCSolution)
         push!(arts, ArtifactMetadata(:RunLog, ArtifactType.DataFrame,
             "Hardware run log",
             "Time series logged while running the generated controller on the hardware: \
-             time [s], shoulder/elbow angles [rad] and the commanded control voltage [V]."))
+             time [s], shoulder/elbow angles [rad], the commanded control voltage [V], and \
+             the timing diagnostics dt (achieved period [s]) and exec (loop-body time [s])."))
     end
     AnalysisSolutionMetadata(arts, Symbol[])
 end
@@ -83,17 +84,20 @@ function DyadInterface.artifacts(sol::FurutaExportCSolution, name::Symbol)
     end
 end
 
-# Parse the harness-written CSV (header + numeric rows) into a Tables.jl column table.
+# Parse the harness-written log (tab-separated header + numeric rows) into a Tables.jl
+# column table. Columns: time, shoulder_angle, elbow_angle, control_input, the timing
+# diagnostics dt (achieved period) and exec (control-loop body duration) in seconds, and
+# the raw encoder counts (for diagnosing counter glitches).
 function _read_run_log(path)
-    empty = (; time = Float64[], shoulder_angle = Float64[],
-               elbow_angle = Float64[], control_input = Float64[])
+    cols = (:time, :shoulder_angle, :elbow_angle, :control_input, :dt, :exec,
+            :count_shoulder, :count_elbow)
+    empty = NamedTuple{cols}(ntuple(_ -> Float64[], length(cols)))
     lines = readlines(path)
     length(lines) > 1 || return empty
-    rows = [parse.(Float64, split(l, ',')) for l in lines[2:end] if !isempty(strip(l))]
+    rows = [parse.(Float64, split(l)) for l in lines[2:end] if !isempty(strip(l))]
     isempty(rows) && return empty
     mat = reduce(vcat, permutedims.(rows))
-    return (; time = mat[:, 1], shoulder_angle = mat[:, 2],
-              elbow_angle = mat[:, 3], control_input = mat[:, 4])
+    return NamedTuple{cols}(ntuple(j -> mat[:, j], length(cols)))
 end
 
 function Base.show(io::IO, ::MIME"text/plain", sol::FurutaExportCSolution)

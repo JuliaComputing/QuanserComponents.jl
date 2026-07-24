@@ -299,6 +299,13 @@ the pendulum hang before starting), then every `Ts` seconds reads the two encode
 calls the generated `<mangled>_step`, and writes the returned voltage to the motor (clamped
 to the ±10 V hardware limit). The `gains`/`auto` parameter objects are serialized to raw
 bytes and embedded so `_step` sees the exact byte layout it was compiled against.
+
+It writes a tab-separated `run_hardware.csv` matching `test/hardware_swingup.jl`'s
+`swingup.csv` layout — columns `time, shoulder_angle, elbow_angle, control_input` (load with
+`D = readdlm("run_hardware.csv", skipstart=1)'` and pass to `plotD`) plus two timing
+diagnostics `dt` (achieved period) and `exec` (loop-body duration). Timing mirrors the Julia
+`@periodically` loop (run body, sleep the remainder of `Ts`); a one-line timing summary is
+printed to stderr on exit.
 """
 function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto)
     words(obj) = join(("0x" * string(w; base = 16, pad = 16) * "ULL" for w in _param_words(obj)), ", ")
@@ -338,16 +345,21 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto)
     static volatile sig_atomic_t stop_flag = 0;
     static void on_signal(int sig) { (void)sig; stop_flag = 1; }
 
+    /* elapsed seconds a - b for two CLOCK_MONOTONIC timestamps */
+    static double tsub(struct timespec a, struct timespec b) {
+        return (double)(a.tv_sec - b.tv_sec) + (double)(a.tv_nsec - b.tv_nsec) * 1e-9;
+    }
+
     int main(void) {
         t_card  board;
         t_error result;
         const t_uint32 encoder_channels[2] = {0u, 1u};   /* 0 = arm/shoulder, 1 = pendulum/elbow */
         const t_uint32 analog_channel      = 0u;         /* motor voltage */
         const t_uint32 digital_channel     = 0u;         /* amplifier enable */
-        const t_int32  zero_counts[2]      = {0, 0};
-        t_int32   counts[2] = {0, 0};
-        t_double  voltage   = 0.0;
-        t_boolean enable    = 1;
+        t_int32   counts[2]  = {0, 0};
+        t_int32   counts0[2] = {0, 0};   /* initial counts, subtracted as homing offsets */
+        t_double  voltage    = 0.0;
+        t_boolean enable     = 1;
 
         signal(SIGINT, on_signal);
         signal(SIGTERM, on_signal);
@@ -360,35 +372,49 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto)
             return 1;
         }
 
-        /* Home by zeroing the encoders: place the arm at its home position and the pendulum
-         * hanging straight down before starting. The controller's GoHome state then drives
-         * the arm; the pendulum reference is elbow = 0 down, pi up. */
-        hil_set_encoder_counts(board, encoder_channels, 2, zero_counts);
+        /* Home in software, exactly like QuanserInterface: the encoder counters are left
+         * untouched (hil_set_encoder_counts is deliberately NOT called — zeroing the
+         * counters has been observed to desync the driver's counter extension, producing
+         * spurious 2^16-count jumps) and the initial counts are subtracted as offsets.
+         * Before starting, place the arm at its home position and let the pendulum hang
+         * straight down (0 = down, pi = up). The controller's GoHome drives the arm. */
         voltage = 0.0;
         hil_write_analog(board, &analog_channel, 1, &voltage);
         hil_write_digital(board, &digital_channel, 1, &enable);
+        hil_read_encoder(board, encoder_channels, 2, counts0);
 
         $(mangled)_mem state;
         memset(&state, 0, sizeof(state));
         $(mangled)_reset(&state);
 
+        /* Tab-separated log matching test/hardware_swingup.jl's `swingup.csv` layout
+         * (writedlm): first four columns are what `plotD` expects (load with
+         * `D = readdlm("run_hardware.csv", skipstart=1)'`). Two extra diagnostic columns:
+         * `dt` = achieved period since the previous step, `exec` = body (read+step+write)
+         * duration — both in seconds, for spotting timing trouble — plus the raw encoder
+         * counts, for diagnosing counter glitches (e.g. spurious 2^16 jumps). */
         FILE *logf = fopen("run_hardware.csv", "w");
-        if (logf) fprintf(logf, "time,shoulder_angle,elbow_angle,control_input\\n");
+        if (logf) fprintf(logf, "time\\tshoulder_angle\\telbow_angle\\tcontrol_input\\tdt\\texec\\tcount_shoulder\\tcount_elbow\\n");
 
+        /* Timing mirrors the Julia @periodically loop: run the body, then sleep the
+         * remainder of Ts (relative sleep, no absolute-schedule catch-up — so one slow
+         * step just stretches that period instead of compressing the following ones). */
         const long N = (long)(Tf / Ts);
-        const long period_ns = (long)(Ts * 1e9);
-        struct timespec t0, next;
+        struct timespec t0, start, done;
         clock_gettime(CLOCK_MONOTONIC, &t0);
-        next = t0;
+        struct timespec prev = t0;
+        double sum_dt = 0.0, max_dt = 0.0, max_exec = 0.0;
+        long periods = 0;
 
         for (long i = 0; i < N && !stop_flag; ++i) {
-            struct timespec now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-            double t = (double)(now.tv_sec - t0.tv_sec) + (double)(now.tv_nsec - t0.tv_nsec) * 1e-9;
+            clock_gettime(CLOCK_MONOTONIC, &start);
+            double t  = tsub(start, t0);      /* elapsed at step start [s] */
+            double dt = tsub(start, prev);    /* achieved period since previous step [s] */
+            prev = start;
 
             hil_read_encoder(board, encoder_channels, 2, counts);
-            double shoulder_angle = counts[0] * COUNTS2RAD;
-            double elbow_angle    = counts[1] * COUNTS2RAD;
+            double shoulder_angle = (counts[0] - counts0[0]) * COUNTS2RAD;
+            double elbow_angle    = (counts[1] - counts0[1]) * COUNTS2RAD;
 
             $(mangled)_out out =
                 $(mangled)_step(shoulder_angle, elbow_angle, true, GAINS_PTR, AUTO_PTR, &state);
@@ -397,13 +423,28 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto)
             if (voltage < -VLIM) voltage = -VLIM;
             hil_write_analog(board, &analog_channel, 1, &voltage);
 
-            if (logf) fprintf(logf, "%.6f,%.6f,%.6f,%.6f\\n",
-                              t, shoulder_angle, elbow_angle, voltage);
+            clock_gettime(CLOCK_MONOTONIC, &done);
+            double exec = tsub(done, start);  /* body duration [s] */
 
-            next.tv_nsec += period_ns;
-            while (next.tv_nsec >= 1000000000L) { next.tv_nsec -= 1000000000L; next.tv_sec++; }
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
+            if (logf) fprintf(logf, "%.6f\\t%.6f\\t%.6f\\t%.6f\\t%.6f\\t%.6f\\t%ld\\t%ld\\n",
+                              t, shoulder_angle, elbow_angle, voltage, dt, exec,
+                              (long)counts[0], (long)counts[1]);
+
+            if (i > 0) { sum_dt += dt; if (dt > max_dt) max_dt = dt; periods++; }
+            if (exec > max_exec) max_exec = exec;
+
+            double remain = Ts - exec;
+            if (remain > 0.0) {
+                struct timespec ts;
+                ts.tv_sec  = (time_t)remain;
+                ts.tv_nsec = (long)((remain - (double)ts.tv_sec) * 1e9);
+                clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, NULL);   /* relative sleep */
+            }
         }
+
+        fprintf(stderr, "run_hardware: Ts=%.4f s | mean dt=%.4f s, max dt=%.4f s, "
+                        "max exec=%.4f s over %ld periods\\n",
+                Ts, periods > 0 ? sum_dt / (double)periods : 0.0, max_dt, max_exec, periods);
 
         /* Stop the motor and release the board. */
         voltage = 0.0;
