@@ -127,8 +127,8 @@ component QubePendulum
   voltage_to_torque = BlockComponents.Math.Gain(final k = kt / Rm) {^voltage_to_torque}
   shoulder_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [0, 1, 0], color = [0.8, 0.8, 0.8, 1], radius = 0.01, cylinder_length = 0.03) {^shoulder_joint}
   elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [-1, 0, 0]) {^elbow_joint}
-  upper_arm = MultibodyComponents.BodyShape(final m = mr, final r = [r, 0, 0], final r_cm = [r / 2, 0, 0], final I_11 = 1e-9, final I_22 = Jr, final I_33 = Jr, radius = 0.0025, color = [0.9, 0.9, 0.9, 1], shapefile = joinpath("assets", "qube", "qube_arm.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0])) {^upper_arm}
-  lower_arm = MultibodyComponents.BodyShape(final m = mp, final r = [0, -Lp, 0], final r_cm = [0, -l, 0], final I_11 = Jp, final I_22 = Jp, final I_33 = Jp, radius = 0.00986 / 2, color = [1, 0, 0, 1], shapefile = joinpath("assets", "qube", "qube_pole.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0])) {^lower_arm}
+  upper_arm = MultibodyComponents.BodyShape(final m = mr, final r = [r, 0, 0], final r_cm = [r_cm_r, 0, 0], final I_11 = 1e-9, final I_22 = Jr, final I_33 = Jr, radius = 0.0025, color = [0.9, 0.9, 0.9, 1], shapefile = joinpath("assets", "qube", "qube_arm.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0])) {^upper_arm}
+  lower_arm = MultibodyComponents.BodyShape(final m = mp, final r = [0, -Lp, 0], final r_cm = [0, -l, 0], final I_11 = Jp, I_22 = 1e-9, final I_33 = Jp, radius = 0.00986 / 2, color = [1, 0, 0, 1], shapefile = joinpath("assets", "qube", "qube_pole.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0])) {^lower_arm}
   elbow_sensor = RotationalComponents.Sensors.AngleSensor() {^elbow_sensor}
   shoulder_sensor = RotationalComponents.Sensors.AngleSensor() {^shoulder_sensor}
   shoulder_angle = Dyad.RealOutput() {^shoulder_angle}
@@ -148,6 +148,8 @@ component QubePendulum
   parameter kt::Dyad.ElectricalTorqueConstant = 0.042
   "Motor back-EMF (speed) constant"
   parameter km::Dyad.ElectricalTorqueConstant = 0.042
+
+  parameter r_cm_r::Dyad.Length = r / 2
   "Rotary arm (rod) mass (including rotary encoder)"
   parameter mr::Dyad.Mass = 0.095
   "Rotary arm (rod) length"

@@ -100,10 +100,22 @@ tunable_syms = [
     qubependulum.Jp,
     qubependulum.br,
     qubependulum.bp,
+    qubependulum.kt,
+    qubependulum.mr,
+    qubependulum.r_cm_r,
+    # qubependulum.mp,
+    # qubependulum.km,
 ]   # add .br, .bp, .kt, .Rm, ...
 set_tunable! = ModelingToolkit.setp(iosys, tunable_syms)
 get_tunable  = ModelingToolkit.getp(iosys, tunable_syms)
 p_nominal    = collect(get_tunable(p0))
+
+# p_nominal =  [5.719791666666669e-5
+#  0.00013312800000000002
+#  3.6429e-04
+#  2.5e-6
+#  7.0503e-02
+#  0.042]
 
 # =============================================================================
 ## 4. Dynamics wrapper (splices tunable params) + measurement + discretization
@@ -174,7 +186,7 @@ end
 
 lsq    = LeastSquaresProblem(x = log10.(p_nominal), f! = residuals!,
                              output_length = length(yvv) * ny, autodiff = :central)
-result = optimize!(lsq, LevenbergMarquardt(), show_trace=true, show_every=1, iterations=25)
+result = optimize!(lsq, LevenbergMarquardt(), show_trace=true, show_every=1, iterations=35)
 p_id   = exp10.(result.minimizer)
 sol_id   = forward_trajectory(make_ukf(p_id), uvv, yvv)
 plot(sol_id, plote=true, plotx=false, plotxt=false, plotxht=false, plotu=false)
@@ -198,15 +210,19 @@ println("=====================================================\n")
 # Linearize the plant about the upright equilibrium for a given (Jr, Jp) and
 # design the discrete LQR gain, in the same convention as the baked-in gain
 # (error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]).
-function design_L(Jrv, Jpv; Ts_lqr = 0.005)
-    op = Dict(
-        qubependulum.elbow_joint.phi    => π,
-        qubependulum.shoulder_joint.phi => 0.0,
-        qubependulum.elbow_joint.w      => 0.0,
-        qubependulum.shoulder_joint.w   => 0.0,
-        qubependulum.voltage            => 0.0,
-        qubependulum.Jr                 => Jrv,
-        qubependulum.Jp                 => Jpv,
+# `p` is a parameter vector aligned with `tunable_syms`; every identified
+# parameter is spliced into the operating point, so extending `tunable_syms`
+# automatically flows through to the redesign with no further changes here.
+function design_L(p; Ts_lqr = 0.005)
+    op = merge(
+        Dict{Any,Any}(
+            qubependulum.elbow_joint.phi    => π,
+            qubependulum.shoulder_joint.phi => 0.0,
+            qubependulum.elbow_joint.w      => 0.0,
+            qubependulum.shoulder_joint.w   => 0.0,
+            qubependulum.voltage            => 0.0,
+        ),
+        Dict(tunable_syms .=> p),          # all identified parameters
     )
     outs = [qubependulum.shoulder_angle, qubependulum.elbow_angle,
             qubependulum.shoulder_joint.w, qubependulum.elbow_joint.w]
@@ -218,8 +234,8 @@ function design_L(Jrv, Jpv; Ts_lqr = 0.005)
 end
 
 try
-    L_nom = design_L(p_nominal[1], p_nominal[2])
-    L_id  = design_L(p_id[1],      p_id[2])
+    L_nom = design_L(p_nominal)
+    L_id  = design_L(p_id)
     println("================ LQR gain comparison ================")
     names = ["L1 (θ_sh)", "L2 (φ_el)", "L3 (θ̇_sh)", "L4 (φ̇_el)"]
     @printf("%-12s %14s %14s %14s\n", "", "baked-in", "nominal-param", "identified")
