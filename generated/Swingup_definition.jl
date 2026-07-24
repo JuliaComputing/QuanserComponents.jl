@@ -104,10 +104,10 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle))
   push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u))
   push!(__eqs, connect(gain.y, u))
-  push!(__eqs, connect(energyswingup.realoutput, switch1.u1))
   push!(__eqs, connect(neartop.y, switch1.u2))
-  push!(__eqs, connect(lqrstabilizer.u, switch1.u3))
   push!(__eqs, connect(switch1.y, gain.u))
+  push!(__eqs, connect(energyswingup.realoutput, switch1.u3))
+  push!(__eqs, connect(lqrstabilizer.u, switch1.u1))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

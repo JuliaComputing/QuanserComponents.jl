@@ -20,6 +20,10 @@ using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
   var"Q2"::Float64 = 100.0
   # Stabilizer saturation [V]
   var"umax"::Float64 = 10.0
+  # Compile and run the generated C control loop on the hardware after export
+  var"run"::Bool = true
+  # Duration [s] of the hardware run when `run = true`
+  var"Tf"::Float64 = 10.0
   # Top-level controller with a two-state machine: it first runs `GoHome` to home the
   # arm, then switches to the `RuntimeController` (swing-up + stabilization + error
   # recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
@@ -32,7 +36,7 @@ function DyadInterface.run_analysis(spec::FurutaExportCSpec)
   no_namespace_model = toggle_namespacing(spec.model, false)
   
   base_spec = FurutaExportCBaseSpec(;
-    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, model=spec.model
+    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, run=spec.run, Tf=spec.Tf, model=spec.model
   )
   run_analysis(base_spec)
 end

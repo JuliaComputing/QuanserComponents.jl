@@ -942,10 +942,10 @@ relations
   connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id15}
   connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id16}
   connect(gain.y, u) {^id17}
-  connect(energyswingup.realoutput, switch1.u1) {^id18}
-  connect(neartop.y, switch1.u2) {^id19}
-  connect(lqrstabilizer.u, switch1.u3) {^id20}
-  connect(switch1.y, gain.u) {^id21}
+  connect(neartop.y, switch1.u2) {^id18}
+  connect(switch1.y, gain.u) {^id19}
+  connect(switch1.u3, energyswingup.realoutput) {^id20}
+  connect(switch1.u1, lqrstabilizer.u) {^id21}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/Swingup.svg"}},
   "_links": {
@@ -998,7 +998,7 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 820, "y1": 450, "x2": 920, "y2": 550}}}
     },
     "switch1": {
-      "Dyad": {"placement": {"diagram": {"x1": 640, "x2": 740, "y1": 450, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 640, "x2": 740, "y1": 550, "y2": 450}}}
     },
     "id12": {
       "Dyad": {
@@ -1056,17 +1056,17 @@ metadata {
     },
     "id17": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
     "id18": {
-      "Dyad": {"edges": [{"S": 1, "M": [{"x": 580, "y": 370}, {"x": 580, "y": 468}], "E": 2}]}
-    },
-    "id19": {
       "Dyad": {"edges": [{"S": 1, "M": [{"x": 550, "y": 570}, {"x": 550, "y": 500}], "E": 2}]}
     },
+    "id19": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
     "id20": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 575.75, "y": 775}, {"x": 575.75, "y": 532}], "E": 2}]
+        "edges": [{"S": 1, "M": [{"x": 580.2, "y": 468}, {"x": 580.2, "y": 370}], "E": 2}]
       }
     },
-    "id21": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+    "id21": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 580, "y": 532}, {"x": 580, "y": 775}], "E": 2}]}
+    }
   }
 }
 end

@@ -39,7 +39,12 @@ function plotD(D, th=0.2)
     plot!(diff(D[1,:]), sp=4, lab="Δt"); hline!([Ts], sp=4, framestyle=:zerolines, lab="Ts")
 end
 
-@time sol = QuanserComponents.FurutaExportC(; run = true)
+# @time sol = QuanserComponents.FurutaExportC(; run = true)
+
+dir = "furuta_c"
+export_swingup_c(dir)
+
+
 ##
 tr = @async begin
     cd(joinpath(@__DIR__, "..", "furuta_c"))

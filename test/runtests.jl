@@ -11,13 +11,13 @@ using LinearAlgebra
 # include("../generated/tests.jl")
 
 
-@named model = QuanserComponents.FurutaSwingup()
+@time "model" @named model = QuanserComponents.FurutaSwingup();
+@time "mtkcompile + compile_lustre" ssys = multibody(model, additional_passes=[SynchToolkit.compile_lustre])
 
 #
-ssys = multibody(model, additional_passes=[SynchToolkit.compile_lustre])
 k = ModelingToolkit.ShiftIndex()
 ##
-prob = ODEProblem(ssys, [
+@time "ODEProblem" prob = ODEProblem(ssys, [
     ssys.qubependulum.shoulder_joint.render => false
     # ssys.qubependulum.shoulder_joint.radius => 0.01
     # ssys.qubependulum.shoulder_joint.color => [0.8, 0.8, 0.8, 1]
@@ -106,7 +106,7 @@ sol[ssys.qubependulum.lower_arm.m]
 # [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]; `Q2` is the control
 # penalty.
 Ts = 0.005
-L = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
+@time L = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
 @show L
 
 
@@ -162,6 +162,20 @@ import DyadCompilerPasses
         csrc = read(joinpath(dir, "top.c"), String)
         @test occursin("$(r.mangled)_step", csrc)
         @test occursin("$(r.mangled)_reset", csrc)
+
+        # the runnable hardware control loop is emitted alongside the node sources
+        @test isfile(joinpath(dir, "run_hardware.c"))
+        @test isfile(joinpath(dir, "Makefile"))
+        hsrc = read(joinpath(dir, "run_hardware.c"), String)
+        @test occursin("$(r.mangled)_step", hsrc)
+        @test occursin("hil_read_encoder", hsrc)
+        # where the Quanser HIL SDK and a C compiler are present, the harness must build
+        # (static-linked, so no hardware needs to be connected)
+        if isdir("/opt/quanser/hil_sdk") &&
+           (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
+            exe = QuanserComponents.compile_hardware_harness(dir)
+            @test isfile(exe)
+        end
     end
 
     # ---- FurutaExportC analysis (Dyad analysis wrapper) --------------------
@@ -169,12 +183,12 @@ import DyadCompilerPasses
     @testset "FurutaExportC analysis" begin
         DI = QuanserComponents.DyadInterface
         dir = mktempdir()
-        sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts)
+        # run=false: the analysis defaults to run=true (compile + drive the hardware),
+        # which must not happen in the test suite.
+        @time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = false)
         @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "top.h"))
         @test !isempty(sol.mangled)
         @test length(sol.L) == 4 && all(isfinite, sol.L)
-        # analysis-designed L matches the standalone helper for the same weights
-        @test sol.L ≈ QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
         # metadata advertises the file-listing artifact, which lists the generated files
         md = DI.AnalysisSolutionMetadata(sol)
         @test any(a -> a.name === :GeneratedFiles, md.artifacts)

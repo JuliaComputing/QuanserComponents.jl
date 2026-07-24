@@ -15,9 +15,11 @@ partial analysis FurutaExportCBase
   parameter run::Boolean = false
   "Duration [s] of the hardware run when `run = true`"
   parameter Tf::Real = 10.0
+relations
 end
 
 analysis FurutaExportC
-  extends FurutaExportCBase()
+  extends FurutaExportCBase(run = true)
   model = SwingupWithHoming()
+relations
 end
