@@ -33,13 +33,18 @@ end
 
 function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
     mkpath(spec.output_dir)
-    L = design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
+    # L = design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
+    L = [-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338]
     res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax, Tf = spec.Tf)
     # `run = true` compiles the emitted C control loop and executes it on the physical
     # pendulum for `Tf` seconds, capturing the trace as the `:RunLog` artifact.
     log = nothing
     if spec.run
         exe = compile_hardware_harness(spec.output_dir)
+        tks = @async begin
+            sleep(0.1)
+            run(`kst2 $(joinpath(@__DIR__, "..", "furuta_c", "kast2config.kst"))`)
+        end
         log = run_hardware_harness(exe)
     end
     files = sort!(filter(f -> isfile(joinpath(spec.output_dir, f)),

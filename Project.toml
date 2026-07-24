@@ -5,6 +5,7 @@ authors = ["Fredrik Bagge Carlson <baggepinnen@gmail.com>"]
 
 [deps]
 BlockComponents = "1ef5d832-be8e-447f-9f2c-8b5d17d15fd3"
+Clang_unified_jll = "ffc816e1-ba66-5fa9-9ecc-bcc5cb19bea1"
 ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
 ControlSystemsMTK = "687d7614-c7e5-45fc-bfc3-9ee385575c88"
 DiscreteComponents = "b5590941-51af-4a5a-9bca-5ae7cd448b75"
@@ -29,6 +30,7 @@ ThermalComponents = "084a29d9-4f48-4925-95b4-b7d4c79725f4"
 TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 
 [compat]
+Clang_unified_jll = "0.1"
 ControlSystemsBase = "1"
 ControlSystemsMTK = "2.6"
 DyadInterface = "7.1.0"

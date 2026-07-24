@@ -39,7 +39,7 @@ function plotD(D, th=0.2)
     plot!(diff(D[1,:]), sp=4, lab="Δt"); hline!([Ts], sp=4, framestyle=:zerolines, lab="Ts")
 end
 
-# @time sol = QuanserComponents.FurutaExportC(; run = true)
+@time sol = QuanserComponents.FurutaExportC(; run = true)
 
 dir = "furuta_c"
 export_swingup_c(dir)
@@ -52,8 +52,10 @@ tr = @async begin
     run(`./run_hardware`)
     cd(joinpath(@__DIR__, ".."))
 end
-sleep(0.1)
-tks = @async run(`kst2 kast2config.kst`)
+tks = @async begin
+    sleep(0.1)
+    run(`kst2 $(joinpath(@__DIR__, "..", "furuta_c", "kast2config.kst"))`)
+end
 
 wait(tr)
 

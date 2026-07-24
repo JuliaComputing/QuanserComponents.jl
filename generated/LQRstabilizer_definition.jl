@@ -83,7 +83,6 @@ import Moshi as __Ext__Moshi
   ### Variables (assignments)
   __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
   __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
-  __ovr_uraw__guess = pop!(__overrides, "uraw__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -94,7 +93,6 @@ import Moshi as __Ext__Moshi
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
-  isnothing(__ovr_uraw__guess) || (__guesses[uraw] = __ovr_uraw__guess)
 
   ### Initialization Equations
 
