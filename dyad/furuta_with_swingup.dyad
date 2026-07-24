@@ -1,7 +1,5 @@
-using BlockComponents
-
 component FurutaSwingup
-  swingup = Swingup() {^swingup}
+  swingup = SwingupWithHoming() {^swingup}
   qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
   zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
   elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
@@ -24,12 +22,7 @@ relations
 metadata {
   "_links": {
     "swingup": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 180, "y1": 440, "x2": 280, "y2": 340, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 90, "y1": 300, "x2": 270, "y2": 480}}}
     },
     "qubependulum": {
       "Dyad": {
@@ -80,28 +73,27 @@ metadata {
       }
     },
     "gain": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 320, "y1": 340, "x2": 420, "y2": 440, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 320, "y1": 340, "x2": 420, "y2": 440}}}
     },
     "id9": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 160, "y": 630}, {"x": 160, "y": 419}], "E": 2}],
-        "renderStyle": "standard"
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 60, "y": 630}, {"x": 60, "y": 430}, {"x": 81, "y": 430}],
+            "E": 2
+          }
+        ]
       }
     },
     "id10": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
-          {"S": -1, "M": [{"x": 130, "y": 760}, {"x": 130, "y": 372}], "E": 2},
+          {"S": -1, "M": [{"x": 30, "y": 760}, {"x": 30, "y": 332.4}], "E": 2},
           {"S": 3, "M": [{"x": 520, "y": 910}], "E": -1}
         ],
-        "junctions": [{"x": 520, "y": 760}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 520, "y": 760}]
       }
     },
     "id11": {
@@ -123,8 +115,8 @@ metadata {
         "renderStyle": "standard"
       }
     },
-    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id15": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}}
+    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id15": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
   }
 }
 end
@@ -134,7 +126,7 @@ component QubePendulum
   voltage = Dyad.RealInput() {^voltage}
   voltage_to_torque = BlockComponents.Math.Gain(final k = kt / Rm) {^voltage_to_torque}
   shoulder_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [0, 1, 0], color = [0.8, 0.8, 0.8, 1], radius = 0.01, cylinder_length = 0.03) {^shoulder_joint}
-  elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [1, 0, 0]) {^elbow_joint}
+  elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [-1, 0, 0]) {^elbow_joint}
   upper_arm = MultibodyComponents.BodyShape(final m = mr, final r = [r, 0, 0], final r_cm = [r / 2, 0, 0], final I_11 = 1e-9, final I_22 = Jr - mr * (r / 2) ^ 2, final I_33 = Jr - mr * (r / 2) ^ 2, radius = 0.0025, color = [0.9, 0.9, 0.9, 1], shapefile = joinpath("assets", "qube", "qube_arm.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0])) {^upper_arm}
   lower_arm = MultibodyComponents.BodyShape(final m = mp, final r = [0, -Lp, 0], final r_cm = [0, -l, 0], final I_11 = Jp - mp * l ^ 2, final I_22 = Jp - mp * l ^ 2, final I_33 = Jp - mp * l ^ 2, radius = 0.00986 / 2, color = [1, 0, 0, 1], shapefile = joinpath("assets", "qube", "qube_pole.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0])) {^lower_arm}
   elbow_sensor = RotationalComponents.Sensors.AngleSensor() {^elbow_sensor}
@@ -170,8 +162,8 @@ component QubePendulum
   parameter Lp::Dyad.Length = 0.129
   "Distance from elbow pivot to pendulum center of mass"
   parameter l::Dyad.Length = Lp / 2
-  "Pendulum moment of inertia about the elbow pivot"
-  parameter Jp::Dyad.Inertia = mp * Lp ^ 2 / 3
+  "Pendulum moment of inertia about the elbow pivot. Matched to the QuanserInterface.jl hardware-calibrated model (effective H22 = Jp + mp*Lp^2/4 = 7*mp*Lp^2/12), heavier than a uniform rod."
+  parameter Jp::Dyad.Inertia = 7 * mp * Lp ^ 2 / 12
   "Pendulum viscous damping coefficient"
   parameter bp::Dyad.RotationalDampingConstant = 0.05 * 5e-5
   "Edge length of the cubic base box (visualization only)"
@@ -446,7 +438,7 @@ component Energy
 relations
   E = 0.5 * Jp_cm * dα ^ 2 + mp * g * l * (1 + cos(α))
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/Energy.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Energy.svg"}},
   "_links": {
     "α": {
       "Dyad": {
@@ -478,7 +470,7 @@ end
 
 component VelocityEstimator
   discretederivative = DiscreteComponents.DiscreteDerivative() {^discretederivative}
-  exponentialfilter = DiscreteComponents.ExponentialFilter(a = filter_param) {^exponentialfilter}
+  exponentialfilter = DiscreteComponents.ExponentialFilter(final a = filter_param) {^exponentialfilter}
   pos = Dyad.RealInput() {^pos}
   vel = Dyad.RealOutput() {^vel}
   parameter filter_param::Real(min = 0, max = 1) = 0.5
@@ -487,7 +479,7 @@ relations
   connect(pos, discretederivative.u) {^id6}
   connect(exponentialfilter.y, vel) {^id7}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/VelocityEstimator.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/VelocityEstimator.svg"}},
   "_links": {
     "discretederivative": {
       "Dyad": {
@@ -538,19 +530,19 @@ component EnergySwingup
   constant1 = BlockComponents.Sources.Constant(k = pi) {^constant1}
   energy1 = QuanserComponents.Energy() {^energy1}
   constant2 = BlockComponents.Sources.Constant(k = 0) {^constant2}
-  gain = BlockComponents.Math.Gain(k = 80) {^gain}
-  arm_centering = BlockComponents.Math.Gain(k = -0.2) {^arm_centering}
+  gain = BlockComponents.Math.Gain(k = -100) {^gain}
+  arm_centering = BlockComponents.Math.Gain(k = -1.0) {^arm_centering}
   add_centering = BlockComponents.Math.Add() {^add_centering}
   sub_eref = BlockComponents.Math.Add(k2 = -1) {^sub_eref}
   product = BlockComponents.Math.Product() {^product}
   sign = QuanserComponents.Sign() {^sign}
   product1 = BlockComponents.Math.Product() {^product1}
   realoutput = Dyad.RealOutput() {^realoutput}
-  limiter = BlockComponents.Nonlinear.Limiter(y_max = umax) {^limiter}
+  limiter = BlockComponents.Nonlinear.Limiter(final y_max = umax, y_min = -umax) {^limiter}
   cos = QuanserComponents.Cos() {^cos}
   gain1 = BlockComponents.Math.Gain(k = -1) {^gain1}
   "maximum control signal during swingup"
-  parameter umax::Real(min = 0.1, max = 50) = 2
+  parameter umax::Real(min = 0.1, max = 50) = 3
 relations
   connect(elbow_velocity, energy.dα, gain1.u) {^id21}
   connect(elbow_angle, sub_pi.u1) {^id22}
@@ -576,7 +568,7 @@ metadata {
     "experiments": {},
     "tests": {},
     "labels": [],
-    "icons": {"default": "dyad://DiscreteComponents/EnergySwingup.svg"},
+    "icons": {"default": "dyad://QuanserComponents/EnergySwingup.svg"},
     "path": {},
     "doc": {"behavior": true}
   },
@@ -859,7 +851,7 @@ component Sign
   extends BlockComponents.Interfaces.SISO
 relations
   y = sign(u)
-metadata {"Dyad": {"icons": {"default": "dyad://DiscreteComponents/Sign.svg"}}}
+metadata {"Dyad": {"icons": {"default": "dyad://QuanserComponents/Sign.svg"}}}
 end
 
 component AngleNormalization
@@ -867,7 +859,7 @@ component AngleNormalization
 relations
   y = mod(u, 2 * pi)
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/AngleNormalization.svg"}}
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/AngleNormalization.svg"}}
 }
 end
 
@@ -877,26 +869,15 @@ component LQRstabilizer
   shoulder_velocity = Dyad.RealInput() {^shoulder_velocity}
   elbow_velocity = Dyad.RealInput() {^elbow_velocity}
   u = Dyad.RealOutput() {^u}
-  "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
-  parameter L1::Real = -9.625743176817387
-  parameter L2::Real = 394.43972658274106
-  parameter L3::Real = -7.461418005226849
-  parameter L4::Real = 84.42279971138271
-  variable e1::Real
-  variable e2::Real
-  variable e3::Real
-  variable e4::Real
+  "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum"
+  parameter L::Real[4] = [-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338]
   variable uraw::Real
-  parameter umax::Real = 3.0
+  parameter umax::Real = 10.0
 relations
-  e1 = 0.0 - shoulder_angle
-  e2 = pi - elbow_angle
-  e3 = 0.0 - shoulder_velocity
-  e4 = 0.0 - elbow_velocity
-  uraw = L1 * e1 + L2 * e2 + L3 * e3 + L4 * e4
+  uraw = dot(L, [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity])
   u = clamp(uraw, -umax, umax)
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/LQRstabilizer.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/LQRstabilizer.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {
@@ -952,22 +933,21 @@ component Swingup
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
   lqrstabilizer = QuanserComponents.LQRstabilizer() {^lqrstabilizer}
   neartop = QuanserComponents.NearTop() {^neartop}
-  stabilizationswitch = QuanserComponents.StabilizationSwitch() {^stabilizationswitch}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
+  switch1 = BlockComponents.Logical.Switch() {^switch1}
 relations
-  connect(anglenormalization.y, lqrstabilizer.elbow_angle, energyswingup.elbow_angle) {^id12}
+  connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u) {^id12}
   connect(lqrstabilizer.shoulder_velocity, velocityestimator_shoulder.vel, energyswingup.shoulder_velocity) {^id13}
-  connect(neartop.u, anglenormalization.y) {^id14}
-  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id15}
-  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id16}
-  connect(neartop.y, stabilizationswitch.neartop) {^id17}
-  connect(energyswingup.realoutput, stabilizationswitch.u_swingup) {^id18}
-  connect(lqrstabilizer.u, stabilizationswitch.u_lqr) {^id19}
-  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id20}
-  connect(stabilizationswitch.u, gain.u) {^id21}
-  connect(gain.y, u) {^id22}
+  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id14}
+  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id15}
+  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id16}
+  connect(gain.y, u) {^id17}
+  connect(neartop.y, switch1.u2) {^id18}
+  connect(switch1.y, gain.u) {^id19}
+  connect(switch1.u3, energyswingup.realoutput) {^id20}
+  connect(switch1.u1, lqrstabilizer.u) {^id21}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/Swingup.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Swingup.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {
@@ -1002,192 +982,109 @@ metadata {
       }
     },
     "velocityestimator_elbow": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 60, "y1": 270, "x2": 160, "y2": 370, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 60, "y1": 220, "x2": 160, "y2": 320}}}
     },
     "energyswingup": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 360, "y1": 390, "x2": 520, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 290, "x2": 520, "y2": 450}}}
     },
-    "anglenormalization": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 100, "y1": 20, "x2": 200, "y2": 120, "rot": 0}
-        },
-        "tags": []
-      }
-    },
+    "anglenormalization": {"Dyad": {"placement": {"diagram": {"x1": 60, "y1": 80, "x2": 160, "y2": 180}}}},
     "lqrstabilizer": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 360, "y1": 690, "x2": 510, "y2": 840, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 690, "x2": 530, "y2": 860}}}
     },
     "neartop": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 330, "y1": 20, "x2": 430, "y2": 120, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "stabilizationswitch": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 650, "y1": 450, "x2": 750, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 520, "x2": 460, "y2": 620}}}
     },
     "gain": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 830, "y1": 450, "x2": 930, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 820, "y1": 450, "x2": 920, "y2": 550}}}
+    },
+    "switch1": {
+      "Dyad": {"placement": {"diagram": {"x1": 640, "x2": 740, "y1": 550, "y2": 450}}}
     },
     "id12": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [{"x": 230, "y": 70}], "E": -1},
-          {"S": -1, "M": [{"x": 230, "y": 700.5}], "E": 2},
-          {"S": 3, "M": [{"x": 291.8, "y": 412.4}, {"x": 291.8, "y": 410}], "E": -1}
+          {"S": 1, "M": [{"x": 230, "y": 130}], "E": -1},
+          {"S": 2, "M": [{"x": 291.8, "y": 312.4}, {"x": 291.8, "y": 310}], "E": -1},
+          {"S": -1, "M": [], "E": -2},
+          {"S": -2, "M": [{"x": 230, "y": 701.9}], "E": 3},
+          {"S": 4, "M": [], "E": -2}
         ],
-        "junctions": [{"x": 230, "y": 410}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 230, "y": 310}, {"x": 230, "y": 570}]
       }
     },
     "id13": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [{"x": 220, "y": 820.5}, {"x": 220, "y": 870}], "E": -1},
+          {"S": 1, "M": [{"x": 220, "y": 837.9}, {"x": 220, "y": 870}], "E": -1},
           {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 190, "y": 532.4}], "E": -1}
+          {"S": 3, "M": [{"x": 190, "y": 432.4}], "E": -1}
         ],
-        "junctions": [{"x": 190, "y": 870}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 190, "y": 870}]
       }
     },
-    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id14": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 250, "y": 744.4}], "E": -1},
+          {"S": -1, "M": [{"x": 250, "y": 270}], "E": 2},
+          {"S": 3, "M": [{"x": 301, "y": 350.8}, {"x": 301, "y": 350}], "E": -1}
+        ],
+        "junctions": [{"x": 250, "y": 350}]
+      }
+    },
     "id15": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [{"x": 250, "y": 738}], "E": -1},
-          {"S": -1, "M": [{"x": 250, "y": 320}], "E": 2},
-          {"S": 3, "M": [{"x": 301, "y": 450.8}, {"x": 301, "y": 450}], "E": -1}
+          {"S": -1, "M": [], "E": 1},
+          {"S": 2, "M": [{"x": 20, "y": 390.8}], "E": -1},
+          {"S": 3, "M": [{"x": 20, "y": 870}], "E": -2},
+          {"S": -2, "M": [], "E": -1},
+          {"S": 4, "M": [{"x": 186.25, "y": 798.8}, {"x": 186.25, "y": 800}], "E": -2}
         ],
-        "junctions": [{"x": 250, "y": 450}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 20, "y": 680}, {"x": 20, "y": 800}]
       }
     },
     "id16": {
       "Dyad": {
         "edges": [
-          {"S": -1, "M": [], "E": 1},
-          {"S": 2, "M": [{"x": 20, "y": 490.8}], "E": -1},
-          {"S": 3, "M": [{"x": 20, "y": 870}], "E": -2},
-          {"S": -2, "M": [], "E": -1},
-          {"S": 4, "M": [{"x": 186.25, "y": 786}, {"x": 186.25, "y": 780}], "E": -2}
+          {"S": 1, "M": [{"x": 20, "y": 270}], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": 3, "M": [{"x": 20, "y": 130}], "E": -1}
         ],
-        "junctions": [{"x": 20, "y": 680}, {"x": 20, "y": 780}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 20, "y": 210}]
       }
     },
-    "id17": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 700, "y": 70}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
+    "id17": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
     "id18": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 630.7, "y": 470}, {"x": 630.7, "y": 472}], "E": 2}],
-        "renderStyle": "standard"
-      }
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 550, "y": 570}, {"x": 550, "y": 500}], "E": 2}]}
     },
-    "id19": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 631.25, "y": 765}, {"x": 631.25, "y": 522}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
+    "id19": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
     "id20": {
       "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": 40, "y": 320}, {"x": 40, "y": 210}], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 40, "y": 70}], "E": -1}
-        ],
-        "junctions": [{"x": 40, "y": 210}],
-        "renderStyle": "standard"
+        "edges": [{"S": 1, "M": [{"x": 580.2, "y": 468}, {"x": 580.2, "y": 370}], "E": 2}]
       }
     },
-    "id21": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
-    "id22": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}}
+    "id21": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 580, "y": 532}, {"x": 580, "y": 775}], "E": 2}]}
+    }
   }
 }
 end
 
 component NearTop
-  extends BlockComponents.Interfaces.SISO
+  y = BooleanOutput() {^y}
+  u = RealInput() {^u}
   parameter th::Real = 0.4
 relations
   y = abs(u - π) < th
-metadata {"Dyad": {"icons": {"default": "dyad://DiscreteComponents/NearTop.svg"}}}
-end
-
-component StabilizationSwitch
-  neartop = RealInput() {^neartop}
-  u_lqr = RealInput() {^u_lqr}
-  u_swingup = RealInput() {^u_swingup}
-  u = RealOutput() {^u}
-relations
-  u = ifelse(neartop == true, u_lqr, u_swingup)
 metadata {
-  "Dyad": {"icons": {"default": "dyad://DiscreteComponents/StabilizationSwitch.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/NearTop.svg"}},
   "_links": {
-    "neartop": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 450, "y1": -100, "x2": 550, "y2": 0, "rot": 90}
-        },
-        "tags": []
-      }
-    },
-    "u_lqr": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -100, "y1": 670, "x2": 0, "y2": 770, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "u_swingup": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": -100, "y1": 170, "x2": 0, "y2": 270, "rot": 0}
-        },
-        "tags": []
-      }
+    "y": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
     },
     "u": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 1000, "y1": 450, "x2": 1100, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
     }
   }
 }
@@ -1197,4 +1094,635 @@ component Cos
   extends BlockComponents.Interfaces.SISO
 relations
   y = cos(u)
+end
+
+"""
+Overrides the swing-up/stabilizing command with a corrective term that drives the
+arm back toward center when it swings past ±arm_limit, matching the out-of-bounds
+guard in the hardware control loop.
+"""
+component ErrorRecovery
+  "Measured arm (shoulder) angle"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Command from the runtime (swing-up/stabilizing) controller"
+  u_swingup = Dyad.RealInput() {^u_swingup}
+  "Control command"
+  u = Dyad.RealOutput() {^u}
+  abs_angle = BlockComponents.Math.Abs() {^abs_angle}
+  out_of_bounds = BlockComponents.Logical.GreaterThreshold(final threshold = arm_limit) {^out_of_bounds}
+  recovery = BlockComponents.Math.Gain(final k = recovery_gain) {^recovery}
+  selector = BlockComponents.Logical.Switch() {^selector}
+  "Arm angle beyond which the corrective term takes over"
+  parameter arm_limit::Real = 1.9198621771937625
+  "Proportional gain applied to the arm angle when out of bounds"
+  parameter recovery_gain::Real = -0.5
+relations
+  connect(shoulder_angle, recovery.u, abs_angle.u) {^id8}
+  connect(abs_angle.y, out_of_bounds.u) {^id9}
+  connect(out_of_bounds.y, selector.u2) {^id10}
+  connect(recovery.y, selector.u1) {^id11}
+  connect(u_swingup, selector.u3) {^id12}
+  connect(selector.y, u) {^id13}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/ErrorRecovery.svg"}},
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 150, "y2": 250}}}
+    },
+    "u_swingup": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 700, "y2": 800}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
+    "abs_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 100, "x2": 200, "y1": 450, "y2": 550}}}
+    },
+    "out_of_bounds": {
+      "Dyad": {"placement": {"diagram": {"x1": 360, "x2": 460, "y1": 450, "y2": 550}}}
+    },
+    "recovery": {
+      "Dyad": {"placement": {"diagram": {"x1": 360, "x2": 460, "y1": 320, "y2": 420}}}
+    },
+    "selector": {
+      "Dyad": {"placement": {"diagram": {"x1": 800, "x2": 900, "y1": 450, "y2": 550}}}
+    },
+    "id8": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": -50, "y": 370}], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": 3, "M": [{"x": 70, "y": 500}], "E": -1}
+        ],
+        "junctions": [{"x": 70, "y": 370}]
+      }
+    },
+    "id9": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id10": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id11": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 550, "y": 370}, {"x": 550, "y": 468}], "E": 2}]}
+    },
+    "id12": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 754, "y": 750}, {"x": 754, "y": 532}], "E": 2}]}
+    },
+    "id13": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+  }
+}
+end
+
+"""
+Drives the arm to its home position (angle 0) with a super-twisting sliding-mode
+controller on the sliding surface s = arm_velocity + lambda*arm_angle, and reports
+`done` once the arm has stayed near home (small angle and speed) for `home_time`.
+Mirrors QuanserInterface.go_home.
+
+The sliding-mode law is the shared `DiscreteComponents.SuperTwistingSMC` block; the
+sliding surface is formed by scaling the arm angle (`lambda_gain`) and adding the
+estimated arm velocity (`surface`), and the block output is saturated to ±`th`.
+"""
+component GoHome
+  "Measured arm (shoulder) angle"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Homing control command"
+  u = Dyad.RealOutput() {^u}
+  "1 once the arm has been home for `home_time`, else 0"
+  done = Dyad.RealOutput() {^done}
+  velocityestimator = QuanserComponents.VelocityEstimator() {^velocityestimator}
+  lambda_gain = BlockComponents.Math.Gain(final k = lambda) {^lambda_gain}
+  surface = BlockComponents.Math.Add() {^surface}
+  smc = DiscreteComponents.SuperTwistingSMC(final k = k, final k2 = k2) {^smc}
+  limiter = BlockComponents.Nonlinear.Limiter(final y_max = th, y_min = -th) {^limiter}
+  abs_angle = BlockComponents.Math.Abs() {^abs_angle}
+  angle_ok = BlockComponents.Logical.LessThreshold(final threshold = angle_tol) {^angle_ok}
+  abs_vel = BlockComponents.Math.Abs() {^abs_vel}
+  vel_ok = BlockComponents.Logical.LessThreshold(final threshold = vel_tol) {^vel_ok}
+  homed = BlockComponents.Logical.And() {^homed}
+  dwell = DiscreteComponents.SampleTimeSource() {^dwell}
+  count_inc = BlockComponents.Math.Add() {^count_inc}
+  zero = BlockComponents.Sources.Constant(k = 0) {^zero}
+  count_switch = BlockComponents.Logical.Switch() {^count_switch}
+  count_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^count_delay}
+  done_cmp = BlockComponents.Logical.GreaterEqualThreshold(final threshold = home_time) {^done_cmp}
+  done_flag = BlockComponents.Math.BooleanToReal() {^done_flag}
+  "Super-twisting control gain"
+  parameter k::Real = 0.2
+  "Super-twisting integral-term tuning"
+  parameter k2::Real = 1.1
+  "Homing control saturation"
+  parameter th::Real = 5.0
+  "Sliding-surface slope (velocity vs angle)"
+  parameter lambda::Real = 5.0
+  "Arm-angle tolerance for 'home'"
+  parameter angle_tol::Real = deg2rad(10)
+  "Arm-speed tolerance for 'home'"
+  parameter vel_tol::Real = 0.5
+  "Time the arm must stay home before `done`"
+  parameter home_time::Real = 1.0
+relations
+  # Sliding-mode homing law: s = arm_velocity + lambda*arm_angle, saturated to ±th
+  connect(abs_angle.u, shoulder_angle, lambda_gain.u, velocityestimator.pos) {^id21}
+  connect(lambda_gain.y, surface.u1) {^id22}
+  connect(velocityestimator.vel, surface.u2) {^id23}
+  connect(surface.y, smc.s) {^id24}
+  connect(smc.y, limiter.u) {^id25}
+  connect(limiter.y, u) {^id26}
+  connect(abs_angle.y, angle_ok.u) {^id27}
+  connect(velocityestimator.vel, abs_vel.u) {^id28}
+  connect(abs_vel.y, vel_ok.u) {^id29}
+  connect(angle_ok.y, homed.u1) {^id30}
+  connect(vel_ok.y, homed.u2) {^id31}
+  # Dwell counter: accumulate Ts while homed, reset to 0 otherwise
+  connect(count_delay.y, count_inc.u1) {^id32}
+  connect(dwell.y, count_inc.u2) {^id33}
+  connect(count_inc.y, count_switch.u1) {^id34}
+  connect(zero.y, count_switch.u3) {^id35}
+  connect(homed.y, count_switch.u2) {^id36}
+  connect(count_switch.y, count_delay.u) {^id37}
+  # done once the dwell time reaches home_time
+  connect(count_switch.y, done_cmp.u) {^id38}
+  connect(done_cmp.y, done_flag.u) {^id39}
+  connect(done_flag.y, done) {^id40}
+metadata {
+  "Dyad": {
+    "icons": {"default": "dyad://QuanserComponents/GoHome.svg"},
+    "labels": [
+      {
+        "label": "State machine determining whether or not the homing procedure is done, it's done when it has been home and still for dwell (1s)",
+        "x": 720,
+        "y": 20,
+        "rot": 0,
+        "layer": "diagram",
+        "attrs": {
+          "fill": "black",
+          "font-size": "20",
+          "dominant-baseline": "central",
+          "text-anchor": "middle"
+        }
+      },
+      {
+        "label": "Actual go home controller",
+        "x": 400,
+        "y": 980,
+        "rot": 0,
+        "layer": "diagram",
+        "attrs": {
+          "fill": "black",
+          "font-size": "20",
+          "dominant-baseline": "central",
+          "text-anchor": "middle"
+        }
+      }
+    ]
+  },
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 800, "y2": 900}}}
+    },
+    "done": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 170, "y2": 270}}}
+    },
+    "velocityestimator": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 680, "y2": 780}}}
+    },
+    "lambda_gain": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 830, "y2": 930}}}
+    },
+    "surface": {
+      "Dyad": {"placement": {"diagram": {"x1": 320, "x2": 420, "y1": 900, "y2": 800}}}
+    },
+    "smc": {
+      "Dyad": {"placement": {"diagram": {"x1": 510, "x2": 670, "y1": 770, "y2": 930}}}
+    },
+    "limiter": {
+      "Dyad": {"placement": {"diagram": {"x1": 810, "x2": 910, "y1": 800, "y2": 900}}}
+    },
+    "abs_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 450, "y2": 550}}}
+    },
+    "angle_ok": {
+      "Dyad": {"placement": {"diagram": {"x1": 440, "x2": 540, "y1": 450, "y2": 550}}}
+    },
+    "abs_vel": {
+      "Dyad": {"placement": {"diagram": {"x1": 320, "x2": 420, "y1": 650, "y2": 750}}}
+    },
+    "vel_ok": {
+      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 650, "y2": 750}}}
+    },
+    "homed": {
+      "Dyad": {"placement": {"diagram": {"x1": 580, "x2": 680, "y1": 480, "y2": 580}}}
+    },
+    "dwell": {
+      "Dyad": {"placement": {"diagram": {"x1": 890, "x2": 940, "y1": 430, "y2": 470}}}
+    },
+    "count_inc": {
+      "Dyad": {"placement": {"diagram": {"x1": 1010, "x2": 1110, "y1": 320, "y2": 420}}}
+    },
+    "zero": {
+      "Dyad": {"placement": {"diagram": {"x1": 550, "x2": 650, "y1": 260, "y2": 360}}}
+    },
+    "count_switch": {
+      "Dyad": {"placement": {"diagram": {"x1": 730, "x2": 830, "y1": 390, "y2": 290}}}
+    },
+    "count_delay": {
+      "Dyad": {"placement": {"diagram": {"x1": 860, "x2": 960, "y1": 290, "y2": 390}}}
+    },
+    "done_cmp": {
+      "Dyad": {"placement": {"diagram": {"x1": 870, "x2": 970, "y1": 40, "y2": 140}}}
+    },
+    "done_flag": {
+      "Dyad": {"placement": {"diagram": {"x1": 1010, "x2": 1110, "y1": 40, "y2": 140}}}
+    },
+    "id21": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": 3, "M": [{"x": 60, "y": 880}], "E": -2},
+          {"S": -2, "M": [], "E": -1},
+          {"S": 4, "M": [], "E": -2}
+        ],
+        "junctions": [{"x": 60, "y": 500}, {"x": 60, "y": 730}]
+      }
+    },
+    "id22": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id23": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 280, "y": 730}, {"x": 280, "y": 820}], "E": 2}]}
+    },
+    "id24": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id25": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id26": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id27": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id28": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 279.5, "y": 730}, {"x": 279.5, "y": 700}], "E": 2}]
+      }
+    },
+    "id29": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id30": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id31": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 561, "y": 700}, {"x": 561, "y": 556}], "E": 2}]}
+    },
+    "id32": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id33": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 972.75, "y": 450}, {"x": 972.75, "y": 400}], "E": 2}]
+      }
+    },
+    "id34": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [
+              {"x": 1123, "y": 370},
+              {"x": 1123, "y": 540},
+              {"x": 701, "y": 540},
+              {"x": 701, "y": 372}
+            ],
+            "E": 2
+          }
+        ]
+      }
+    },
+    "id35": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 701, "y": 310}, {"x": 701, "y": 308}], "E": 2}]}
+    },
+    "id36": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 690, "y": 530}, {"x": 690, "y": 340}], "E": 2}]}
+    },
+    "id37": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id38": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 842, "y": 340}, {"x": 842, "y": 90}], "E": 2}]}
+    },
+    "id39": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id40": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1145.5, "y": 90}, {"x": 1145.5, "y": 220}], "E": 2}]
+      }
+    }
+  }
+}
+end
+
+"""
+The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+`ErrorRecovery`, which overrides the command to recover the arm when it swings
+out of bounds.
+"""
+component RuntimeController
+  "Measured arm (shoulder) angle"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Measured pendulum (elbow) angle"
+  elbow_angle = Dyad.RealInput() {^elbow_angle}
+  "Control command"
+  u = Dyad.RealOutput() {^u}
+  swingup = QuanserComponents.Swingup() {^swingup}
+  errorrecovery = QuanserComponents.ErrorRecovery() {^errorrecovery}
+relations
+  connect(elbow_angle, swingup.elbow_angle) {^id6}
+  connect(swingup.u, errorrecovery.u_swingup) {^id7}
+  connect(errorrecovery.u, u) {^id8}
+  connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle) {^id9}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/RuntimeController.svg"}},
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 210, "y2": 310}}}
+    },
+    "elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 690, "y2": 790}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
+    "swingup": {
+      "Dyad": {"placement": {"diagram": {"x1": 310, "x2": 410, "y1": 570, "y2": 470}}}
+    },
+    "errorrecovery": {
+      "Dyad": {"placement": {"diagram": {"x1": 620, "x2": 720, "y1": 450, "y2": 550}}}
+    },
+    "id6": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 130, "y": 740}, {"x": 130, "y": 549}], "E": 2}]}
+    },
+    "id7": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 575, "y": 520}, {"x": 575, "y": 525}], "E": 2}]}
+    },
+    "id8": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id9": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 575, "y": 470}, {"x": 575, "y": 400}], "E": -1},
+          {"S": -1, "M": [{"x": -50, "y": 400}], "E": 2},
+          {"S": 3, "M": [{"x": 250, "y": 502}], "E": -1}
+        ],
+        "junctions": [{"x": 250, "y": 400}]
+      }
+    }
+  }
+}
+end
+
+"""
+Top-level controller with a two-state machine: it first runs `GoHome` to home the
+arm, then switches to the `RuntimeController` (swing-up + stabilization + error
+recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
+`oob_threshold`), it switches back to `GoHome` and re-homes.
+"""
+component SwingupWithHoming
+  "Measured arm (shoulder) angle"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Measured pendulum (elbow) angle"
+  elbow_angle = Dyad.RealInput() {^elbow_angle}
+  "Control command"
+  u = Dyad.RealOutput() {^u}
+  gohome = QuanserComponents.GoHome() {^gohome}
+  runtime = QuanserComponents.RuntimeController() {^runtime}
+  abs_arm = BlockComponents.Math.Abs() {^abs_arm}
+  out_of_bounds = BlockComponents.Logical.GreaterThreshold(final threshold = arm_limit) {^out_of_bounds}
+  oob_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^oob_delay}
+  increment = BlockComponents.Sources.Constant(final k = oob_increment) {^increment}
+  count_up = BlockComponents.Math.Add() {^count_up}
+  one = BlockComponents.Sources.Constant(k = 1) {^one}
+  count_down = BlockComponents.Math.Add(k2 = -1) {^count_down}
+  zero = BlockComponents.Sources.Constant(k = 0) {^zero}
+  count_down_clamped = BlockComponents.Math.Max() {^count_down_clamped}
+  accumulate = BlockComponents.Logical.Switch() {^accumulate}
+  runtime_gate = BlockComponents.Logical.Switch() {^runtime_gate}
+  fault = BlockComponents.Logical.GreaterThreshold(final threshold = oob_threshold) {^fault}
+  in_runtime_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^in_runtime_delay}
+  was_runtime = BlockComponents.Logical.GreaterThreshold(threshold = 0.5) {^was_runtime}
+  not_fault = BlockComponents.Logical.Not() {^not_fault}
+  stay_flag = BlockComponents.Math.BooleanToReal() {^stay_flag}
+  in_runtime_switch = BlockComponents.Logical.Switch() {^in_runtime_switch}
+  in_runtime_now = BlockComponents.Logical.GreaterThreshold(threshold = 0.5) {^in_runtime_now}
+  command_switch = BlockComponents.Logical.Switch() {^command_switch}
+  "Arm angle beyond which the out-of-bounds counter accumulates"
+  parameter arm_limit::Real = 1.9198621771937625
+  "Amount added to the out-of-bounds counter each out-of-bounds step"
+  parameter oob_increment::Real = 20.0
+  "Out-of-bounds counter value that triggers re-homing"
+  parameter oob_threshold::Real = 1000.0
+relations
+  # Route measurements to both sub-controllers
+  connect(runtime.shoulder_angle, abs_arm.u, shoulder_angle, gohome.shoulder_angle) {^id25}
+  # Out-of-bounds detection: |arm_angle| > arm_limit
+  connect(abs_arm.y, out_of_bounds.u) {^id26}
+  # Out-of-bounds accumulator (runtime state only):
+  #   was_runtime ? (out_of_bounds ? prev + oob_increment : max(prev - 1, 0)) : 0
+  connect(oob_delay.y, count_down.u1, count_up.u1) {^id27}
+  connect(increment.y, count_up.u2) {^id28}
+  connect(one.y, count_down.u2) {^id29}
+  connect(count_down.y, count_down_clamped.u1) {^id30}
+  connect(zero.y, count_down_clamped.u2) {^id31}
+  connect(count_up.y, accumulate.u1) {^id32}
+  connect(count_down_clamped.y, accumulate.u3) {^id33}
+  connect(out_of_bounds.y, accumulate.u2) {^id34}
+  connect(accumulate.y, runtime_gate.u1) {^id35}
+  connect(zero.y, runtime_gate.u3) {^id36}
+  connect(was_runtime.y, runtime_gate.u2) {^id37}
+  connect(runtime_gate.y, oob_delay.u) {^id38}
+  connect(runtime_gate.y, fault.u) {^id39}
+  # Runtime/home latch:
+  #   was_runtime ? (fault ? 0 : 1) : (gohome.done ? 1 : 0)
+  connect(in_runtime_delay.y, was_runtime.u) {^id40}
+  connect(fault.y, not_fault.u) {^id41}
+  connect(not_fault.y, stay_flag.u) {^id42}
+  connect(stay_flag.y, in_runtime_switch.u1) {^id43}
+  connect(gohome.done, in_runtime_switch.u3) {^id44}
+  connect(was_runtime.y, in_runtime_switch.u2) {^id45}
+  connect(in_runtime_switch.y, in_runtime_delay.u) {^id46}
+  connect(in_runtime_switch.y, in_runtime_now.u) {^id47}
+  # Command selection: in_runtime ? runtime.u : gohome.u
+  connect(in_runtime_now.y, command_switch.u2) {^id48}
+  connect(runtime.u, command_switch.u1) {^id49}
+  connect(gohome.u, command_switch.u3) {^id50}
+  connect(command_switch.y, u) {^id51}
+  connect(runtime.elbow_angle, elbow_angle) {^id52}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupWithHoming.svg"}},
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 130, "y2": 230}}}
+    },
+    "elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 680, "y2": 780}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
+    "gohome": {
+      "Dyad": {"placement": {"diagram": {"x1": 200, "x2": 390, "y1": 850, "y2": 1040}}}
+    },
+    "runtime": {
+      "Dyad": {"placement": {"diagram": {"x1": 210, "x2": 430, "y1": -110, "y2": 110}}}
+    },
+    "abs_arm": {
+      "Dyad": {"placement": {"diagram": {"x1": 210, "x2": 310, "y1": 360, "y2": 460}}}
+    },
+    "out_of_bounds": {
+      "Dyad": {"placement": {"diagram": {"x1": 350, "x2": 450, "y1": 360, "y2": 460}}}
+    },
+    "oob_delay": {
+      "Dyad": {"placement": {"diagram": {"x1": 420, "x2": 320, "y1": 140, "y2": 240}}}
+    },
+    "increment": {
+      "Dyad": {"placement": {"diagram": {"x1": 120, "x2": 170, "y1": 300, "y2": 350}}}
+    },
+    "count_up": {
+      "Dyad": {"placement": {"diagram": {"x1": 211, "x2": 311, "y1": 245, "y2": 345}}}
+    },
+    "one": {
+      "Dyad": {"placement": {"diagram": {"x1": 120, "x2": 170, "y1": 540, "y2": 590}}}
+    },
+    "count_down": {
+      "Dyad": {"placement": {"diagram": {"x1": 211, "x2": 311, "y1": 485, "y2": 585}}}
+    },
+    "zero": {
+      "Dyad": {"placement": {"diagram": {"x1": 211, "x2": 311, "y1": 615, "y2": 715}}}
+    },
+    "count_down_clamped": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"x1": 351.6666666666667, "x2": 451.6666666666667, "y1": 515, "y2": 615}
+        }
+      }
+    },
+    "accumulate": {
+      "Dyad": {"placement": {"diagram": {"x1": 490, "x2": 590, "y1": 360, "y2": 460}}}
+    },
+    "runtime_gate": {
+      "Dyad": {"placement": {"diagram": {"x1": 634, "x2": 734, "y1": 583, "y2": 683}}}
+    },
+    "fault": {
+      "Dyad": {"placement": {"diagram": {"x1": 775, "x2": 875, "y1": 583, "y2": 683}}}
+    },
+    "in_runtime_delay": {
+      "Dyad": {"placement": {"diagram": {"x1": 1402, "x2": 1502, "y1": 716, "y2": 816}}}
+    },
+    "was_runtime": {
+      "Dyad": {"placement": {"diagram": {"x1": 493, "x2": 593, "y1": 716, "y2": 816}}}
+    },
+    "not_fault": {
+      "Dyad": {"placement": {"diagram": {"x1": 915, "x2": 1015, "y1": 583, "y2": 683}}}
+    },
+    "stay_flag": {
+      "Dyad": {"placement": {"diagram": {"x1": 1087.5, "x2": 1187.5, "y1": 583, "y2": 683}}}
+    },
+    "in_runtime_switch": {
+      "Dyad": {"placement": {"diagram": {"x1": 1261, "x2": 1361, "y1": 716, "y2": 816}}}
+    },
+    "in_runtime_now": {
+      "Dyad": {"placement": {"diagram": {"x1": 1402, "x2": 1502, "y1": 596, "y2": 696}}}
+    },
+    "command_switch": {
+      "Dyad": {"placement": {"diagram": {"x1": 1553, "x2": 1653, "y1": 596, "y2": 696}}}
+    },
+    "id25": {
+      "Dyad": {
+        "edges": [
+          {"S": -1, "M": [{"x": 60, "y": -52.8}], "E": 1},
+          {"S": 2, "M": [], "E": -1},
+          {"S": 3, "M": [], "E": -2},
+          {"S": -2, "M": [], "E": -1},
+          {"S": 4, "M": [{"x": 60, "y": 945}], "E": -2}
+        ],
+        "junctions": [{"x": 60, "y": 410}, {"x": 60, "y": 180}]
+      }
+    },
+    "id26": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id27": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [{"x": 90, "y": 190}, {"x": 90, "y": 505}], "E": 2},
+          {"S": 3, "M": [{"x": 190, "y": 265}], "E": -1}
+        ],
+        "junctions": [{"x": 190, "y": 190}]
+      }
+    },
+    "id28": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id29": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id30": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id31": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 331, "y": 665}, {"x": 331, "y": 595}], "E": 2}]}
+    },
+    "id32": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 472, "y": 295}, {"x": 472, "y": 378}], "E": 2}]}
+    },
+    "id33": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 472, "y": 565}, {"x": 472, "y": 442}], "E": 2}]}
+    },
+    "id34": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id35": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 613, "y": 410}, {"x": 613, "y": 601}], "E": 2}]}
+    },
+    "id36": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id37": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 613, "y": 766}, {"x": 613, "y": 633}], "E": 2}]}
+    },
+    "id38": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 754, "y": 633}, {"x": 754, "y": 190}], "E": 2}]}
+    },
+    "id39": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id40": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [
+              {"x": 1522, "y": 766},
+              {"x": 1522, "y": 866},
+              {"x": 472, "y": 866},
+              {"x": 472, "y": 766}
+            ],
+            "E": 2
+          }
+        ]
+      }
+    },
+    "id41": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id42": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id43": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1240, "y": 633}, {"x": 1240, "y": 734}], "E": 2}]
+      }
+    },
+    "id44": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1240, "y": 891.8}, {"x": 1240, "y": 798}], "E": 2}]
+      }
+    },
+    "id45": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id46": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id47": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1381, "y": 766}, {"x": 1381, "y": 646}], "E": 2}]
+      }
+    },
+    "id48": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id49": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 1522, "y": 0}, {"x": 1522, "y": 614}], "E": 2}]}
+    },
+    "id50": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1532, "y": 1011.5}, {"x": 1532, "y": 678}], "E": 2}]
+      }
+    },
+    "id51": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1695.5, "y": 646}, {"x": 1695.5, "y": 500}], "E": 2}]
+      }
+    },
+    "id52": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 30, "y": 52.80000000000001}, {"x": 30, "y": 730}], "E": 2}
+        ]
+      }
+    }
+  }
+}
 end

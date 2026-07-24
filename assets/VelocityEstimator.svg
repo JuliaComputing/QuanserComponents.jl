@@ -1,0 +1,22 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Unit circle -->
+<circle cx="500" cy="500" r="300" stroke="#A1A1AA" stroke-width="6" fill="none"/>
+<!-- Real axis -->
+<line x1="100" y1="500" x2="900" y2="500" stroke="#A1A1AA" stroke-width="4"/>
+<!-- Imaginary axis -->
+<line x1="500" y1="100" x2="500" y2="900" stroke="#A1A1AA" stroke-width="4"/>
+<!-- Zero at z=1 (right side of unit circle) -->
+<circle cx="800" cy="500" r="36" stroke="#131316" stroke-width="12" fill="none"/>
+<!-- Pole at z=a (on real axis, inside unit circle, ~0.5 shown) -->
+<line x1="635" y1="460" x2="715" y2="540" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<line x1="715" y1="460" x2="635" y2="540" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0">
+<rect width="1000" height="1000" fill="white"/>
+</clipPath>
+</defs>
+</svg>

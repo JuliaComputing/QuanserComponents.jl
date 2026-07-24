@@ -62,9 +62,9 @@ import Moshi as __Ext__Moshi
   __constants = Any[]
 
   ### Components
-  # Subcomponent swingup of type QuanserComponents.Swingup
+  # Subcomponent swingup of type QuanserComponents.SwingupWithHoming
   swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
-  push!(__systems, @named swingup = QuanserComponents.Swingup(; swingup_overrides...))
+  push!(__systems, @named swingup = QuanserComponents.SwingupWithHoming(; swingup_overrides...))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
   qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
   push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; qubependulum_overrides...))
@@ -88,7 +88,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
 

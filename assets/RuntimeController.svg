@@ -1,0 +1,19 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Pivot -->
+<circle cx="500" cy="650" r="16" fill="#A1A1AA"/>
+<!-- Pendulum balanced upright -->
+<line x1="500" y1="650" x2="500" y2="320" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<circle cx="500" cy="300" r="30" fill="#131316"/>
+<!-- Balance/stability guard arcs on each side -->
+<path d="M330 470 A250 250 0 0 1 400 300" stroke="#A1A1AA" stroke-width="8" fill="none" stroke-linecap="round"/>
+<path d="M670 470 A250 250 0 0 0 600 300" stroke="#A1A1AA" stroke-width="8" fill="none" stroke-linecap="round"/>
+<!-- Base -->
+<rect x="380" y="670" width="240" height="40" rx="8" fill="#131316"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

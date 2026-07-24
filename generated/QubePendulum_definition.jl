@@ -23,7 +23,7 @@ import Moshi as __Ext__Moshi
 | `mp`         | Pendulum mass                         | kg  |   0.024 |
 | `Lp`         | Pendulum length                         | m  |   0.129 |
 | `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   Lp / 2 |
-| `Jp`         | Pendulum moment of inertia about the elbow pivot                         | kg.m2  |   mp * Lp ^ 2 / 3 |
+| `Jp`         | Pendulum moment of inertia about the elbow pivot. Matched to the QuanserInterface.jl hardware-calibrated model (effective H22 = Jp + mp*Lp^2/4 = 7*mp*Lp^2/12), heavier than a uniform rod.                         | kg.m2  |   7 * mp * Lp ^ 2 / 12 |
 | `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 5e-5 |
 | `base_size`         | Edge length of the cubic base box (visualization only)                         | m  |   0.1 |
 
@@ -33,7 +33,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, Jr=mr * r ^ 2 / 3, l=Lp / 2, Jp=mp * Lp ^ 2 / 3, kwargs...)
+@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, Jr=mr * r ^ 2 / 3, l=Lp / 2, Jp=7 * mp * Lp ^ 2 / 12, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -95,7 +95,7 @@ import Moshi as __Ext__Moshi
   append!(__params, @parameters (l::Real), [description = "Distance from elbow pivot to pendulum center of mass"])
   __initial_conditions[l] = __local__l
   __local__Jp = Jp
-  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot"])
+  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot. Matched to the QuanserInterface.jl hardware-calibrated model (effective H22 = Jp + mp*Lp^2/4 = 7*mp*Lp^2/12), heavier than a uniform rod."])
   __initial_conditions[Jp] = __local__Jp
   __local__bp = bp
   append!(__params, @parameters (bp::Real), [description = "Pendulum viscous damping coefficient"])
@@ -136,7 +136,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(0), Float64(1), Float64(0)], color=[0.8, 0.8, 0.8, Float64(1)], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_joint")
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(1), Float64(0), Float64(0)], elbow_joint_overrides...))
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(-1), Float64(0), Float64(0)], elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyShape
   upper_arm_overrides = __pop_subcomponent_overrides!(__overrides, "upper_arm")
   push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(; radius=0.0025, color=[0.9, 0.9, 0.9, Float64(1)], shapefile=joinpath("assets", "qube", "qube_arm.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0]), upper_arm_overrides...))
@@ -232,7 +232,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named motor_part_mesh = MultibodyComponents.ShapefileVisualizer(; color=[0.5, 0.5, 0.5, Float64(1)], shapefile=joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0]), motor_part_mesh_overrides...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
 
@@ -257,8 +257,12 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(elbow_joint.support, damper1.spline_a))
   push!(__eqs, connect(damper1.spline_b, elbow_joint.axis))
   push!(__eqs, connect(elbow_sensor.spline, damper1.spline_b))
-  push!(__eqs, connect(base_box.frame_a, floor.frame_a, fixed.frame_b))
-  push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b, motor_main_mesh.frame_a, motor_front_mesh.frame_a, motor_part_mesh.frame_a))
+  push!(__eqs, connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b))
+  push!(__eqs, connect(motor_main_mesh.frame_a, shoulder_cylinder.frame_a))
+  push!(__eqs, connect(motor_part_mesh.frame_a, motor_main_mesh.frame_a))
+  push!(__eqs, connect(motor_front_mesh.frame_a, motor_part_mesh.frame_a))
+  push!(__eqs, connect(base_box.frame_a, fixed.frame_b))
+  push!(__eqs, connect(floor.frame_a, base_box.frame_a))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

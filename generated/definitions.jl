@@ -18,9 +18,14 @@ end
 
 import BlockComponents
 import DiscreteComponents
+import DyadData
 import DyadInterface
+import ElectricalComponents
+import HydraulicComponents
 import MultibodyComponents
 import RotationalComponents
+import ThermalComponents
+import TranslationalComponents
 @doc Markdown.doc"""
 This connector represents an electrical pin with voltage and current as the potential and flow variables, respectively.
 """
@@ -203,11 +208,15 @@ include("AngleNormalization_definition.jl")
 include("Cos_definition.jl")
 include("EnergySwingup_definition.jl")
 include("Energy_definition.jl")
+include("ErrorRecovery_definition.jl")
+include("FurutaExportC_definition.jl")
 include("FurutaSwingup_definition.jl")
+include("GoHome_definition.jl")
 include("LQRstabilizer_definition.jl")
 include("NearTop_definition.jl")
 include("QubePendulum_definition.jl")
+include("RuntimeController_definition.jl")
 include("Sign_definition.jl")
-include("StabilizationSwitch_definition.jl")
+include("SwingupWithHoming_definition.jl")
 include("Swingup_definition.jl")
 include("VelocityEstimator_definition.jl")

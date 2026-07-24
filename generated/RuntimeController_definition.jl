@@ -7,21 +7,24 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   StabilizationSwitch(; name)
+   RuntimeController(; name)
+
+The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+`ErrorRecovery`, which overrides the command to recover the arm when it swings
+out of bounds.
 
 ## Connectors
 
- * `neartop` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `u_lqr` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `u_swingup` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
+ * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
+ * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function StabilizationSwitch(; name = nothing, kwargs...)
+@component function RuntimeController(; name = nothing, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = StabilizationSwitch()
+    @named model = RuntimeController()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -51,9 +54,8 @@ import Moshi as __Ext__Moshi
   ### Final Parameters (assignments)
 
   ### Final Path Parameters
-  append!(__vars, @variables (neartop(t)::Real), [input = true])
-  append!(__vars, @variables (u_lqr(t)::Real), [input = true])
-  append!(__vars, @variables (u_swingup(t)::Real), [input = true])
+  append!(__vars, @variables (shoulder_angle(t)::Real), [input = true])
+  append!(__vars, @variables (elbow_angle(t)::Real), [input = true])
   append!(__vars, @variables (u(t)::Real), [output = true])
 
   ### Variables (declarations)
@@ -64,9 +66,15 @@ import Moshi as __Ext__Moshi
   __constants = Any[]
 
   ### Components
+  # Subcomponent swingup of type QuanserComponents.Swingup
+  swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
+  push!(__systems, @named swingup = QuanserComponents.Swingup(; swingup_overrides...))
+  # Subcomponent errorrecovery of type QuanserComponents.ErrorRecovery
+  errorrecovery_overrides = __pop_subcomponent_overrides!(__overrides, "errorrecovery")
+  push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; errorrecovery_overrides...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
 
@@ -76,9 +84,12 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, u ~ ifelse(neartop == true, u_lqr, u_swingup))
+  push!(__eqs, connect(elbow_angle, swingup.elbow_angle))
+  push!(__eqs, connect(swingup.u, errorrecovery.u_swingup))
+  push!(__eqs, connect(errorrecovery.u, u))
+  push!(__eqs, connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export StabilizationSwitch
+export RuntimeController
