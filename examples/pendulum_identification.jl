@@ -113,10 +113,26 @@ measurement(x, u, p, τ) = SA[x[1], x[2]]
 # =============================================================================
 ## 5. Filter setup
 # =============================================================================
-R2 = Matrix((2π / 2048) * I(ny))                       # one encoder tick
-R1 = Matrix(Diagonal([1e-7, 1e-7, 1e-2, 1e-2]))        # process noise (tune)
+R2 = Matrix((2π / 2048) * I(ny))                       # measurement noise: one encoder tick
+# Process noise models an unmodeled torque/acceleration disturbance on each joint.
+# Such a disturbance enters through the double-integrator (angle ← velocity ←
+# acceleration) structure, which correlates the angle and velocity noise of a joint
+# — they are NOT independent, so R1 is block-structured rather than diagonal.
+# `double_integrator_covariance_smooth(Ts, σ²) = σ²·[Ts³/3 Ts²/2; Ts²/2 Ts]` is the
+# continuous-white-noise (full-rank, sample-time-invariant) discretization, which is
+# the correct form here since the noise is additive to the RK4 output rather than
+# integrated through it (see LowLevelParticleFilters "Discretization" docs).
+# State order is [shoulder_angle, elbow_angle, elbow_vel, shoulder_vel], so each
+# joint's (angle, velocity) pair sits at indices (1,4) for the shoulder and (2,3)
+# for the elbow.
+σ2_shoulder = 2.0      # shoulder acceleration-disturbance intensity (tune)
+σ2_elbow    = 2.0      # elbow    acceleration-disturbance intensity (tune)
+R1 = zeros(nx, nx)
+R1[[1, 4], [1, 4]] .= LLPF.double_integrator_covariance_smooth(Ts, σ2_shoulder)
+R1[[2, 3], [2, 3]] .= LLPF.double_integrator_covariance_smooth(Ts, σ2_elbow)
+R1 += 1e-12 * I        # tiny regularization for numerical positive-definiteness
 x0 = SVector{nx,Float64}(yvv[1][1], yvv[1][2], 0, 0)
-P0 = Matrix(Diagonal([1e-4, 1e-4, 1e-1, 1e-1]))        # initial covariance
+P0 = Matrix(Diagonal([1e-4, 1e-4, 1e-1, 1e-1]))        # initial state covariance
 
 make_ukf(p) = UnscentedKalmanFilter(discrete_dynamics, measurement, R1, R2,
                                     MvNormal(Vector(x0), P0); ny, nu, p)
