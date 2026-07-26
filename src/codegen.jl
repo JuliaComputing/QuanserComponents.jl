@@ -14,8 +14,7 @@
 # single output is the control voltage.
 
 using SynchToolkit
-using SynchToolkit: ClockedInput, ClockedOutput, InputClock, ParametersStruct,
-                    SynchExecutable
+using SynchToolkit: ClockedInput, ClockedOutput, InputClock, ParametersStruct
 import SynchCompiler
 import SynchJulia
 using ModelingToolkit
@@ -26,71 +25,7 @@ using ControlSystemsMTK: named_ss
 using ControlSystemsBase: c2d, ss, lqr
 using LinearAlgebra: Diagonal, I, pinv
 
-export build_discrete_controller, generate_swingup_controller, export_swingup_c,
-       SwingupController, design_lqr
-
-"""
-    build_discrete_controller(; Ts=0.005, overrides...)
-
-Build a purely discrete `System` wrapping the `Swingup` controller, driven by a
-`PeriodicClock` at sample time `Ts`. The measured angles enter as clocked input
-variables and the control voltage leaves as a clocked output.
-
-The clock is linked to the controller through the equation
-`clock.y ~ swingup.shoulder_angle`, which places the whole controller partition on
-the periodic clock while leaving the two measured angles as free (input) signals.
-
-Returns a named tuple with the `sys`, the `swingup` and `clock` subsystems, the
-`Clock` object `clk`, and the resolved parameter value map `values` (parameter =>
-`Float64`).
-
-The controller uses the `Swingup` model's tuned defaults (energy-swingup gain,
-arm-centering, LQR gains and saturations), which are set for the QuanserInterface-
-matched `QubePendulum` plant. Pass `overrides` (e.g. `var"lqrstabilizer.umax" =>
-...`) to change them.
-
-`L` (a 4-vector) and `umax` override the stabilizer feedback gain and saturation
-directly: they are written into the wrapper system's `defaults`, so both the resolved
-`values` map and the code-generated `StaticGains` struct defaults reflect them.
-"""
-function build_discrete_controller(; Ts = 0.005, L = nothing, umax = nothing, overrides...)
-    @named swingup = SwingupWithHoming(; overrides...)
-    @named clock = PeriodicClock(dt = Ts)
-    lqr_stab = swingup.runtime.swingup.lqrstabilizer
-    # Dyad parameter values live in `initial_conditions` (not `getdefault`), so override
-    # the stabilizer gain/saturation there: this feeds both the resolved `values` map
-    # below and SynchToolkit's `StaticGains` struct defaults.
-    ics = Dict{Any, Any}()
-    L    === nothing || (ics[lqr_stab.L]    = collect(float.(L)))
-    umax === nothing || (ics[lqr_stab.umax] = float(umax))
-    sys = System([clock.y ~ swingup.shoulder_angle], t;
-                 systems = [swingup, clock], name = :controller, initial_conditions = ics)
-
-    # Resolve every parameter to a concrete number. Dyad components store values in
-    # `default_values` (as `initial_conditions`), and some values are expressions of
-    # other parameters (e.g. `energy.l => Lp/2`), so substitute to a fixed point.
-    ss = ModelingToolkit.expand_connections(sys)
-    dv = ModelingToolkit.default_values(ss)
-    values = Dict{Any, Any}()
-    for p in ModelingToolkit.parameters(ss)
-        pu = ModelingToolkit.unwrap(p)
-        values[pu] = _resolve_value(dv[pu], dv)
-    end
-
-    return (; sys, swingup, clock, clk = ModelingToolkit.Clock(Ts), values)
-end
-
-# Resolve a possibly-symbolic default to a concrete number (or vector of numbers for
-# array parameters), substituting the default map to a fixed point.
-function _resolve_value(v, dv)
-    x = ModelingToolkit.unwrap(v)
-    for _ in 1:20
-        (x isa Number || x isa AbstractArray{<:Number}) && break
-        x = ModelingToolkit.unwrap(ModelingToolkit.fixpoint_sub(x, dv))
-    end
-    xv = Symbolics.value(x)
-    return xv isa AbstractArray ? Float64.(vec(collect(xv))) : Float64(xv)
-end
+export generate_swingup_controller, export_swingup_c, SwingupController, design_lqr
 
 """
     design_lqr(; Ts=0.005, Q1=[1000.0, 10.0, 1.0, 1.0], Q2=100.0) -> L::Vector{Float64}
@@ -137,36 +72,68 @@ function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
 end
 
 """
-    generate_swingup_controller(; Ts=0.005, overrides...)
+    generate_swingup_controller(; Ts=0.005, L=nothing, umax=nothing, overrides...)
 
-Compile the discrete swing-up controller to a SynchJulia node. Returns a named
-tuple `(; topmod, controller, gain_syms)` where `topmod` is the evaluated module
-(with `topmod.top`, `topmod.StaticGains`, `topmod.AutoPars`) and `controller` is
-the [`build_discrete_controller`](@ref) result.
+Compile the discrete swing-up controller to a SynchJulia node: build a purely discrete
+`System` wrapping the `Swingup` controller on a `PeriodicClock` at sample time `Ts` (the
+equation `clock.y ~ swingup.shoulder_angle` places the whole controller partition on the
+clock while leaving the two measured angles as free input signals), then `stkcompile` it.
+
+Returns a named tuple `(; topmod, Ldef, umaxdef)` where `topmod` is the evaluated runtime
+module (with `topmod.top`, `topmod.StaticGains`, `topmod.AutoPars`, `topmod.executable`)
+and `Ldef`/`umaxdef` are the resolved stabilizer gain/saturation values used to populate
+the runtime-settable `StaticGains` struct.
 
 The node argument order is `(shoulder_angle::Float64, elbow_angle::Float64,
 tick::Bool, gains::StaticGains, auto::AutoPars)`; the LQR gains `L` and the
 stabilizer `umax` are the runtime-settable `StaticGains` fields, the rest are
 baked into `AutoPars`.
+
+The controller uses the `Swingup` model's tuned defaults (energy-swingup gain,
+arm-centering, LQR gains and saturations), which are set for the QuanserInterface-
+matched `QubePendulum` plant. Pass `overrides` (e.g. `var"lqrstabilizer.umax" =>
+...`) to change them; `L` (a 4-vector) and `umax` override the stabilizer feedback
+gain and saturation directly via the wrapper system's `initial_conditions`.
 """
-function generate_swingup_controller(; Ts = 0.005, kwargs...)
-    c = build_discrete_controller(; Ts, kwargs...)
-    lqr = c.swingup.runtime.swingup.lqrstabilizer
-    gain_syms = OrderedDict{Any, Symbol}(
-        ModelingToolkit.unwrap(lqr.L)   => :L,
-        ModelingToolkit.unwrap(lqr.umax) => :umax,
-    )
+function generate_swingup_controller(; Ts = 0.005, L = nothing, umax = nothing, overrides...)
+    @named swingup = SwingupWithHoming(; overrides...)
+    @named clock = PeriodicClock(dt = Ts)
+    lqr_stab = swingup.runtime.swingup.lqrstabilizer
+    # Dyad parameter values live in `initial_conditions` (not `getdefault`), so override
+    # the stabilizer gain/saturation there: this feeds the resolved `Ldef`/`umaxdef`
+    # below and the value resolution SynchToolkit performs for the `AutoPars` struct.
+    ics = Dict{Any, Any}()
+    L    === nothing || (ics[lqr_stab.L]    = collect(float.(L)))
+    umax === nothing || (ics[lqr_stab.umax] = float(umax))
+    sys = System([clock.y ~ swingup.shoulder_angle], t;
+                 systems = [swingup, clock], name = :controller, initial_conditions = ics)
+
+    # Resolve the two stabilizer values carried by the runtime-settable `StaticGains`
+    # struct. All other parameters end up in the autogenerated `AutoPars` struct, whose
+    # field defaults SynchToolkit resolves from the system itself; only static structs
+    # carry no defaults, so these two are resolved here with `evaluate_varmap!`, which
+    # substitutes the default map into itself to a fixed point (values may be expressions
+    # of other parameters). Resolve against the full pre-partition default map: expression
+    # defaults may reference parameters the compiled partition drops (SynchToolkit#144).
+    SymT = ModelingToolkit.SymbolicT
+    dv = Dict{SymT, SymT}(ModelingToolkit.default_values(ModelingToolkit.expand_connections(sys)))
+    Lsym, usym = ModelingToolkit.unwrap(lqr_stab.L), ModelingToolkit.unwrap(lqr_stab.umax)
+    ModelingToolkit.evaluate_varmap!(dv, [Lsym, usym])
+    Ldef    = Float64.(vec(collect(Symbolics.value(dv[Lsym]))))
+    umaxdef = Float64(Symbolics.value(dv[usym]))
+
+    gain_syms = OrderedDict{Any, Symbol}(Lsym => :L, usym => :umax)
     inputs = [
-        ClockedInput(c.swingup.shoulder_angle),
-        ClockedInput(c.swingup.elbow_angle),
-        InputClock(c.clk),
+        ClockedInput(swingup.shoulder_angle),
+        ClockedInput(swingup.elbow_angle),
+        InputClock(ModelingToolkit.Clock(Ts)),
         ParametersStruct(; arg_name = :gains, struct_name = :StaticGains,
                            parameters = gain_syms, generated = false),
         ParametersStruct(; arg_name = :auto, struct_name = :AutoPars),
     ]
-    outputs = [ClockedOutput(c.swingup.u)]
-    topmod = SynchToolkit.stkcompile(c.sys; inputs, outputs)
-    return (; topmod, controller = c, gain_syms)
+    outputs = [ClockedOutput(swingup.u)]
+    topmod = SynchToolkit.stkcompile(sys; inputs, outputs)
+    return (; topmod, Ldef, umaxdef)
 end
 
 """
@@ -192,42 +159,37 @@ function SwingupController(; Ts = 0.005, backend::Symbol = :julia,
     return _make_runtime(gen; backend, L, umax)
 end
 
-# Construct the concrete `StaticGains`/`AutoPars` parameter objects for the compiled
-# controller `gen`, applying the LQR-gain / saturation overrides `L`/`umax` (each `nothing`
-# keeps the model default). These are the objects the runtime hands to the node's `step`
-# (as opaque pointers in the C backend); their in-memory field bytes are exactly what the
-# exported C reads at its baked-in `fieldoffset`s. `stkcompile` evaluates a fresh module,
-# so the generated `StaticGains`/`AutoPars` types may be newer than the current world age;
-# reach them through `invokelatest` so a one-shot `compile + build` in a single call works.
-function _build_params(gen; L = nothing, umax = nothing)
-    topmod = gen.topmod
-    SG = Base.invokelatest(getproperty, topmod, :StaticGains)
-    AP = Base.invokelatest(getproperty, topmod, :AutoPars)
-    vals = gen.controller.values
-
-    # AutoPars fields are named after the (namespaced) parameter symbols.
-    sym_by_name = Dict(Symbol(string(p)) => ModelingToolkit.unwrap(p)
-                       for p in keys(vals))
-    apfields = Base.invokelatest(fieldnames, AP)
-    apkw = Dict(f => vals[sym_by_name[f]] for f in apfields if haskey(sym_by_name, f))
-    auto = Base.invokelatest(AP; apkw...)
-
-    lqr = gen.controller.swingup.runtime.swingup.lqrstabilizer
-    Ldef = vals[ModelingToolkit.unwrap(lqr.L)]                # model default (4-vector)
-    Lv = L === nothing ? Ldef : collect(float.(L))
-    umaxv = umax === nothing ? vals[ModelingToolkit.unwrap(lqr.umax)] : umax
-    gains = Base.invokelatest(SG; L = Lv, umax = umaxv)
-    return (; gains, auto, umax = umaxv)
+# Consume the compiled runtime module: construct the `StaticGains`/`AutoPars` parameter
+# objects (applying the LQR-gain / saturation overrides `L`/`umax`; `nothing` keeps the
+# model default), optionally build a `SynchExecutable` on `backend`, and optionally export
+# the C sources into `export_dir`. These objects are what the runtime hands to the node's
+# `step` (as opaque pointers in the C backend); their in-memory field bytes are exactly
+# what the exported C reads at its baked-in `fieldoffset`s.
+#
+# `stkcompile` evaluates the runtime module in a newer world than this frame, so per
+# SynchToolkit's consumption contract the boundary is crossed exactly once, here: the
+# single `@invokelatest` around `consume` raises the world for all module member reads and
+# constructor calls, and everything returned (values, types, the executable) is world-safe
+# to use from any frame afterwards.
+function _instantiate(gen; L = nothing, umax = nothing,
+                      backend::Union{Nothing, Symbol} = nothing, export_dir = nothing)
+    Lv = collect(float.(something(L, gen.Ldef)))
+    umaxv = float(something(umax, gen.umaxdef))
+    function consume(m)
+        gains = m.StaticGains(; L = Lv, umax = umaxv)
+        # pass the static struct: AutoPars defaults may be expressions of its fields
+        auto = m.AutoPars(gains)
+        exe = backend === nothing ? nothing : m.executable(backend)
+        export_dir === nothing || SynchCompiler.export_c(export_dir, m.top)
+        return (; gains, auto, exe, SG = m.StaticGains, AP = m.AutoPars)
+    end
+    return Base.@invokelatest consume(gen.topmod)
 end
 
-# Build a runtime from an already-compiled controller (avoids recompiling). See
-# `_build_params` for the `invokelatest` rationale; `top` is reached the same way.
+# Build a runtime from an already-compiled controller (avoids recompiling).
 function _make_runtime(gen; backend::Symbol = :julia, L = nothing, umax = nothing)
-    node = Base.invokelatest(getproperty, gen.topmod, :top)
-    (; gains, auto) = _build_params(gen; L, umax)
-    exe = Base.invokelatest(SynchExecutable, node,
-                            (Float64, Float64, Bool, typeof(gains), typeof(auto)); backend)
-    return SwingupController(exe, gains, auto)
+    r = _instantiate(gen; L, umax, backend)
+    return SwingupController(r.exe, r.gains, r.auto)
 end
 
 """
@@ -237,17 +199,15 @@ Advance the controller one step and return the control voltage. Angles are in
 radians (shoulder/arm angle and pendulum angle; the pendulum-upright reference is
 π, matching `QuanserInterface`).
 """
-# The executable's step/reset dispatch on types generated by `stkcompile`'s `eval`,
-# so route through `invokelatest` to stay correct even when a controller is compiled
-# and used within the same world (e.g. one test block). The overhead is negligible
-# for a control step, and the C backend (the performance path) does not run Julia here.
+# A held executable keeps stepping the code it was built with (SynchJulia ≥ 0.4), so
+# `step!`/`reset!` are world-safe from any frame — no `invokelatest` in the hot path.
 function (c::SwingupController)(shoulder_angle, elbow_angle; tick::Bool = true)
-    out = Base.invokelatest(SynchJulia.step!, c.exe, Float64(shoulder_angle),
-                            Float64(elbow_angle), tick, c.gains, c.auto)
+    out = SynchJulia.step!(c.exe, Float64(shoulder_angle), Float64(elbow_angle),
+                           tick, c.gains, c.auto)
     return only(values(out))
 end
 
-SynchToolkit.reset!(c::SwingupController) = Base.invokelatest(SynchToolkit.reset!, c.exe)
+SynchToolkit.reset!(c::SwingupController) = SynchToolkit.reset!(c.exe)
 
 """
     export_swingup_c(dir; Ts=0.005, L=nothing, umax=nothing, Tf=10.0, overrides...)
@@ -264,14 +224,10 @@ parameter objects embedded into the harness.
 """
 function export_swingup_c(dir; Ts = 0.005, L = nothing, umax = nothing, Tf = 10.0, kwargs...)
     gen = generate_swingup_controller(; Ts, L, umax, kwargs...)
-    node = Base.invokelatest(getproperty, gen.topmod, :top)
-    SG = Base.invokelatest(getproperty, gen.topmod, :StaticGains)
-    AP = Base.invokelatest(getproperty, gen.topmod, :AutoPars)
-    Base.invokelatest(SynchCompiler.export_c, dir, node)
-    mangled = SynchCompiler.mangle("top", Float64, Float64, Bool, SG, AP)
-    (; gains, auto) = _build_params(gen; L, umax)
-    emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto)
-    return (; dir, gen.topmod, mangled, gains, auto)
+    r = _instantiate(gen; L, umax, export_dir = dir)
+    mangled = SynchCompiler.mangle("top", Float64, Float64, Bool, r.SG, r.AP)
+    emit_hardware_harness(dir; Ts, Tf, mangled, r.gains, r.auto)
+    return (; dir, gen.topmod, mangled, r.gains, r.auto)
 end
 
 # Raw little-endian bytes of a runtime parameter object (`StaticGains`/`AutoPars`), packed

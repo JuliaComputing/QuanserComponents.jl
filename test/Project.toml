@@ -1,5 +1,6 @@
 [deps]
 BlockComponents = "1ef5d832-be8e-447f-9f2c-8b5d17d15fd3"
+Clang_unified_jll = "ffc816e1-ba66-5fa9-9ecc-bcc5cb19bea1"
 ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
 ControlSystemsMTK = "687d7614-c7e5-45fc-bfc3-9ee385575c88"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
