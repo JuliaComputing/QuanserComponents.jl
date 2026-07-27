@@ -1,0 +1,25 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Pivot point -->
+<circle cx="500" cy="500" r="16" fill="#A1A1AA"/>
+<!-- Pendulum ghost positions showing swing arc -->
+<line x1="500" y1="500" x2="500" y2="740" stroke="#A1A1AA" stroke-width="6" stroke-dasharray="12,8" stroke-linecap="round"/>
+<circle cx="500" cy="740" r="18" fill="none" stroke="#A1A1AA" stroke-width="4" stroke-dasharray="8,6"/>
+<line x1="500" y1="500" x2="340" y2="660" stroke="#A1A1AA" stroke-width="6" stroke-dasharray="12,8" stroke-linecap="round"/>
+<circle cx="340" cy="660" r="18" fill="none" stroke="#A1A1AA" stroke-width="4" stroke-dasharray="8,6"/>
+<!-- Swing arc -->
+<path d="M500 740 A240 240 0 0 1 500 260" stroke="#131316" stroke-width="8" fill="none" stroke-linecap="round"/>
+<!-- Arrow at top of arc -->
+<polygon points="500,220 465,300 500,270 535,300" fill="#131316"/>
+<!-- Final pendulum position (up) -->
+<line x1="500" y1="500" x2="500" y2="280" stroke="#131316" stroke-width="10" stroke-linecap="round"/>
+<circle cx="500" cy="280" r="28" fill="#131316"/>
+</g>
+<defs>
+<clipPath id="clip0">
+<rect width="1000" height="1000" fill="white"/>
+</clipPath>
+</defs>
+</svg>

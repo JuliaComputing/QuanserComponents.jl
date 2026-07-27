@@ -88,10 +88,13 @@ noise suppression for less phase lag. The critically matched gain pairing is
   ### Variables (assignments)
   __ovr_x = pop!(__overrides, "x", nothing); isnothing(__ovr_x) || push!(__eqs, x ~ __ovr_x)
   __ovr_x__initial = pop!(__overrides, "x__initial", nothing); isnothing(__ovr_x__initial) || (__initial_conditions[x] = __ovr_x__initial)
+  __ovr_x__guess = pop!(__overrides, "x__guess", nothing)
   __ovr_v = pop!(__overrides, "v", nothing); isnothing(__ovr_v) || push!(__eqs, v ~ __ovr_v)
   __ovr_v__initial = pop!(__overrides, "v__initial", nothing); isnothing(__ovr_v__initial) || (__initial_conditions[v] = __ovr_v__initial)
+  __ovr_v__guess = pop!(__overrides, "v__guess", nothing)
   __ovr_xp = pop!(__overrides, "xp", nothing); isnothing(__ovr_xp) || push!(__eqs, xp ~ __ovr_xp)
   __ovr_xp__initial = pop!(__overrides, "xp__initial", nothing); isnothing(__ovr_xp__initial) || (__initial_conditions[xp] = __ovr_xp__initial)
+  __ovr_xp__guess = pop!(__overrides, "xp__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -102,6 +105,9 @@ noise suppression for less phase lag. The critically matched gain pairing is
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_x__guess) || (__guesses[x] = __ovr_x__guess)
+  isnothing(__ovr_v__guess) || (__guesses[v] = __ovr_v__guess)
+  isnothing(__ovr_xp__guess) || (__guesses[xp] = __ovr_xp__guess)
 
   ### Initialization Equations
   push!(__initialization_eqs, x(ShiftIndex() -1) ~ pos)

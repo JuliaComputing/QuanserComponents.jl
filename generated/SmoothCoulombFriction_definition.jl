@@ -89,12 +89,16 @@ mismatch in robustness studies.
   ### Variables (assignments)
   __ovr_phi_rel = pop!(__overrides, "phi_rel", nothing); isnothing(__ovr_phi_rel) || push!(__eqs, phi_rel ~ __ovr_phi_rel)
   __ovr_phi_rel__initial = pop!(__overrides, "phi_rel__initial", nothing); isnothing(__ovr_phi_rel__initial) || (__initial_conditions[phi_rel] = __ovr_phi_rel__initial)
+  __ovr_phi_rel__guess = pop!(__overrides, "phi_rel__guess", nothing)
   __ovr_tau = pop!(__overrides, "tau", nothing); isnothing(__ovr_tau) || push!(__eqs, tau ~ __ovr_tau)
   __ovr_tau__initial = pop!(__overrides, "tau__initial", nothing); isnothing(__ovr_tau__initial) || (__initial_conditions[tau] = __ovr_tau__initial)
+  __ovr_tau__guess = pop!(__overrides, "tau__guess", nothing)
   __ovr_w_rel = pop!(__overrides, "w_rel", nothing); isnothing(__ovr_w_rel) || push!(__eqs, w_rel ~ __ovr_w_rel)
   __ovr_w_rel__initial = pop!(__overrides, "w_rel__initial", nothing); isnothing(__ovr_w_rel__initial) || (__initial_conditions[w_rel] = __ovr_w_rel__initial)
+  __ovr_w_rel__guess = pop!(__overrides, "w_rel__guess", nothing)
   __ovr_a_rel = pop!(__overrides, "a_rel", nothing); isnothing(__ovr_a_rel) || push!(__eqs, a_rel ~ __ovr_a_rel)
   __ovr_a_rel__initial = pop!(__overrides, "a_rel__initial", nothing); isnothing(__ovr_a_rel__initial) || (__initial_conditions[a_rel] = __ovr_a_rel__initial)
+  __ovr_a_rel__guess = pop!(__overrides, "a_rel__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -107,6 +111,10 @@ mismatch in robustness studies.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_phi_rel__guess) || (__guesses[phi_rel] = __ovr_phi_rel__guess)
+  isnothing(__ovr_tau__guess) || (__guesses[tau] = __ovr_tau__guess)
+  isnothing(__ovr_w_rel__guess) || (__guesses[w_rel] = __ovr_w_rel__guess)
+  isnothing(__ovr_a_rel__guess) || (__guesses[a_rel] = __ovr_a_rel__guess)
 
   ### Initialization Equations
 

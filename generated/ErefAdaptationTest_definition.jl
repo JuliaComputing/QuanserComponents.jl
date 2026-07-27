@@ -77,6 +77,9 @@ saturate at eta_max.
   # Subcomponent sampler_nt of type DiscreteComponents.Sampler
   sampler_nt_overrides = __pop_subcomponent_overrides!(__overrides, "sampler_nt")
   push!(__systems, @named sampler_nt = DiscreteComponents.Sampler(; sampler_nt_overrides...))
+  # Subcomponent nt of type QuanserComponents.NearTop
+  nt_overrides = __pop_subcomponent_overrides!(__overrides, "nt")
+  push!(__systems, @named nt = QuanserComponents.NearTop(; nt_overrides...))
   # Subcomponent derivative of type DiscreteComponents.DiscreteDerivative
   derivative_overrides = __pop_subcomponent_overrides!(__overrides, "derivative")
   push!(__systems, @named derivative = DiscreteComponents.DiscreteDerivative(; derivative_overrides...))
@@ -99,7 +102,8 @@ saturate at eta_max.
   push!(__eqs, connect(sampler_alpha.y, era.alpha, derivative.u, periodicclock.y))
   push!(__eqs, connect(derivative.y, era.dalpha))
   push!(__eqs, connect(neartop_src.y, sampler_nt.u))
-  push!(__eqs, connect(sampler_nt.y, era.neartop))
+  push!(__eqs, connect(sampler_nt.y, nt.u))
+  push!(__eqs, connect(nt.y, era.neartop))
   push!(__eqs, connect(era.eta, eta))
 
   # Return completely constructed System

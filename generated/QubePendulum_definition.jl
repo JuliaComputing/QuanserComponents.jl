@@ -7,24 +7,26 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   QubePendulum(; name, Rm, kt, km, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
+   QubePendulum(; name, idparams, Rm, kt, km, r_cm_r, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Rm`         | Motor armature resistance                         | Ω  |   8.4 |
-| `kt`         | Motor current-to-torque constant                         | N.m/A  |   0.042 |
-| `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   0.042 |
-| `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   0.095 |
-| `r`         | Rotary arm (rod) length                         | m  |   0.085 |
-| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   mr * r ^ 2 / 3 |
-| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.05e-3 |
-| `mp`         | Pendulum mass                         | kg  |   0.024 |
-| `Lp`         | Pendulum length                         | m  |   0.129 |
-| `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   Lp / 2 |
-| `Jp`         | Pendulum moment of inertia about the elbow pivot                         | kg.m2  |   mp * Lp ^ 2 / 3 |
-| `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 5e-5 |
+| `idparams`         | Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)                         | --  |   nominal |
+| `Rm`         | Motor armature resistance                         | Ω  |   idparams.Rm |
+| `kt`         | Motor current-to-torque constant                         | N.m/A  |   idparams.kt |
+| `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   idparams.km |
+| `r_cm_r`         |                          | m  |   idparams.r_cm_r |
+| `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   idparams.mr |
+| `r`         | Rotary arm (rod) length                         | m  |   idparams.r |
+| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   idparams.Jr |
+| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   idparams.br |
+| `mp`         | Pendulum mass                         | kg  |   idparams.mp |
+| `Lp`         | Pendulum length                         | m  |   idparams.Lp |
+| `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   idparams.l |
+| `Jp`         | Pendulum moment of inertia about the elbow pivot.                         | kg.m2  |   idparams.Jp |
+| `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   idparams.bp |
 | `base_size`         | Edge length of the cubic base box (visualization only)                         | m  |   0.1 |
 
 ## Connectors
@@ -33,7 +35,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, Jr=mr * r ^ 2 / 3, l=Lp / 2, Jp=mp * Lp ^ 2 / 3, kwargs...)
+@component function QubePendulum(; name = nothing, idparams=nominal, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, r_cm_r=idparams.r_cm_r, mr=idparams.mr, r=idparams.r, Jr=idparams.Jr, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -73,6 +75,9 @@ import Moshi as __Ext__Moshi
   __local__km = km
   append!(__params, @parameters (km::Real), [description = "Motor back-EMF (speed) constant"])
   __initial_conditions[km] = __local__km
+  __local__r_cm_r = r_cm_r
+  append!(__params, @parameters (r_cm_r::Real))
+  __initial_conditions[r_cm_r] = __local__r_cm_r
   __local__mr = mr
   append!(__params, @parameters (mr::Real), [description = "Rotary arm (rod) mass (including rotary encoder)", bounds = (0, Inf)])
   __initial_conditions[mr] = __local__mr
@@ -95,7 +100,7 @@ import Moshi as __Ext__Moshi
   append!(__params, @parameters (l::Real), [description = "Distance from elbow pivot to pendulum center of mass"])
   __initial_conditions[l] = __local__l
   __local__Jp = Jp
-  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot"])
+  append!(__params, @parameters (Jp::Real), [description = "Pendulum moment of inertia about the elbow pivot."])
   __initial_conditions[Jp] = __local__Jp
   __local__bp = bp
   append!(__params, @parameters (bp::Real), [description = "Pendulum viscous damping coefficient"])
@@ -136,16 +141,16 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(0), Float64(1), Float64(0)], color=[0.8, 0.8, 0.8, Float64(1)], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_joint")
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(1), Float64(0), Float64(0)], elbow_joint_overrides...))
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(-1), Float64(0), Float64(0)], elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyShape
   upper_arm_overrides = __pop_subcomponent_overrides!(__overrides, "upper_arm")
   push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(; radius=0.0025, color=[0.9, 0.9, 0.9, Float64(1)], shapefile=joinpath("assets", "qube", "qube_arm.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0]), upper_arm_overrides...))
   __bindings[upper_arm.m] = mr
   __bindings[upper_arm.r] = [r, Float64(0), Float64(0)]
-  __bindings[upper_arm.r_cm] = [r / 2, Float64(0), Float64(0)]
+  __bindings[upper_arm.r_cm] = [r_cm_r, Float64(0), Float64(0)]
   __bindings[upper_arm.I_11] = 1e-9
-  __bindings[upper_arm.I_22] = Jr - mr * (r / 2) ^ 2
-  __bindings[upper_arm.I_33] = Jr - mr * (r / 2) ^ 2
+  __bindings[upper_arm.I_22] = Jr
+  __bindings[upper_arm.I_33] = Jr
   # Now remove initial conditions in upper_arm that correspond to the bindings just added
   __upper_arm_ics = ModelingToolkit.get_initial_conditions(upper_arm)
   __no_namespace_upper_arm = ModelingToolkit.toggle_namespacing(upper_arm, false)
@@ -163,13 +168,12 @@ import Moshi as __Ext__Moshi
   delete!(__upper_arm_ics, __upper_arm_I_33)
   # Subcomponent lower_arm of type MultibodyComponents.BodyShape
   lower_arm_overrides = __pop_subcomponent_overrides!(__overrides, "lower_arm")
-  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(; radius=0.00986 / 2, color=[Float64(1), Float64(0), Float64(0), Float64(1)], shapefile=joinpath("assets", "qube", "qube_pole.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0]), lower_arm_overrides...))
+  push!(__systems, @named lower_arm = MultibodyComponents.BodyShape(; I_22=1e-9, radius=0.00986 / 2, color=[Float64(1), Float64(0), Float64(0), Float64(1)], shapefile=joinpath("assets", "qube", "qube_pole.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0]), lower_arm_overrides...))
   __bindings[lower_arm.m] = mp
   __bindings[lower_arm.r] = [Float64(0), -Lp, Float64(0)]
   __bindings[lower_arm.r_cm] = [Float64(0), -l, Float64(0)]
-  __bindings[lower_arm.I_11] = Jp - mp * l ^ 2
-  __bindings[lower_arm.I_22] = Jp - mp * l ^ 2
-  __bindings[lower_arm.I_33] = Jp - mp * l ^ 2
+  __bindings[lower_arm.I_11] = Jp
+  __bindings[lower_arm.I_33] = Jp
   # Now remove initial conditions in lower_arm that correspond to the bindings just added
   __lower_arm_ics = ModelingToolkit.get_initial_conditions(lower_arm)
   __no_namespace_lower_arm = ModelingToolkit.toggle_namespacing(lower_arm, false)
@@ -181,8 +185,6 @@ import Moshi as __Ext__Moshi
   delete!(__lower_arm_ics, __lower_arm_r_cm)
   __lower_arm_I_11 = Symbolics.unwrap(__no_namespace_lower_arm.I_11)::Symbolics.SymbolicT
   delete!(__lower_arm_ics, __lower_arm_I_11)
-  __lower_arm_I_22 = Symbolics.unwrap(__no_namespace_lower_arm.I_22)::Symbolics.SymbolicT
-  delete!(__lower_arm_ics, __lower_arm_I_22)
   __lower_arm_I_33 = Symbolics.unwrap(__no_namespace_lower_arm.I_33)::Symbolics.SymbolicT
   delete!(__lower_arm_ics, __lower_arm_I_33)
   # Subcomponent elbow_sensor of type RotationalComponents.Sensors.AngleSensor

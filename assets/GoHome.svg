@@ -1,0 +1,18 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- House body -->
+<rect x="420" y="470" width="300" height="260" stroke="#131316" stroke-width="16" fill="none"/>
+<!-- Roof -->
+<path d="M390 490 L570 330 L750 490" stroke="#131316" stroke-width="16" fill="none" stroke-linejoin="round"/>
+<!-- Door -->
+<rect x="530" y="590" width="90" height="140" stroke="#131316" stroke-width="12" fill="none"/>
+<!-- Return arrow into home -->
+<path d="M180 620 L360 620" stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round"/>
+<path d="M360 620 L310 580 M360 620 L310 660" stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

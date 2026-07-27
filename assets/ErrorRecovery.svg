@@ -1,0 +1,21 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Pivot -->
+<circle cx="500" cy="620" r="16" fill="#A1A1AA"/>
+<!-- Allowed cone (dashed) -->
+<path d="M500 620 L360 300 A340 340 0 0 1 640 300 Z" fill="#131316" fill-opacity="0.06" stroke="#A1A1AA" stroke-width="4" stroke-dasharray="14,10"/>
+<!-- Arm swung out of bounds -->
+<line x1="500" y1="620" x2="760" y2="410" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<circle cx="760" cy="410" r="26" fill="#131316"/>
+<!-- Corrective arrow back toward center -->
+<path d="M700 300 A320 320 0 0 0 480 250" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+<path d="M480 250 L520 220 M480 250 L515 295" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+<!-- Warning mark -->
+<text x="230" y="470" font-family="Arial, Helvetica, sans-serif" font-size="220" font-weight="bold" fill="#131316" text-anchor="middle">!</text>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

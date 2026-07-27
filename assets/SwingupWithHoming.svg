@@ -1,0 +1,21 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Two-state machine: Home state -->
+<circle cx="300" cy="500" r="130" stroke="#131316" stroke-width="14" fill="none"/>
+<text x="300" y="520" font-family="Arial, Helvetica, sans-serif" font-size="50" font-weight="bold" fill="#131316" text-anchor="middle">Home</text>
+<!-- Run state -->
+<circle cx="700" cy="500" r="130" stroke="#131316" stroke-width="14" fill="none"/>
+<text x="700" y="520" font-family="Arial, Helvetica, sans-serif" font-size="50" font-weight="bold" fill="#131316" text-anchor="middle">Swingup</text>
+<!-- Home -> Run (done) -->
+<path d="M440 440 A260 260 0 0 1 560 440" stroke="#131316" stroke-width="12" fill="none" stroke-linecap="round"/>
+<path d="M560 440 L520 420 M560 440 L560 470" stroke="#131316" stroke-width="12" fill="none" stroke-linecap="round"/>
+<!-- Run -> Home (fault) -->
+<path d="M560 560 A260 260 0 0 1 440 560" stroke="#A1A1AA" stroke-width="12" fill="none" stroke-linecap="round"/>
+<path d="M440 560 L480 580 M440 560 L440 530" stroke="#A1A1AA" stroke-width="12" fill="none" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

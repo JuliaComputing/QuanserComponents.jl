@@ -9,9 +9,12 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    StabilizationSwitch(; name)
 
+Selects the stabilizing LQR command when the pendulum is near the top and the
+swing-up command otherwise.
+
 ## Connectors
 
- * `neartop` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
+ * `neartop` - This connector represents a boolean signal as an input to a component ([`BooleanInput`](@ref))
  * `u_lqr` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u_swingup` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
@@ -51,7 +54,7 @@ import Moshi as __Ext__Moshi
   ### Final Parameters (assignments)
 
   ### Final Path Parameters
-  append!(__vars, @variables (neartop(t)::Real), [input = true])
+  append!(__vars, @variables (neartop(t)::Bool), [input = true])
   append!(__vars, @variables (u_lqr(t)::Real), [input = true])
   append!(__vars, @variables (u_swingup(t)::Real), [input = true])
   append!(__vars, @variables (u(t)::Real), [output = true])

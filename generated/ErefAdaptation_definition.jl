@@ -33,7 +33,7 @@ stabilizer is active, so a later fall restarts from a mild boost. Setting
 
  * `alpha` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `dalpha` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `neartop` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
+ * `neartop` - This connector represents a boolean signal as an input to a component ([`BooleanInput`](@ref))
  * `eta` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 
 ## Variables
@@ -89,7 +89,7 @@ stabilizer is active, so a later fall restarts from a mild boost. Setting
   ### Final Path Parameters
   append!(__vars, @variables (alpha(t)::Real), [input = true])
   append!(__vars, @variables (dalpha(t)::Real), [input = true])
-  append!(__vars, @variables (neartop(t)::Real), [input = true])
+  append!(__vars, @variables (neartop(t)::Bool), [input = true])
   append!(__vars, @variables (eta(t)::Real), [output = true])
 
   ### Variables (declarations)
@@ -99,8 +99,10 @@ stabilizer is active, so a later fall restarts from a mild boost. Setting
   ### Variables (assignments)
   __ovr_apex = pop!(__overrides, "apex", nothing); isnothing(__ovr_apex) || push!(__eqs, apex ~ __ovr_apex)
   __ovr_apex__initial = pop!(__overrides, "apex__initial", nothing); isnothing(__ovr_apex__initial) || (__initial_conditions[apex] = __ovr_apex__initial)
+  __ovr_apex__guess = pop!(__overrides, "apex__guess", nothing)
   __ovr_etax = pop!(__overrides, "etax", nothing); isnothing(__ovr_etax) || push!(__eqs, etax ~ __ovr_etax)
   __ovr_etax__initial = pop!(__overrides, "etax__initial", nothing); isnothing(__ovr_etax__initial) || (__initial_conditions[etax] = __ovr_etax__initial)
+  __ovr_etax__guess = pop!(__overrides, "etax__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -111,6 +113,8 @@ stabilizer is active, so a later fall restarts from a mild boost. Setting
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_apex__guess) || (__guesses[apex] = __ovr_apex__guess)
+  isnothing(__ovr_etax__guess) || (__guesses[etax] = __ovr_etax__guess)
 
   ### Initialization Equations
   push!(__initialization_eqs, etax(ShiftIndex() -1) ~ 0)

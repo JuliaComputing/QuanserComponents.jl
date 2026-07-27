@@ -7,35 +7,24 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   LQRstabilizer(; name, L, umax)
+   RuntimeController(; name)
 
-## Parameters:
-
-| Name         | Description                         | Units  |   Default value |
-| ------------ | ----------------------------------- | ------ | --------------- |
-| `L`         | State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum                         | --  |   [-2.8515070...3404759338] |
-| `umax`         |                          | --  |   10.0 |
+The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+`ErrorRecovery`, which overrides the command to recover the arm when it swings
+out of bounds.
 
 ## Connectors
 
  * `shoulder_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `shoulder_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `elbow_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
-
-## Variables
-
-| Name         | Description                         | Units  | 
-| ------------ | ----------------------------------- | ------ |
-| `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L=[-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338], umax=Float64(10.0), kwargs...)
+@component function RuntimeController(; name = nothing, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = LQRstabilizer()
+    @named model = RuntimeController()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -61,40 +50,33 @@ import Moshi as __Ext__Moshi
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
-  __local__L = L
-  append!(__params, @parameters (L[1:4]::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum"])
-  __initial_conditions[L] = __local__L
-  __local__umax = umax
-  append!(__params, @parameters (umax::Real))
-  __initial_conditions[umax] = __local__umax
 
   ### Final Parameters (assignments)
 
   ### Final Path Parameters
   append!(__vars, @variables (shoulder_angle(t)::Real), [input = true])
   append!(__vars, @variables (elbow_angle(t)::Real), [input = true])
-  append!(__vars, @variables (shoulder_velocity(t)::Real), [input = true])
-  append!(__vars, @variables (elbow_velocity(t)::Real), [input = true])
   append!(__vars, @variables (u(t)::Real), [output = true])
 
   ### Variables (declarations)
-  append!(__vars, @variables (uraw(t)::Real))
 
   ### Variables (assignments)
-  __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
-  __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
-  __ovr_uraw__guess = pop!(__overrides, "uraw__guess", nothing)
 
   ### Constants
   __constants = Any[]
 
   ### Components
+  # Subcomponent swingup of type QuanserComponents.Swingup
+  swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
+  push!(__systems, @named swingup = QuanserComponents.Swingup(; swingup_overrides...))
+  # Subcomponent errorrecovery of type QuanserComponents.ErrorRecovery
+  errorrecovery_overrides = __pop_subcomponent_overrides!(__overrides, "errorrecovery")
+  push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; errorrecovery_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
-  isnothing(__ovr_uraw__guess) || (__guesses[uraw] = __ovr_uraw__guess)
 
   ### Initialization Equations
 
@@ -102,10 +84,12 @@ import Moshi as __Ext__Moshi
   __assertions = []
 
   ### Equations
-  push!(__eqs, uraw ~ dot(L, [0.0 - shoulder_angle, pi - elbow_angle, 0.0 - shoulder_velocity, 0.0 - elbow_velocity]))
-  push!(__eqs, u ~ clamp(uraw, -umax, umax))
+  push!(__eqs, connect(elbow_angle, swingup.elbow_angle))
+  push!(__eqs, connect(swingup.u, errorrecovery.u_swingup))
+  push!(__eqs, connect(errorrecovery.u, u))
+  push!(__eqs, connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export LQRstabilizer
+export RuntimeController

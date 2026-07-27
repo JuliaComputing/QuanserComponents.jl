@@ -139,12 +139,16 @@ identified by the campaign in `robustness/`.
   ### Variables (assignments)
   __ovr_alpha = pop!(__overrides, "alpha", nothing); isnothing(__ovr_alpha) || push!(__eqs, alpha ~ __ovr_alpha)
   __ovr_alpha__initial = pop!(__overrides, "alpha__initial", nothing); isnothing(__ovr_alpha__initial) || (__initial_conditions[alpha] = __ovr_alpha__initial)
+  __ovr_alpha__guess = pop!(__overrides, "alpha__guess", nothing)
   __ovr_E = pop!(__overrides, "E", nothing); isnothing(__ovr_E) || push!(__eqs, E ~ __ovr_E)
   __ovr_E__initial = pop!(__overrides, "E__initial", nothing); isnothing(__ovr_E__initial) || (__initial_conditions[E] = __ovr_E__initial)
+  __ovr_E__guess = pop!(__overrides, "E__guess", nothing)
   __ovr_Etilde = pop!(__overrides, "Etilde", nothing); isnothing(__ovr_Etilde) || push!(__eqs, Etilde ~ __ovr_Etilde)
   __ovr_Etilde__initial = pop!(__overrides, "Etilde__initial", nothing); isnothing(__ovr_Etilde__initial) || (__initial_conditions[Etilde] = __ovr_Etilde__initial)
+  __ovr_Etilde__guess = pop!(__overrides, "Etilde__guess", nothing)
   __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
   __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
+  __ovr_uraw__guess = pop!(__overrides, "uraw__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -155,6 +159,10 @@ identified by the campaign in `robustness/`.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_alpha__guess) || (__guesses[alpha] = __ovr_alpha__guess)
+  isnothing(__ovr_E__guess) || (__guesses[E] = __ovr_E__guess)
+  isnothing(__ovr_Etilde__guess) || (__guesses[Etilde] = __ovr_Etilde__guess)
+  isnothing(__ovr_uraw__guess) || (__guesses[uraw] = __ovr_uraw__guess)
 
   ### Initialization Equations
 

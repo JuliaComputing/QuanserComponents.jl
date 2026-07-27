@@ -17,8 +17,8 @@ import Moshi as __Ext__Moshi
 
 ## Connectors
 
+ * `y` - This connector represents a boolean signal as an output from a component ([`BooleanOutput`](@ref))
  * `u` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `y` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
 @component function NearTop(; name = nothing, th=0.4, kwargs...)
   isnothing(name) && throw(ArgumentError("""
@@ -58,8 +58,8 @@ import Moshi as __Ext__Moshi
   ### Final Parameters (assignments)
 
   ### Final Path Parameters
+  append!(__vars, @variables (y(t)::Bool), [output = true])
   append!(__vars, @variables (u(t)::Real), [input = true])
-  append!(__vars, @variables (y(t)::Real), [output = true])
 
   ### Variables (declarations)
 
