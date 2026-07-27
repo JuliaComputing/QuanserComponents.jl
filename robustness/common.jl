@@ -21,6 +21,16 @@ const SciMLBase = ModelingToolkit.SciMLBase
 
 const Ts = 0.005
 
+# Nominal plant = the identified parameter set that `FurutaSwingup` now uses by
+# default (dyad/definitions.jl). Mismatch draws are centred on these values.
+const IDP = QuanserComponents.identified
+
+# Exception: the fitted `bp` collapsed to ~3e-23 (the optimizer floor -- pendulum
+# viscous damping is effectively unidentifiable from the swing-up record). A
+# log-uniform range around ~0 would silently delete the pendulum-friction
+# mismatch axis, so that axis keeps its original centre.
+const BP_CENTER = 2.5e-6
+
 function build_system(; delayed = false, delay_n = 1)
     model = if delayed
         QuanserComponents.FurutaSwingupDelayed(; name = :model, delay_n)
@@ -41,15 +51,15 @@ function controller_settings(ssys)
     Pair[
         ssys.qubependulum.shoulder_joint.render => false
         ssys.gain.k => 1.0
-        ssys.swingup.lqrstabilizer.umax => 10
-        ssys.swingup.energyswingup.umax => 3.0
-        ssys.swingup.energyswingup.k => 100.0
-        ssys.swingup.energyswingup.k_center => 1.0
-        ssys.swingup.energyswingup.normalize => false
-        ssys.swingup.energyswingup.eta => 0.0
-        ssys.swingup.erefadaptation.gamma => 0.0
-        ssys.swingup.estimatorswitch_shoulder.use_new => false
-        ssys.swingup.estimatorswitch_elbow.use_new => false
+        ssys.swingup.runtime.swingup.lqrstabilizer.umax => 10
+        ssys.swingup.runtime.swingup.energyswingup.umax => 3.0
+        ssys.swingup.runtime.swingup.energyswingup.k => -100.0
+        ssys.swingup.runtime.swingup.energyswingup.k_center => 1.0
+        ssys.swingup.runtime.swingup.energyswingup.normalize => false
+        ssys.swingup.runtime.swingup.energyswingup.eta => 0.0
+        ssys.swingup.runtime.swingup.erefadaptation.gamma => 0.0
+        ssys.swingup.runtime.swingup.estimatorswitch_shoulder.use_new => false
+        ssys.swingup.runtime.swingup.estimatorswitch_elbow.use_new => false
     ]
 end
 
@@ -73,9 +83,10 @@ Coulomb friction and quantization arguments are only emitted when the model
 supports them (added in Phase 1); pass `nothing` to omit.
 """
 function perturbation_overrides(ssys;
-        mp = 0.024, Lp = 0.129, mr = 0.095, r = 0.085,
-        kt = 0.042, km = 0.042, Rm = 8.4,
-        br = 5e-5, bp = 2.5e-6,
+        mp = IDP.mp, Lp = IDP.Lp, mr = IDP.mr, r = IDP.r,
+        kt = IDP.kt, km = IDP.km, Rm = IDP.Rm,
+        br = IDP.br, bp = BP_CENTER,
+        Jr = IDP.Jr, Jp = IDP.Jp, r_cm_r = IDP.r_cm_r,
         tau_c_sh = nothing, tau_c_el = nothing, quantized = nothing)
     q = ssys.qubependulum
     ov = Pair[
@@ -88,10 +99,16 @@ function perturbation_overrides(ssys;
         q.Rm => Rm
         q.br => br
         q.bp => bp
-        # derived, baked at instantiation:
-        q.Jp => mp * Lp^2 / 3
-        q.l => Lp / 2
-        q.Jr => mr * r^2 / 3
+        # Inertias are independent parameters of the identified model, not rod
+        # formulas: Jr is the arm's CENTRAL inertia (upper_arm.I_22 = I_33 = Jr)
+        # and Jp the pendulum's (lower_arm.I_11 = I_33 = Jp, I_22 ~ 0). The CoM
+        # radius r_cm_r is likewise independent. Recomputing them from mr/r/mp/Lp
+        # (as this harness did against the pre-identification model, where the
+        # bindings subtracted the parallel-axis term) would now double-count it.
+        q.Jr => Jr
+        q.Jp => Jp
+        q.r_cm_r => r_cm_r
+        q.l => Lp / 2      # not fitted; stays at the thin-rod midpoint
     ]
     tau_c_sh === nothing || push!(ov, q.shoulder_friction.tau_c => tau_c_sh)
     tau_c_el === nothing || push!(ov, q.elbow_friction.tau_c => tau_c_el)
@@ -206,7 +223,7 @@ added in Phase 4.
 function controller_overrides(ssys, config::AbstractString)
     base = nominal_overrides(ssys)
     config == "baseline" && return base
-    esw = ssys.swingup.energyswingup
+    esw = ssys.swingup.runtime.swingup.energyswingup
     # Nominal upright energy assumed by the controller; with normalize on,
     # the gain acts on E/E_ref - 1, so rescale k by E_ref for equal authority.
     E_ref = 2 * 0.024 * 9.81 * 0.129 / 2
@@ -215,14 +232,14 @@ function controller_overrides(ssys, config::AbstractString)
         return with_overrides(base, Pair[
             esw.normalize => true,
             esw.eta => 0.05,
-            esw.k => 100.0 * E_ref,
+            esw.k => -100.0 * E_ref,
         ])
     elseif config == "adaptive"
         # A + B: normalized error + online reference adaptation (no static margin)
         return with_overrides(base, Pair[
             esw.normalize => true,
-            esw.k => 100.0 * E_ref,
-            ssys.swingup.erefadaptation.gamma => 0.05,
+            esw.k => -100.0 * E_ref,
+            ssys.swingup.runtime.swingup.erefadaptation.gamma => 0.05,
         ])
     elseif config == "adaptive_ab"
         # A + B + C: additionally the alpha-beta velocity estimator, tuned
@@ -231,14 +248,14 @@ function controller_overrides(ssys, config::AbstractString)
         ab_beta = ab_alpha^2 / (2 - ab_alpha)
         return with_overrides(base, Pair[
             esw.normalize => true,
-            esw.k => 100.0 * E_ref,
-            ssys.swingup.erefadaptation.gamma => 0.05,
-            ssys.swingup.estimatorswitch_shoulder.use_new => true,
-            ssys.swingup.estimatorswitch_elbow.use_new => true,
-            ssys.swingup.alphabeta_shoulder.alpha => ab_alpha,
-            ssys.swingup.alphabeta_shoulder.beta => ab_beta,
-            ssys.swingup.alphabeta_elbow.alpha => ab_alpha,
-            ssys.swingup.alphabeta_elbow.beta => ab_beta,
+            esw.k => -100.0 * E_ref,
+            ssys.swingup.runtime.swingup.erefadaptation.gamma => 0.05,
+            ssys.swingup.runtime.swingup.estimatorswitch_shoulder.use_new => true,
+            ssys.swingup.runtime.swingup.estimatorswitch_elbow.use_new => true,
+            ssys.swingup.runtime.swingup.alphabeta_shoulder.alpha => ab_alpha,
+            ssys.swingup.runtime.swingup.alphabeta_shoulder.beta => ab_beta,
+            ssys.swingup.runtime.swingup.alphabeta_elbow.alpha => ab_alpha,
+            ssys.swingup.runtime.swingup.alphabeta_elbow.beta => ab_beta,
         ])
     end
     error("unknown controller config: $config")

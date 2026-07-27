@@ -21,14 +21,18 @@ rlogunif(rng, lo, hi) = exp10(runif(rng, log10(lo), log10(hi)))
 rows = NamedTuple[]
 for i in 1:N_mc
     draw = (;
-        mp = 0.024 * runif(rng, 0.8, 1.2),
-        Lp = 0.129 * runif(rng, 0.9, 1.1),
-        mr = 0.095 * runif(rng, 0.8, 1.2),
-        kt = 0.042 * runif(rng, 0.85, 1.15),
-        km = 0.042 * runif(rng, 0.85, 1.15),
-        Rm = 8.4 * runif(rng, 0.8, 1.2),
-        br = 5e-5 * rlogunif(rng, 0.1, 20),
-        bp = 2.5e-6 * rlogunif(rng, 0.1, 20),
+        mp = IDP.mp * runif(rng, 0.8, 1.2),
+        Lp = IDP.Lp * runif(rng, 0.9, 1.1),
+        mr = IDP.mr * runif(rng, 0.8, 1.2),
+        kt = IDP.kt * runif(rng, 0.85, 1.15),
+        km = IDP.km * runif(rng, 0.85, 1.15),
+        Rm = IDP.Rm * runif(rng, 0.8, 1.2),
+        # independent in the identified model (previously implied by mr/r/mp/Lp)
+        Jr = IDP.Jr * runif(rng, 0.8, 1.2),
+        Jp = IDP.Jp * runif(rng, 0.8, 1.2),
+        r_cm_r = IDP.r_cm_r * runif(rng, 0.9, 1.1),
+        br = IDP.br * rlogunif(rng, 0.1, 20),
+        bp = BP_CENTER * rlogunif(rng, 0.1, 20),
         tau_c_sh = has_friction ? runif(rng, 0.0, 5e-3) : nothing,
         tau_c_el = has_friction ? runif(rng, 0.0, 5e-4) : nothing,
         quantized = has_friction ? rand(rng, Bool) : nothing,
@@ -57,7 +61,7 @@ ci = 1.96 * sqrt(rate * (1 - rate) / n)
 # Conditional failure rates: split each parameter at its median, compare
 # failure rate in the upper vs lower half to rank influence.
 println("\nPer-parameter conditional failure rates (upper vs lower half):")
-for par in (:mp, :Lp, :mr, :kt, :km, :Rm, :br, :bp, :tau_c_sh, :tau_c_el)
+for par in (:mp, :Lp, :mr, :kt, :km, :Rm, :Jr, :Jp, :r_cm_r, :br, :bp, :tau_c_sh, :tau_c_el)
     hasproperty(df, par) || continue
     v = df[!, par]
     all(ismissing, v) && continue
