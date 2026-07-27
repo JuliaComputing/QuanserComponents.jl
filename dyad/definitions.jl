@@ -23,8 +23,8 @@ Base.@kwdef struct IdParams
     km::Float64     = 0.042                                 # back-EMF constant
     mr::Float64     = 0.095                                 # rotary arm mass (incl. encoder)
     r::Float64      = 0.085                                 # rotary arm length
-    r_cm_r::Float64 = 0.085 / 2                             # rotary arm CoM radius
-    Jr::Float64     = 0.095 * 0.085^2 / 3 - 0.095 * (0.085 / 2)^2   # arm body inertia
+    #r_cm_r::Float64 = 0.085 / 2                             # rotary arm CoM radius
+    #Jr::Float64     = 0.095 * 0.085^2 / 3 - 0.095 * (0.085 / 2)^2   # arm body inertia
     br::Float64     = 0.05e-3                               # arm viscous damping
     mp::Float64     = 0.024                                 # pendulum mass
     Lp::Float64     = 0.129                                 # pendulum length
@@ -44,11 +44,9 @@ const nominal = IdParams()
 # Replace the values below with your latest fit (the `p_id` printed by
 # examples/pendulum_identification.jl for the corresponding `tunable_syms`).
 const identified = withparams(nominal;
-    Jr      = 3.4301897e-05,
-    Jp      = 2.4501809e-05,
-    br      = 0.00016757993,
-    bp      = 3.0152273e-23,
-    kt      = 0.054513092,
-    mr      = 0.060555804,
-    r_cm_r  = 0.033931805,
+    Jp      = 2.5047706e-05,
+    br      = 9.9316955e-05,
+    bp      = 4.8190339e-06,
+    kt      = 0.055684206,
+    mr      = 0.026100653,
 )

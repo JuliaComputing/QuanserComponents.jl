@@ -22,15 +22,15 @@ using HardwareAbstractions
 using DelimitedFiles
 using Printf
 
-const Ts       = 0.005
-const TRAJFILE = joinpath(pkgdir(QuanserComponents), "input_design.csv")
-const OUTFILE  = joinpath(pkgdir(QuanserComponents), "discrimination_experiment.csv")
+Ts       = 0.005
+TRAJFILE = joinpath(pkgdir(QuanserComponents), "input_design.csv")
+OUTFILE  = joinpath(pkgdir(QuanserComponents), "discrimination_experiment.csv")
 
 # --- safety ------------------------------------------------------------------
-const UCLAMP    = 3.0             # V, hard clamp on anything we write
-const SAFE_WARN = deg2rad(95)     # start pulling the arm back
-const SAFE_ABORT = deg2rad(120)   # give up (soft limit is 110, hard stop 137)
-const PULLBACK  = 2.0             # V/rad, pull-back gain past SAFE_WARN
+UCLAMP    = 3.0             # V, hard clamp on anything we write
+SAFE_WARN = deg2rad(95)     # start pulling the arm back
+SAFE_ABORT = deg2rad(120)   # give up (soft limit is 110, hard stop 137)
+PULLBACK  = 2.0             # V/rad, pull-back gain past SAFE_WARN
 
 "Voltage to actually write: designed value, or a pull-back if the arm strays."
 function supervise(u_des, arm)
@@ -70,12 +70,12 @@ function run_experiment(process, useq)
                 end
                 u = supervise(useq[i], y[1])
                 QuanserInterface.control(process, [u])
-                log[:, i] = (t, y[1], y[2], u)
+                log[:, i] = [t, y[1], y[2], u]
                 n_written = i
             end
         end
-    catch e
-        @error "terminating" e
+    # catch e
+        # @error "terminating" e
     finally
         QuanserInterface.control(process, [0.0])
         GC.enable(true)
@@ -86,7 +86,7 @@ end
 
 # --- main --------------------------------------------------------------------
 process = QuanserInterface.QubeServoPendulum(; Ts)
-home!(process, 40)
+home!(process, 1)
 QuanserInterface.go_home(process)      # centre the arm, let the pendulum settle
 
 Dlog = run_experiment(process, useq)

@@ -38,13 +38,13 @@ using LeastSquaresOptim
 using Plots
 
 # --- configuration ----------------------------------------------------------
-const DATA_PATH = joinpath(pkgdir(QuanserComponents), "swingup.csv")
-const NDATA     = 1000         # number of samples to use
+DATA_PATH = joinpath(pkgdir(QuanserComponents), "swingup.csv")
+NDATA     = 1000         # number of samples to use
 
 # QuanserInterface ML-optimized reference values (for comparison only)
-const QI_OPTIMIZED = Dict("Jr" => 1.112300869775737e-5, "Jp" => 1.9808351489259391e-4)
+QI_OPTIMIZED = Dict("Jr" => 1.112300869775737e-5, "Jp" => 1.9808351489259391e-4)
 # Gains currently baked into the LQRstabilizer component
-const L_BAKED = [-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338]
+L_BAKED = [-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338]
 
 # =============================================================================
 ## 1. Load data
@@ -97,13 +97,13 @@ p0    = prob0.p
 ## 3. Tunable parameters  --  THE SINGLE EXTENSION POINT
 # =============================================================================
 tunable_syms = [
-    qubependulum.Jr,
+    # qubependulum.Jr,
     qubependulum.Jp,
     qubependulum.br,
     qubependulum.bp,
     qubependulum.kt,
     qubependulum.mr,
-    qubependulum.r_cm_r,
+    # qubependulum.r_cm_r,
     # qubependulum.mp,
     # qubependulum.km,
 ]   # add .br, .bp, .kt, .Rm, ...

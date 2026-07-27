@@ -34,11 +34,11 @@ import SeeToDee
 using LeastSquaresOptim
 
 # --- configuration -----------------------------------------------------------
-const SYNTHETIC = get(ENV, "SYNTHETIC", "true") == "true"  # dry-run validation
-const REFIT     = get(ENV, "REFIT", "true") == "true"
-const DATAFILE  = joinpath(pkgdir(QuanserComponents), "discrimination_experiment.csv")
-const TRAJFILE  = joinpath(pkgdir(QuanserComponents), "input_design.csv")
-const Ts_NOM    = 0.005
+SYNTHETIC = false
+REFIT     = get(ENV, "REFIT", "true") == "true"
+DATAFILE  = joinpath(pkgdir(QuanserComponents), "discrimination_experiment.csv")
+TRAJFILE  = joinpath(pkgdir(QuanserComponents), "input_design.csv")
+Ts_NOM    = 0.005
 const SIGMA_ENC = 2pi/2048
 
 # =============================================================================
@@ -56,8 +56,8 @@ nx, nu, ny = length(x_sym), 1, 2
 @assert nx == 4
 
 prob0 = ModelingToolkit.ODEProblem(iosys, Dict(qubependulum.voltage => 0.0), (0.0, Ts_NOM))
-const P0 = prob0.p
-const IDP_FIELDS = fieldnames(QuanserComponents.IdParams)
+P0 = prob0.p
+IDP_FIELDS = fieldnames(QuanserComponents.IdParams)
 set_idp! = ModelingToolkit.setp(iosys, [getproperty(qubependulum, f) for f in IDP_FIELDS])
 
 function params_for(idp)
@@ -140,9 +140,8 @@ println("==================================================\n")
 ## 4. Optional refit from the nominal starting point
 # =============================================================================
 if REFIT
-    tunable_syms = [qubependulum.Jr, qubependulum.Jp, qubependulum.br,
-                    qubependulum.bp, qubependulum.kt, qubependulum.mr,
-                    qubependulum.r_cm_r]
+    tunable_syms = [qubependulum.Jp, qubependulum.br,
+                    qubependulum.bp, qubependulum.kt, qubependulum.mr]
     set_tun! = ModelingToolkit.setp(iosys, tunable_syms)
     get_tun  = ModelingToolkit.getp(iosys, tunable_syms)
 
@@ -185,4 +184,16 @@ if REFIT
                 short, p_guess[k], p_fit[k], p_ref[k])
     end
     println("====================================================\n")
+
+    function print_idparams(p, syms)
+        println("# paste into dyad/definitions.jl (updates the `identified` set):")
+        println("const identified = withparams(nominal;")
+        for (k, s) in enumerate(syms)
+            field = split(string(s), "₊")[end]   # IdParams field == parameter short name
+            @printf("    %-7s = %.8g,\n", field, p[k])
+        end
+        println(")\n")
+    end
+    print_idparams(p_fit, tunable_syms)
+
 end

@@ -151,13 +151,13 @@ component QubePendulum
   "Motor back-EMF (speed) constant"
   parameter km::Dyad.ElectricalTorqueConstant = idparams.km
 
-  parameter r_cm_r::Dyad.Length = idparams.r_cm_r
+  parameter r_cm_r::Dyad.Length = 0.085 / 2
   "Rotary arm (rod) mass (including rotary encoder)"
   parameter mr::Dyad.Mass = idparams.mr
   "Rotary arm (rod) length"
   parameter r::Dyad.Length = idparams.r
   "Rotary arm (rod) moment of inertia about the shoulder pivot"
-  parameter Jr::Dyad.Inertia = idparams.Jr
+  parameter Jr::Dyad.Inertia = 0.095 * 0.085^2 / 3 - 0.095 * (0.085 / 2)^2
   "Rotary arm (rod) viscous damping coefficient"
   parameter br::Dyad.RotationalDampingConstant = idparams.br
   "Pendulum mass"

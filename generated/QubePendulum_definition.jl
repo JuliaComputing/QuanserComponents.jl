@@ -17,10 +17,10 @@ import Moshi as __Ext__Moshi
 | `Rm`         | Motor armature resistance                         | Ω  |   idparams.Rm |
 | `kt`         | Motor current-to-torque constant                         | N.m/A  |   idparams.kt |
 | `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   idparams.km |
-| `r_cm_r`         |                          | m  |   idparams.r_cm_r |
+| `r_cm_r`         |                          | m  |   0.085 / 2 |
 | `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   idparams.mr |
 | `r`         | Rotary arm (rod) length                         | m  |   idparams.r |
-| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   idparams.Jr |
+| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   0.095 * 0.0...85 / 2) ^ 2 |
 | `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   idparams.br |
 | `mp`         | Pendulum mass                         | kg  |   idparams.mp |
 | `Lp`         | Pendulum length                         | m  |   idparams.Lp |
@@ -35,7 +35,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, idparams=nominal, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, r_cm_r=idparams.r_cm_r, mr=idparams.mr, r=idparams.r, Jr=idparams.Jr, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
+@component function QubePendulum(; name = nothing, idparams=nominal, r_cm_r=0.085 / 2, Jr=0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, mr=idparams.mr, r=idparams.r, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

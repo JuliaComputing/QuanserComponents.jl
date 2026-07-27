@@ -102,7 +102,7 @@ function swingup(process; Tf = 10, verbose=true)
 end
 ##
 process = QuanserInterface.QubeServoPendulum(; Ts)
-home!(process, 40)
+home!(process, -5)
 ##
 function runplot(process; kwargs...)
     rr[][1] = deg2rad(0)
