@@ -50,3 +50,41 @@ const identified = withparams(nominal;
     kt      = 0.055684206,
     mr      = 0.026100653,
 )
+
+
+# Implementations of the two `external component`s in dyad/hardware_loop.dyad.
+# Their behaviour is a call into Julia, which Dyad cannot express, so the Dyad
+# source declares only the interface and the bodies live here. See
+# src/hardware_io.jl for the operators and the `HardwareIO` handle.
+#
+# Both are clock-agnostic: the variables carry no shift index, so clock
+# inference puts them on the clock of whatever partition they are connected to
+# (in `FurutaHardware`, the 5 ms `PeriodicClock`).
+
+@component function HardwareMeasurement(; name)
+    @parameters io::HardwareIO
+    vars = @variables begin
+        shoulder_angle(t), [output = true]
+        elbow_angle(t), [output = true]
+        trig(t)
+    end
+    # `trig` is the single effectful equation; the other two read the cache and
+    # take `trig` as an argument purely so they are scheduled after it.
+    eqs = [
+        trig ~ hw_measure!(io),
+        shoulder_angle ~ hw_shoulder(io, trig),
+        elbow_angle ~ hw_elbow(io, trig),
+    ]
+    return System(eqs, t, vars, [io]; name)
+end
+
+@component function HardwareCommand(; name, umax = 10.0)
+    @parameters io::HardwareIO
+    pars = @parameters umax::Real = umax
+    vars = @variables begin
+        u(t), [input = true]
+        u_applied(t), [output = true]
+    end
+    eqs = [u_applied ~ hw_write(io, u, umax)]
+    return System(eqs, t, vars, [io; pars]; name)
+end

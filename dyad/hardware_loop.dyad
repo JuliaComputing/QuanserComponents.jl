@@ -1,0 +1,65 @@
+"""
+Reads the two encoders of the physical QUBE once per tick and places the
+measured angles on the clock of the partition it is connected to.
+
+The actual read is a call into Julia, so the behaviour cannot be expressed in
+Dyad: this is an `external component` whose implementation lives in
+`dyad/definitions.jl`. The device handle is supplied at runtime through an
+opaque `HardwareIO` parameter, not through the Dyad interface.
+
+Clock-agnostic. Julia backend only -- the C backend cannot cross-compile the
+Julia call.
+"""
+external component HardwareMeasurement@[input clk]
+  "Measured arm (shoulder) angle, 0 at home"
+  shoulder_angle = Dyad.RealOutput@[clk]() {^shoulder_angle}
+  "Measured pendulum (elbow) angle, 0 hanging down"
+  elbow_angle = Dyad.RealOutput@[clk]() {^elbow_angle}
+metadata {"Dyad": {"doc": {"behavior": false}}}
+end
+
+"""
+Writes the commanded motor voltage to the physical QUBE once per tick and
+reports back what was actually applied.
+
+Like `HardwareMeasurement` this is an `external component` implemented in
+`dyad/definitions.jl`; the write is a call into Julia through an opaque
+`HardwareIO` parameter. The command is clamped to `[-umax, umax]` before it
+reaches the amplifier, so `u_applied` may differ from `u`.
+
+Clock-agnostic. Julia backend only.
+"""
+external component HardwareCommand@[input clk]
+  "Commanded motor voltage"
+  u = Dyad.RealInput@[clk]() {^u}
+  "Voltage actually written to the amplifier"
+  u_applied = Dyad.RealOutput@[clk]() {^u_applied}
+  "Saturation applied before writing; the QUBE amplifier range is +/-10 V"
+  parameter umax::Dyad.Voltage = 10.0
+metadata {"Dyad": {"doc": {"behavior": false}}}
+end
+
+"""
+The swing-up controller closed around the physical QUBE, with the hardware I/O
+inside the synchronous program.
+
+`FurutaSwingup` is the same controller closed around the simulated
+`QubePendulum`; here the plant is replaced by `HardwareMeasurement` and
+`HardwareCommand`, which perform the encoder read and the amplifier write
+themselves. Compiling this model therefore yields a synchronous program that
+needs nothing from its caller but a clock tick -- see
+`generate_hardware_controller` and `HardwareSwingupController` in
+`src/hardware_loop.jl`.
+"""
+component FurutaHardware
+  "Controller sample time"
+  structural parameter Ts::Real = 0.005
+  measurement = HardwareMeasurement() {^measurement}
+  swingup = SwingupWithHoming() {^swingup}
+  command = HardwareCommand() {^command}
+  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+relations
+  connect(measurement.shoulder_angle, swingup.shoulder_angle, periodicclock.y) {^id1}
+  connect(measurement.elbow_angle, swingup.elbow_angle) {^id2}
+  connect(swingup.u, command.u) {^id3}
+end

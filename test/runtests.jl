@@ -265,4 +265,69 @@ import DyadCompilerPasses
         @test any(near_top)                        # reaches upright
         @test all(near_top[end-100:end])           # and stabilizes there
     end
+
+
+    # ---- Test C: hardware I/O inside the synchronous program ----------------
+    # `FurutaHardware` wraps the same `SwingupWithHoming` state machine, but the
+    # encoder read and the amplifier write are done by `HardwareMeasurement` /
+    # `HardwareCommand` from inside the compiled node instead of by the caller.
+    # Driving it against the same simulator must therefore reproduce test B
+    # exactly -- same plant, same controller, same order of operations -- and
+    # must perform exactly one read and one write per tick.
+    @testset "swingup — hardware IO inside the program" begin
+        Tf = 15.0
+        N = round(Int, Tf / Ts)
+        seed() = SA[0.0, deg2rad(0.15), 0.0, 0.0]   # near hanging, as in test B
+
+        # Reference: the ordinary controller with the I/O in the loop.
+        ref = let process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
+            process.x = seed()
+            c = QuanserComponents.SwingupController(; Ts, backend = :julia)
+            D = Matrix{Float64}(undef, 3, N)
+            for i in 1:N
+                y = QuanserInterface.measure(process)
+                u = c(y[1], y[2])
+                QuanserInterface.control(process, [u])
+                D[:, i] = [y[1], y[2], u]
+            end
+            D
+        end
+
+        process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
+        process.x = seed()
+        io = QuanserComponents.HardwareIO()
+        ctrl = QuanserComponents._make_hardware_runtime(
+            QuanserComponents.generate_hardware_controller(; Ts); io)
+        QuanserComponents.bind_hardware!(ctrl;
+            measure = () -> QuanserInterface.measure(process),
+            control = u -> QuanserInterface.control(process, [u]))
+        SynchToolkit.reset!(ctrl)
+        @test io.n_measure == 0 && io.n_control == 0   # reset! clears the counters
+
+        D = Matrix{Float64}(undef, 3, N)
+        try
+            for i in 1:N
+                out = ctrl()
+                @test isfinite(out.u) && abs(out.u) <= 10
+                D[:, i] = [out.shoulder, out.elbow, out.u]
+            end
+        finally
+            QuanserInterface.control(process, [0.0])
+            QuanserInterface.finalize(process)
+        end
+
+        # Exactly one hardware access of each kind per tick.
+        @test io.n_measure == N
+        @test io.n_control == N
+
+        # And the same closed-loop trajectory as the external loop (only
+        # floating-point reassociation may differ).
+        @test D ≈ ref rtol = 0 atol = 1e-9
+
+        # A tick that does not fire touches no hardware.
+        m0, c0 = io.n_measure, io.n_control
+        out = ctrl(; tick = false)
+        @test io.n_measure == m0 && io.n_control == c0
+        @test out.shoulder === nothing && out.elbow === nothing && out.u === nothing
+    end
 end
