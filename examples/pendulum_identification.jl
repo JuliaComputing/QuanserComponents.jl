@@ -35,6 +35,7 @@ using LowLevelParticleFilters
 import LowLevelParticleFilters as LLPF
 import SeeToDee
 using LeastSquaresOptim
+using Plots
 
 # --- configuration ----------------------------------------------------------
 const DATA_PATH = joinpath(pkgdir(QuanserComponents), "swingup.csv")
@@ -203,6 +204,24 @@ for (k, s) in enumerate(tunable_syms)
             qi === nothing ? "" : @sprintf("   QI-opt = %.4e", qi))
 end
 println("=====================================================\n")
+
+# =============================================================================
+## 8b. Ready-to-paste `identified` set for dyad/definitions.jl
+# =============================================================================
+# Prints a `withparams(nominal; …)` call mapping each fitted parameter to its
+# IdParams field (the short symbol name). Copy the output into
+# dyad/definitions.jl, then switch the whole set in the model with one line:
+# QubePendulum(idparams = identified).
+function print_idparams(p, syms)
+    println("# paste into dyad/definitions.jl (updates the `identified` set):")
+    println("const identified = withparams(nominal;")
+    for (k, s) in enumerate(syms)
+        field = split(string(s), "₊")[end]   # IdParams field == parameter short name
+        @printf("    %-7s = %.8g,\n", field, p[k])
+    end
+    println(")\n")
+end
+print_idparams(p_id, tunable_syms)
 
 # =============================================================================
 ## 9. LQR redesign + comparison

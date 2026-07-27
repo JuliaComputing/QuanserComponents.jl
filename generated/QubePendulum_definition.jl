@@ -7,25 +7,26 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   QubePendulum(; name, Rm, kt, km, r_cm_r, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
+   QubePendulum(; name, idparams, Rm, kt, km, r_cm_r, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Rm`         | Motor armature resistance                         | Ω  |   8.4 |
-| `kt`         | Motor current-to-torque constant                         | N.m/A  |   0.042 |
-| `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   0.042 |
-| `r_cm_r`         |                          | m  |   r / 2 |
-| `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   0.095 |
-| `r`         | Rotary arm (rod) length                         | m  |   0.085 |
-| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   mr * r ^ 2 ...(r / 2) ^ 2 |
-| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   0.05e-3 |
-| `mp`         | Pendulum mass                         | kg  |   0.024 |
-| `Lp`         | Pendulum length                         | m  |   0.129 |
-| `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   Lp / 2 |
-| `Jp`         | Pendulum moment of inertia about the elbow pivot.                         | kg.m2  |   7 * mp * Lp... mp * l ^ 2 |
-| `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   0.05 * 5e-5 |
+| `idparams`         | Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)                         | --  |   nominal |
+| `Rm`         | Motor armature resistance                         | Ω  |   idparams.Rm |
+| `kt`         | Motor current-to-torque constant                         | N.m/A  |   idparams.kt |
+| `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   idparams.km |
+| `r_cm_r`         |                          | m  |   idparams.r_cm_r |
+| `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   idparams.mr |
+| `r`         | Rotary arm (rod) length                         | m  |   idparams.r |
+| `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   idparams.Jr |
+| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   idparams.br |
+| `mp`         | Pendulum mass                         | kg  |   idparams.mp |
+| `Lp`         | Pendulum length                         | m  |   idparams.Lp |
+| `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   idparams.l |
+| `Jp`         | Pendulum moment of inertia about the elbow pivot.                         | kg.m2  |   idparams.Jp |
+| `bp`         | Pendulum viscous damping coefficient                         | N.m.s/rad  |   idparams.bp |
 | `base_size`         | Edge length of the cubic base box (visualization only)                         | m  |   0.1 |
 
 ## Connectors
@@ -34,7 +35,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, Rm=8.4, kt=0.042, km=0.042, mr=0.095, r=0.085, br=0.00005, mp=0.024, Lp=0.129, bp=0.05 * 0.00005, base_size=0.1, r_cm_r=r / 2, Jr=mr * r ^ 2 / 3 - mr * (r / 2) ^ 2, l=Lp / 2, Jp=7 * mp * Lp ^ 2 / 12 - mp * l ^ 2, kwargs...)
+@component function QubePendulum(; name = nothing, idparams=nominal, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, r_cm_r=idparams.r_cm_r, mr=idparams.mr, r=idparams.r, Jr=idparams.Jr, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

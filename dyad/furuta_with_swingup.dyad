@@ -1,6 +1,6 @@
 component FurutaSwingup
   swingup = SwingupWithHoming() {^swingup}
-  qubependulum = QuanserComponents.QubePendulum() {^qubependulum}
+  qubependulum = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified) {^qubependulum}
   zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
   elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
   shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^shoulder_sampler}
@@ -142,32 +142,34 @@ component QubePendulum
   motor_main_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.6, 0.0, 0.0, 1], shapefile = joinpath("assets", "qube", "qube_motor_main.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0, 0, 0])) {^motor_main_mesh}
   motor_front_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.1, 0.1, 0.1, 1], shapefile = joinpath("assets", "qube", "qube_motor_front.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0])) {^motor_front_mesh}
   motor_part_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.5, 0.5, 0.5, 1], shapefile = joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0])) {^motor_part_mesh}
+  "Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)"
+  structural parameter idparams::Native = nominal
   "Motor armature resistance"
-  parameter Rm::Dyad.Resistance = 8.4
+  parameter Rm::Dyad.Resistance = idparams.Rm
   "Motor current-to-torque constant"
-  parameter kt::Dyad.ElectricalTorqueConstant = 0.042
+  parameter kt::Dyad.ElectricalTorqueConstant = idparams.kt
   "Motor back-EMF (speed) constant"
-  parameter km::Dyad.ElectricalTorqueConstant = 0.042
+  parameter km::Dyad.ElectricalTorqueConstant = idparams.km
 
-  parameter r_cm_r::Dyad.Length = r / 2
+  parameter r_cm_r::Dyad.Length = idparams.r_cm_r
   "Rotary arm (rod) mass (including rotary encoder)"
-  parameter mr::Dyad.Mass = 0.095
+  parameter mr::Dyad.Mass = idparams.mr
   "Rotary arm (rod) length"
-  parameter r::Dyad.Length = 0.085
+  parameter r::Dyad.Length = idparams.r
   "Rotary arm (rod) moment of inertia about the shoulder pivot"
-  parameter Jr::Dyad.Inertia = mr * r ^ 2 / 3 - mr * (r / 2) ^ 2
+  parameter Jr::Dyad.Inertia = idparams.Jr
   "Rotary arm (rod) viscous damping coefficient"
-  parameter br::Dyad.RotationalDampingConstant = 0.05e-3
+  parameter br::Dyad.RotationalDampingConstant = idparams.br
   "Pendulum mass"
-  parameter mp::Dyad.Mass = 0.024
+  parameter mp::Dyad.Mass = idparams.mp
   "Pendulum length"
-  parameter Lp::Dyad.Length = 0.129
+  parameter Lp::Dyad.Length = idparams.Lp
   "Distance from elbow pivot to pendulum center of mass"
-  parameter l::Dyad.Length = Lp / 2
+  parameter l::Dyad.Length = idparams.l
   "Pendulum moment of inertia about the elbow pivot."
-  parameter Jp::Dyad.Inertia = 7 * mp * Lp ^ 2 / 12 - mp * l ^ 2
+  parameter Jp::Dyad.Inertia = idparams.Jp
   "Pendulum viscous damping coefficient"
-  parameter bp::Dyad.RotationalDampingConstant = 0.05 * 5e-5
+  parameter bp::Dyad.RotationalDampingConstant = idparams.bp
   "Edge length of the cubic base box (visualization only)"
   parameter base_size::Dyad.Length = 0.1
 relations

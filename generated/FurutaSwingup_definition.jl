@@ -67,7 +67,7 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named swingup = QuanserComponents.SwingupWithHoming(; swingup_overrides...))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
   qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
-  push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; qubependulum_overrides...))
+  push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; idparams=QuanserComponents.identified, qubependulum_overrides...))
   # Subcomponent zeroorderhold of type DiscreteComponents.ZeroOrderHold
   zeroorderhold_overrides = __pop_subcomponent_overrides!(__overrides, "zeroorderhold")
   push!(__systems, @named zeroorderhold = DiscreteComponents.ZeroOrderHold(; initial_condition=Float64(0), zeroorderhold_overrides...))
