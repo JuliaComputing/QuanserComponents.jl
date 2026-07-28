@@ -1,146 +1,115 @@
 #=
 This script runs the swing-up controller on the physical Furuta pendulum. The
-controller is the generated synchronous program `QuanserComponents.SwingupController`,
-which contains the complete state machine: it first homes the arm (`GoHome`), then
-switches to energy-based swing-up plus LQR stabilization wrapped by error recovery
-(`RuntimeController`), and re-homes if the arm stays out of bounds. All homing,
-saturation and out-of-bounds recovery therefore live inside the controller; the
-hardware loop just measures, calls the controller, and applies the returned voltage.
+controller is the generated synchronous program `QuanserComponents.SwingupController`
+(the `FurutaHardware` model), which contains the complete state machine: it first
+homes the arm (`GoHome`), then switches to energy-based swing-up plus LQR
+stabilization wrapped by error recovery (`RuntimeController`), and re-homes if the
+arm stays out of bounds.
+
+The controller also does its own I/O. `HardwareMeasurement` reads the encoders and
+`HardwareCommand` writes the motor voltage, both by calling into csrc/qube_hw.c --
+the same C implementation the exported standalone binary links against. So this
+loop only keeps time and records what the controller reports back; there is no
+`measure`/`control` call here, and no QuanserInterface in the loop.
+
+Before starting, place the arm at its home position and let the pendulum hang
+straight down: `open_hardware!(:hil)` records the current encoder counts as the
+homing offsets.
+
+ENVIRONMENT: run in the package `test/` environment:
+  julia --project=test test/hardware_swingup.jl
 =#
-using QuanserInterface
-using QuanserInterface.HardwareAbstractions
+
 using QuanserComponents
-# using ControlSystemsBase
-using QuanserInterface: energy, measure
-using StaticArrays
+using QuanserComponents: SwingupController, open_hardware!, close_hardware!,
+                         hardware_counters, build_qube_hw!, have_hil
+using HardwareAbstractions
+using SynchToolkit
+using DelimitedFiles
+using Printf
+using Statistics
 using Plots
 
+Ts = 0.005
 
-const rr = Ref([0, pi, 0, 0])
-nu  = 1     # number of controls
-nx  = 4     # number of states
-Ts  = 0.005 # sampling time
-ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
-# ctrl = QuanserComponents.SwingupController(; Ts, backend=:c)
+# Needs the Quanser HIL SDK linked in; `build_qube_hw!` defaults to enabling it when
+# the SDK is installed, so this only matters if the library was built without it.
+have_hil() || build_qube_hw!(; hil = true, force = true)
 
-using Statistics
-function centraldiff(v::AbstractMatrix)
-    dv = Base.diff(v, dims=1)/2
-    a1 = [dv[[1],:];dv]
-    a2 = [dv;dv[[end],:]]
-    a = a1+a2
-end
+# Compiling the model takes a while; keep the controller around between runs.
+@time "compile FurutaHardware" ctrl = SwingupController(; Ts, backend = :julia)
+# For the C backend instead (identical control signal, ~the same speed here since
+# the hot path is the same C either way):
+# ctrl = SwingupController(; Ts, backend = :c)
 
-function centraldiff(v::AbstractVector)
-    dv = Base.diff(v)/2
-    a1 = [dv[1];dv]
-    a2 = [dv;dv[end]]
-    a = a1+a2
-end
-function plotD(D, th=0.2)
-    if size(D, 2) > 200*200
-        return
-    end
-    tvec = D[1, :]
-    y = D[2:3, :]'
-    # y[:, 2] .-= pi
-    # y[:, 2] .*= -1
-    u = D[4, :]
-    # plot(tvec, xh, layout=6, lab=["arm" "pend" "arm ω" "pend ω"] .* " estimate", framestyle=:zerolines)
-    plot(tvec, y, sp=[1 2], lab = ["arm" "pend"] .* " meas", framestyle=:zerolines, layout=4)
-    hline!([-pi pi], lab="", sp=2)
-    hline!([-pi-th -pi+th pi-th pi+th], lab="", l=(:black, :dash), sp=2)
-    # plot!(tvec, centraldiff(y) ./ median(diff(tvec)), sp=[3 4], lab="central diff")
-    plot!(tvec, u, sp=3, lab = "u", framestyle=:zerolines)
-    plot!(diff(D[1,:]), sp=4, lab="Δt"); hline!([process.Ts], sp=4, framestyle=:zerolines, lab="Ts")
-end
+"""
+    swingup(ctrl; Tf = 10) -> Matrix
 
-function swingup(process; Tf = 10, verbose=true)
-    Ts = process.Ts
-    N = round(Int, Tf/Ts)
-    data = Vector{Vector{Float64}}(undef, 0)
-    sizehint!(data, N)
+Run the controller for `Tf` seconds. Returns a 4 x N matrix `[t; shoulder; elbow; u]`
+built from what the program measured and applied, truncated if cut short.
+"""
+function swingup(ctrl; Tf = 10)
+    N = round(Int, Tf / Ts)
+    log = Matrix{Float64}(undef, 4, N)   # preallocated: GC is disabled below
+    n_written = 0
 
-    simulation = processtype(process) isa SimulatedProcess
-
-    # Reset the controller's internal state so every run starts in the homing
-    # state of the state machine.
-    QuanserComponents.SynchToolkit.reset!(ctrl)
-
-    y = QuanserInterface.measure(process)
-    if verbose && !simulation
-        @info "Starting experiment from y: $y"
-    end
+    # Back to the homing state, and clear the I/O counters.
+    SynchToolkit.reset!(ctrl)
 
     try
-        # GC.gc()
         GC.enable(false)
         t_start = time()
-        u = 0.0
-        for i = 1:N
+        for i in 1:N
             HardwareAbstractions.@periodically Ts begin
-                t = simulation ? (i-1)*Ts : time() - t_start
-                y = QuanserInterface.measure(process)
-                # The synchronous program handles homing, swing-up, stabilization
-                # and out-of-bounds recovery internally.
-                u = ctrl(y[1], y[2])
-                control(process, [u])
-                verbose && @info "t = $(round(t, digits=3)), u = $(round(u, digits=3))"
-                push!(data, [t; y; u])
+                # One call: reads both encoders, runs the state machine, writes the
+                # voltage, and reports all three back.
+                out = ctrl()
+                log[1, i] = time() - t_start
+                log[2, i] = out.shoulder
+                log[3, i] = out.elbow
+                log[4, i] = out.u
+                n_written = i
             end
         end
     catch e
         @error "Terminating" e
-        # rethrow()
     finally
-        control(process, [0.0])
+        # The program cannot unwind a write it has already made, so make sure the
+        # motor ends up at zero whatever happened.
+        close_hardware!()
         GC.enable(true)
-        # GC.gc()
     end
-
-    reduce(hcat, data)
-end
-##
-process = QuanserInterface.QubeServoPendulum(; Ts)
-home!(process, -5)
-##
-function runplot(process; kwargs...)
-    rr[][1] = deg2rad(0)
-    rr[][2] = pi
-    y = QuanserInterface.measure(process)
-    # if processtype(process) isa SimulatedProcess
-    #     process.x = 0*process.x
-    # elseif abs(y[2]) > 0.8 || !(-2.5 < y[1] < 2.5)
-    #     @info "Auto homing"
-    #     autohome!(process)
-    # end
-    global D
-    D = swingup(process; kwargs...)
-    plotD(D)
+    log[:, 1:n_written]
 end
 
-runplot(process; Tf = 10)
+function plotD(D, th = 0.2)
+    size(D, 2) > 200 * 200 && return
+    tvec = D[1, :]
+    plot(tvec, D[2:3, :]', sp = [1 2], lab = ["arm" "pend"] .* " meas",
+         framestyle = :zerolines, layout = 4)
+    hline!([-pi pi], lab = "", sp = 2)
+    hline!([-pi - th -pi + th pi - th pi + th], lab = "", l = (:black, :dash), sp = 2)
+    plot!(tvec, D[4, :], sp = 3, lab = "u applied", framestyle = :zerolines)
+    plot!(diff(tvec), sp = 4, lab = "Δt")
+    hline!([Ts], sp = 4, framestyle = :zerolines, lab = "Ts")
+end
 
-using DelimitedFiles
-writedlm("swingup.csv", permutedims([["time", "shoulder_angle", "elbow_angle", "control_input"] D]))
+# --- main --------------------------------------------------------------------
+open_hardware!(:hil)     # arm at home, pendulum hanging: this records the offsets
 
+D = swingup(ctrl; Tf = 10)
+plotD(D)
 
-# ## Simulated process
-# process = QuanserInterface.QubeServoPendulumSimulator(; Ts, p = QuanserInterface.pendulum_parameters(true));
+@printf("%d samples, %.1f s, arm in [%.1f, %.1f] deg, pendulum in [%.1f, %.1f] deg, |u| <= %.2f V\n",
+        size(D, 2), size(D, 2) * Ts,
+        rad2deg(minimum(D[2, :])), rad2deg(maximum(D[2, :])),
+        rad2deg(minimum(D[3, :])), rad2deg(maximum(D[3, :])), maximum(abs, D[4, :]))
+@printf("loop timing: median dt %.4f s, max %.4f s\n",
+        median(diff(D[1, :])), maximum(diff(D[1, :])))
 
-# @profview_allocs runplot(process; Tf = 5) sample_rate=0.1
+# One read and one write per tick, or the loop dropped/duplicated a sample.
+cnt = hardware_counters()
+@info "hardware calls" cnt.n_measure cnt.n_write ticks=size(D, 2)
 
-# ##
-
-# task = @spawn runplot(process; Tf = 15)
-# rr[][1] = deg2rad(-30)
-# rr[][1] = deg2rad(-20)
-# rr[][1] = deg2rad(-10)
-# rr[][1] = deg2rad(0)
-# rr[][1] = deg2rad(10)
-# rr[][1] = deg2rad(20)
-# rr[][1] = deg2rad(30)
-
-
-# rr[][2] = pi
-# rr[][2] = 0
+writedlm("swingup.csv",
+         permutedims([["time", "shoulder_angle", "elbow_angle", "control_input"] D]))

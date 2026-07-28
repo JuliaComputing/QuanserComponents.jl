@@ -6,3 +6,5 @@
 /docs/Manifest*.toml
 /agent_resources/
 /.migration-backups/
+# built by QuanserComponents.build_qube_hw! from csrc/qube_hw.c
+/deps/

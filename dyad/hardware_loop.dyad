@@ -1,0 +1,127 @@
+"""
+Reads the two encoders of the physical QUBE once per tick and places the
+measured angles on the clock of the partition it is connected to.
+
+`hw_measure` samples both encoders and caches them; `hw_shoulder` and `hw_elbow`
+read that cache back. All three are calls out to C (`csrc/qube_hw.c`, via the
+operators in `src/hardware_io.jl`), which is what lets this component compile for
+the Julia backend, the C backend and `export_c` alike. The device state lives in
+that C library, so nothing is passed through the Dyad interface.
+
+`trig` carries no information: it exists so the two cache reads depend on the
+measurement and are therefore scheduled after it. `sampletimesource` supplies the
+argument that keeps `hw_measure` in the equations instead of being evaluated while
+the model is built -- the same shape as `DiscreteComponents.UniformNoise`, which
+calls `seeded_rand(seed, td)`.
+
+Clock-agnostic.
+"""
+component HardwareMeasurement@[input clk extends Discrete]
+  "Measured arm (shoulder) angle, 0 at home"
+  shoulder_angle = Dyad.RealOutput@[clk]() {^shoulder_angle}
+  "Measured pendulum (elbow) angle, 0 hanging down"
+  elbow_angle = Dyad.RealOutput@[clk]() {^elbow_angle}
+  sampletimesource = DiscreteComponents.SampleTimeSource() {^sampletimesource}
+  "Dependency token: the value of the encoder read, used only to order the reads below"
+  variable trig::Real
+relations
+  trig@clk = hw_measure(sampletimesource.y@clk)
+  shoulder_angle@clk = hw_shoulder(trig)
+  elbow_angle@clk = hw_elbow(trig)
+metadata {
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 170, "y2": 270}}}
+    },
+    "elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 720, "y2": 820}}}
+    },
+    "sampletimesource": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 450, "y2": 550}}}
+    }
+  }
+}
+end
+
+"""
+Writes the commanded motor voltage to the physical QUBE once per tick and
+reports back what was actually applied.
+
+`hw_write` clamps the command to `[-umax, umax]`, applies it and returns what was
+applied, so `u_applied` may differ from `u`. Like `HardwareMeasurement` the call
+goes out to `csrc/qube_hw.c` and works on every target.
+
+Clock-agnostic.
+"""
+component HardwareCommand@[input clk extends Discrete]
+  "Commanded motor voltage"
+  u = Dyad.RealInput@[clk]() {^u}
+  "Voltage actually written to the amplifier"
+  u_applied = Dyad.RealOutput@[clk]() {^u_applied}
+  "Saturation applied before writing; the QUBE amplifier range is +/-10 V"
+  parameter umax::Dyad.Voltage = 10.0
+relations
+  u_applied@clk = hw_write(u, umax)
+metadata {
+  "_links": {
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "u_applied": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    }
+  }
+}
+end
+
+"""
+The swing-up controller closed around the physical QUBE, with the hardware I/O
+inside the synchronous program.
+
+`FurutaSwingup` is the same controller closed around the simulated
+`QubePendulum`; here the plant is replaced by `HardwareMeasurement` and
+`HardwareCommand`, which perform the encoder read and the amplifier write
+themselves. Compiling this model therefore yields a synchronous program that
+needs nothing from its caller but a clock tick -- see
+`generate_swingup_controller` and `SwingupController` in `src/codegen.jl`.
+"""
+component FurutaHardware
+  measurement = HardwareMeasurement() {^measurement}
+  swingup = SwingupWithHoming() {^swingup}
+  command = HardwareCommand() {^command}
+  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+  "Controller sample time"
+  structural parameter Ts::Real = 0.005
+relations
+  connect(measurement.shoulder_angle, swingup.shoulder_angle, periodicclock.y) {^id5}
+  connect(measurement.elbow_angle, swingup.elbow_angle) {^id6}
+  connect(swingup.u, command.u) {^id7}
+metadata {
+  "_links": {
+    "measurement": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 136, "y2": 236}}}
+    },
+    "swingup": {
+      "Dyad": {"placement": {"diagram": {"x1": 160, "x2": 260, "y1": 140, "y2": 240}}}
+    },
+    "command": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 140, "y2": 240}}}
+    },
+    "periodicclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 160, "x2": 260, "y1": 10, "y2": 110}}}
+    },
+    "id5": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": -1, "M": [{"x": 140, "y": 60}], "E": 3}
+        ],
+        "junctions": [{"x": 140, "y": 158}]
+      }
+    },
+    "id6": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id7": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+  }
+}
+end

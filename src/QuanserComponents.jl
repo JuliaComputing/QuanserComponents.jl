@@ -9,6 +9,10 @@ using LinearAlgebra
 # `FurutaExportCBaseSpec`, so both must be defined before the generated module is included.
 include("export_analysis_base.jl")
 
+# The hardware-I/O operators must exist before the generated module is loaded:
+# dyad/definitions.jl implements the hardware components in terms of them.
+include("hardware_io.jl")
+
 include("../generated/module.jl")
 
 include("codegen.jl")
