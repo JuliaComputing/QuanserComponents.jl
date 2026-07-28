@@ -54,6 +54,9 @@ using OrdinaryDiffEqLowOrderRK
 import GLMakie
 using GLMakie: Makie, AmbientLight, SpotLight, PointLight, RGBf, Vec3f, Vec2f
 
+
+@test abs(mod2pi(sol(sol.t[end], idxs=ssys.qubependulum.elbow_joint.phi))) - pi < 0.01
+
 # Spotlight rig — primary key light from above-front-right with a small cone,
 # soft blue rim from behind, low ambient for contrast.
 qube_lights = [
@@ -240,9 +243,13 @@ import DyadCompilerPasses
     end
 
     # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------
+    # The plant must use the same parameter set as the one the controller is tuned for,
+    # i.e. the one `FurutaSwingup` instantiates. `QubePendulum()` would default to
+    # `nominal`, and the controller does not stabilize that plant at all: the identified
+    # set differs by 5.3x in Jp and 3.6x in mr, which is well outside the tuning's margin.
     @testset "swingup — Dyad plant (SeeToDee)" begin
         @named world = MultibodyComponents.World(render=false)
-        @named plant = QuanserComponents.QubePendulum()
+        @named plant = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified)
         @named plantmodel = System(Equation[], ModelingToolkit.t_nounits; systems=[world, plant])
         # Compile like `multibody()` (LDIV solves the mass matrix -> explicit ODE),
         # declaring the motor voltage as the control input.
@@ -257,20 +264,24 @@ import DyadCompilerPasses
 
         ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
         N = round(Int, 12.0 / Ts)
-        x = zeros(length(dvs))
-        x[2] = deg2rad(0.15)   # near hanging
+        x0 = zeros(length(dvs))
+        x0[2] = deg2rad(0.15)   # near hanging
         elbow = Float64[]
         k = Ref(0)
         # The controller reads and writes through csrc/qube_hw.c; point that at the
         # discretized plant. `measure` observes the current state, `control` advances it.
+        # The state lives in a `Ref` so the handlers mutate rather than rebind: assigning a
+        # captured variable would need a `global` declaration to work when this block is
+        # pasted into the REPL, and such a declaration is lexical (not conditional), which
+        # then breaks it inside the testset function.
+        xr = Ref(x0)
         QuanserComponents.bind_hardware!(
             measure = function ()
-                y = meas(x, [0.0], pp, k[]*Ts)
+                y = meas(xr[], [0.0], pp, k[]*Ts)
                 (y[1], y[2])
             end,
             control = function (u)
-                isinteractive() && global x
-                x = f_disc(x, [u], pp, k[]*Ts)
+                xr[] = f_disc(xr[], [u], pp, k[]*Ts)
                 k[] += 1
             end)
         for i in 1:N
@@ -285,13 +296,31 @@ import DyadCompilerPasses
     end
 
     # ---- Test B: QuanserInterface simulator (hardware-compatible interface) --
-    # `QubePendulum` is matched to the QuanserInterface hardware-calibrated model
-    # (sign conventions and pendulum inertia), so the SAME generated controller —
-    # with no per-plant sign flips or retuning — swings up and stabilizes the QI
-    # simulator too. Bound through the shim's callback backend; on the real rig the
-    # very same node instead runs `open_hardware!(:hil)` with no Julia in the loop.
+    # An independent implementation of the same plant: QuanserInterface's `furuta`
+    # equations, in its own parameterization and sign conventions. Driving the SAME
+    # generated controller — with no per-plant sign flips or retuning — through it is what
+    # catches convention errors. Bound through the shim's callback backend; on the real rig
+    # the same node instead runs `open_hardware!(:hil)` with no Julia in the loop.
+    #
+    # The simulator's own defaults are the datasheet (nominal) values, so it has to be
+    # given the identified set the controller is tuned for. Two parameters need converting:
+    # QI's `Jr` is the arm inertia about the pivot, while `QubePendulum` carries the arm's
+    # central inertia plus a CoM radius; QI's `Jp` is about the pendulum CoM, matching
+    # `QubePendulum`'s. Read the values off the component so this cannot drift from the
+    # model. (Sanity check: feeding `nominal` through this mapping reproduces the
+    # simulator's default behaviour exactly.)
     @testset "swingup — QuanserInterface simulator" begin
-        process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
+        @named refplant = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified)
+        let ic = ModelingToolkit.initial_conditions(refplant),
+            np = ModelingToolkit.toggle_namespacing(refplant, false)
+            val(s) = Float64(Symbolics.value(ic[ModelingToolkit.unwrap(s)]))
+            global qi_p = (Rm = val(np.Rm), kt = val(np.kt), km = val(np.km),
+                           mr = val(np.mr), r = val(np.r),
+                           Jr = val(np.Jr) + val(np.mr) * val(np.r_cm_r)^2,  # about the pivot
+                           br = val(np.br), mp = val(np.mp), Lp = val(np.Lp),
+                           l = val(np.l), Jp = val(np.Jp), bp = val(np.bp), g = 9.81)
+        end
+        process = QuanserInterface.QubeServoPendulumSimulator(; Ts, p = qi_p)
         process.x = SA[0.0, deg2rad(0.15), 0.0, 0.0]   # near hanging
         QuanserInterface.initialize(process)
         ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
