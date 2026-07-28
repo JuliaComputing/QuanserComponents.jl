@@ -117,25 +117,24 @@ The controller uses the `Swingup` model's tuned defaults (energy-swingup gain,
 arm-centering, LQR gains and saturations), which are set for the QuanserInterface-
 matched `QubePendulum` plant. Pass `overrides` using Dyad's `__`-separated paths
 (e.g. `swingup__runtime__swingup__energyswingup__umax = 2.5`) to change them; `L`
-(a 4-vector) and `umax` override the stabilizer feedback gain and saturation
-directly via the wrapper system's `initial_conditions`.
+(a 4-vector) and `umax` are shorthands for the two stabilizer paths.
 """
 function generate_swingup_controller(; Ts = 0.005, L = nothing, umax = nothing, overrides...)
     # The node calls into csrc/qube_hw.c, so the library has to exist before the
     # `:c` backend links it (the Julia backend only needs it at call time).
     ensure_qube_hw()
-    @named model = FurutaHardware(; Ts, overrides...)
-    lqr_stab = model.swingup.runtime.swingup.lqrstabilizer
-    # Dyad parameter values live in `initial_conditions` (not `getdefault`), and the
-    # generated constructor does not forward `initial_conditions`, so wrap the model in a
-    # trivial parent to override the stabilizer gain/saturation there: this feeds the
-    # resolved `Ldef`/`umaxdef` below and the value resolution SynchToolkit performs for
-    # the `AutoPars` struct.
-    ics = Dict{Any, Any}()
-    L    === nothing || (ics[lqr_stab.L]    = collect(float.(L)))
-    umax === nothing || (ics[lqr_stab.umax] = float(umax))
-    sys = System(Equation[], t; systems = [model], name = :controller,
-                 initial_conditions = ics)
+    # `L`/`umax` are the two knobs worth a dedicated argument; route them through the same
+    # `__`-path override mechanism as everything else so the model needs no wrapping.
+    stab = :swingup__runtime__swingup__lqrstabilizer__
+    kw = Dict{Symbol, Any}(overrides)
+    L    === nothing || (kw[Symbol(stab, :L)]    = collect(float.(L)))
+    umax === nothing || (kw[Symbol(stab, :umax)] = float(umax))
+    sys = FurutaHardware(; name = :controller, Ts, kw...)
+    # `sys` is the root, so its own name is not part of the flattened symbol names.
+    # Reach for symbols through the un-namespaced view so they match what
+    # `default_values` and `stkcompile` see (same reason as in `design_lqr`).
+    nsys = ModelingToolkit.toggle_namespacing(sys, false)
+    lqr_stab = nsys.swingup.runtime.swingup.lqrstabilizer
 
     Lsym, usym, Ldef, umaxdef = _resolve_stabilizer_gains(sys, lqr_stab)
 
@@ -150,9 +149,9 @@ function generate_swingup_controller(; Ts = 0.005, L = nothing, umax = nothing, 
     # `clock` may be passed here: `name` desynchronises the declared and assigned Lustre
     # names, and `clock` hits a missing branch in SynchToolkit's `build_output`.
     outputs = [
-        ClockedOutput(model.measurement.shoulder_angle),
-        ClockedOutput(model.measurement.elbow_angle),
-        ClockedOutput(model.command.u_applied),
+        ClockedOutput(nsys.measurement.shoulder_angle),
+        ClockedOutput(nsys.measurement.elbow_angle),
+        ClockedOutput(nsys.command.u_applied),
     ]
     topmod = SynchToolkit.stkcompile(sys; inputs, outputs)
     return (; topmod, Ldef, umaxdef)
