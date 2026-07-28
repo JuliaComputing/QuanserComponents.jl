@@ -39,9 +39,10 @@ end
 
 function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
     mkpath(spec.output_dir)
-    L = design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
+    L = nothing # design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
     res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax,
                            Tf = spec.Tf, arm_deg = spec.arm_deg)
+    L = Vector(res.gains.L)
     # `run = true` compiles the emitted C control loop and executes it on the physical
     # pendulum for `Tf` seconds, capturing the trace as the `:RunLog` artifact.
     log = nothing
