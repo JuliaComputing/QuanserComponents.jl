@@ -18,7 +18,9 @@ export FurutaExportCSolution
 
 Result of the `FurutaExportC` analysis: the `output_dir` written to, the list of generated
 `files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions, and
-the designed LQR gain `L`. When the analysis was run with `run = true`, `ran` is `true` and
+the designed LQR gain `L` — or `nothing` when the gain design was skipped, in which case
+the controller keeps the tuned default baked into the model. When the analysis was run with
+`run = true`, `ran` is `true` and
 `log` is the path to the hardware run's CSV log (otherwise `nothing`). With a non-empty
 `deploy_host` the build and the run happen on that host and the log is copied back.
 
@@ -31,7 +33,7 @@ struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAna
     output_dir::String
     files::Vector{String}
     mangled::String
-    L::Vector{Float64}
+    L::Union{Nothing, Vector{Float64}}
     ran::Bool
     log::Union{Nothing, String}
     plotter::Union{Nothing, Base.Process}

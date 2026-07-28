@@ -29,6 +29,16 @@ extern "C" {
 #define QUBE_HW_MODE_CALLBACK 0
 #define QUBE_HW_MODE_HIL      1
 
+/* Card-specific options applied after `hil_open` in HIL mode.
+ *
+ * `deadband_compensation` offsets the motor command to compensate for amplifier
+ * deadband, so it is part of the command-to-torque path. The driver applies a
+ * default when nothing is set, which makes the effective gain depend on the SDK
+ * build rather than on anything we control -- so set it explicitly and get the
+ * same behaviour on every host. 0.65 V is the value the QUBE-Servo 3 driver
+ * documents as its default. */
+#define QUBE_HW_DEFAULT_CARD_OPTIONS "deadband_compensation=0.65"
+
 /* Fills both angles in radians: shoulder 0 at home, elbow 0 hanging down. */
 typedef void (*qube_hw_measure_fn)(double *shoulder, double *elbow);
 /* Applies a motor voltage, already clamped. */
@@ -69,6 +79,14 @@ int qube_hw_open(int mode, double arm_home_rad);
 
 /* Zero the motor and release the device. Safe to call when not open. */
 void qube_hw_close(void);
+
+/* Override the card-specific options string applied at the next `qube_hw_open` in
+ * HIL mode. Pass NULL or "" to skip the call and leave the driver on its own
+ * defaults. Truncated to 255 characters. Has no effect in callback mode. */
+void qube_hw_set_card_options(const char *options);
+
+/* The options string that will be / was applied. Never NULL. */
+const char *qube_hw_card_options(void);
 
 /* Install the QUBE_HW_MODE_CALLBACK handlers. Either may be NULL, in which case
  * that direction becomes a no-op (reads return 0). */

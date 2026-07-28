@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 #ifdef QUBE_HW_HAVE_HIL
 #include "hil.h"
@@ -27,6 +28,21 @@ static double s_arm_offset = 0.0;
 
 static qube_hw_measure_fn s_cb_measure = NULL;
 static qube_hw_write_fn   s_cb_write   = NULL;
+
+/* Copied rather than aliased: callers (notably Julia) may pass a transient string. */
+static char s_card_options[256] = QUBE_HW_DEFAULT_CARD_OPTIONS;
+
+void qube_hw_set_card_options(const char *options) {
+    if (options == NULL) { s_card_options[0] = '\0'; return; }
+    size_t i = 0;
+    while (options[i] != '\0' && i + 1 < sizeof(s_card_options)) {
+        s_card_options[i] = options[i];
+        i += 1;
+    }
+    s_card_options[i] = '\0';
+}
+
+const char *qube_hw_card_options(void) { return s_card_options; }
 
 #ifdef QUBE_HW_HAVE_HIL
 static const char board_type[]       = "qube_servo3_usb";
@@ -52,6 +68,17 @@ static int qube_hil_start(void) {
      * (hil_set_encoder_counts is deliberately NOT called -- zeroing the counters
      * has been observed to desync the driver's counter extension, producing
      * spurious 2^16-count jumps) and the initial counts become offsets. */
+    /* Before touching the motor: pin the command-to-torque path (see qube_hw.h). */
+    if (s_card_options[0] != '\0') {
+        result = hil_set_card_specific_options(s_board, s_card_options,
+                                               strlen(s_card_options));
+        if (result < 0) {
+            fprintf(stderr, "qube_hw: hil_set_card_specific_options(\"%s\") failed (%d)\n",
+                    s_card_options, (int)result);
+            hil_close(s_board);
+            return -1;
+        }
+    }
     hil_write_analog(s_board, &s_analog_channel, 1, &voltage);
     hil_write_digital(s_board, &s_digital_channel, 1, &enable);
     hil_read_encoder(s_board, s_encoder_channels, 2, s_counts0);

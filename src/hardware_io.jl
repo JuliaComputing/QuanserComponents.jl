@@ -34,7 +34,7 @@
 using ModelingToolkit
 
 export build_qube_hw!, open_hardware!, close_hardware!, bind_hardware!,
-       hardware_counters, hardware_state, quanser_sdk_flags
+       hardware_counters, hardware_state, quanser_sdk_flags, hardware_card_options
 
 # The `ccall` library must be a compile-time constant for the C backend to link
 # it statically, so the path is fixed and `build_qube_hw!` writes to it.
@@ -218,9 +218,17 @@ straight down; that reading is always zeroed.
 
 `arm_deg` is ignored in `:callback` mode, where the handler is expected to return
 angles that are already calibrated.
+
+`card_options` overrides the card-specific options string applied after `hil_open`
+(`nothing` keeps the built-in default, `""` leaves the driver on its own defaults).
+This is where `deadband_compensation` lives, which is part of the command-to-torque
+path — see `csrc/qube_hw.h`. Query the value in force with [`hardware_card_options`](@ref).
 """
-function open_hardware!(mode::Symbol = :hil; arm_deg = 0.0)
+function open_hardware!(mode::Symbol = :hil; arm_deg = 0.0,
+                        card_options::Union{Nothing, AbstractString} = nothing)
     ensure_qube_hw()
+    card_options === nothing ||
+        ccall((:qube_hw_set_card_options, QUBE_HW_LIB), Cvoid, (Cstring,), card_options)
     m = get(QUBE_HW_MODE, mode) do
         throw(ArgumentError("unknown hardware mode $(repr(mode)); use :hil or :callback"))
     end
@@ -238,6 +246,15 @@ function close_hardware!()
     ensure_qube_hw()
     ccall((:qube_hw_close, QUBE_HW_LIB), Cvoid, ())
 end
+
+"""
+    hardware_card_options() -> String
+
+The card-specific options string that `open_hardware!(:hil)` will apply (or applied).
+Empty means the driver is left on its own defaults.
+"""
+hardware_card_options() =
+    (ensure_qube_hw(); unsafe_string(ccall((:qube_hw_card_options, QUBE_HW_LIB), Cstring, ())))
 
 "True if `deps/libqube_hw` was built with Quanser HIL SDK support."
 have_hil() = (ensure_qube_hw(); ccall((:qube_hw_have_hil, QUBE_HW_LIB), Cint, ()) != 0)

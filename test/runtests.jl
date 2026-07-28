@@ -244,7 +244,9 @@ import DyadCompilerPasses
         @time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = false)
         @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "top.h"))
         @test !isempty(sol.mangled)
-        @test length(sol.L) == 4 && all(isfinite, sol.L)
+        # `run_analysis` may skip the (slow) LQR design, in which case the controller
+        # keeps the model's tuned default gain and `sol.L` is `nothing`.
+        @test sol.L === nothing || (length(sol.L) == 4 && all(isfinite, sol.L))
         # metadata advertises the file-listing artifact, which lists the generated files
         md = DI.AnalysisSolutionMetadata(sol)
         @test any(a -> a.name === :GeneratedFiles, md.artifacts)
@@ -252,9 +254,13 @@ import DyadCompilerPasses
         @test Set(tbl.file) == Set(readdir(dir))
         @test occursin("$(sol.mangled)_step", join(tbl.symbol))
         @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
-        # Q1/Q2 are the user-facing knob: changing them changes the designed gain
-        L2 = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 50.0)
-        @test !(L2 ≈ sol.L)
+        # Q1/Q2 are the user-facing knob: changing them changes the designed gain. Only
+        # meaningful when the analysis designed one — `design_lqr` costs ~2 min, so it is
+        # not called here just to have something to compare against.
+        if sol.L !== nothing
+            L2 = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 50.0)
+            @test !(L2 ≈ sol.L)
+        end
     end
 
     # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------
