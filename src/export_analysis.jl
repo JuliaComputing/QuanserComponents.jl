@@ -20,6 +20,10 @@ Result of the `FurutaExportC` analysis: the `output_dir` written to, the list of
 `files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions, and
 the designed LQR gain `L`. When the analysis was run with `run = true`, `ran` is `true` and
 `log` is the path to the hardware run's CSV log (otherwise `nothing`).
+
+`plotter` holds the live-plot viewer process when the analysis was run with
+`live_plot = true`. It deliberately outlives the analysis so the trace stays on screen
+afterwards; `kill(sol.plotter)` closes it.
 """
 struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAnalysisSolution
     spec::SP
@@ -29,6 +33,7 @@ struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAna
     L::Vector{Float64}
     ran::Bool
     log::Union{Nothing, String}
+    plotter::Union{Nothing, Base.Process}
 end
 
 function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
@@ -38,13 +43,25 @@ function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
     # `run = true` compiles the emitted C control loop and executes it on the physical
     # pendulum for `Tf` seconds, capturing the trace as the `:RunLog` artifact.
     log = nothing
+    plotter = nothing
     if spec.run
         exe = compile_hardware_harness(spec.output_dir)
-        log = run_hardware_harness(exe)
+        # With `live_plot`, the harness runs on a task so the viewer can be brought up
+        # while the run is in progress rather than after it. `fetch` rethrows whatever the
+        # harness threw, so failures still surface.
+        if spec.live_plot
+            task = @async run_hardware_harness(exe)
+            plotter = launch_live_plot(spec.output_dir; cmd = spec.live_plot_cmd,
+                                       config = spec.live_plot_config)
+            log = fetch(task)
+        else
+            log = run_hardware_harness(exe)
+        end
     end
     files = sort!(filter(f -> isfile(joinpath(spec.output_dir, f)),
                          readdir(spec.output_dir)))
-    return FurutaExportCSolution(spec, spec.output_dir, files, res.mangled, L, spec.run, log)
+    return FurutaExportCSolution(spec, spec.output_dir, files, res.mangled, L, spec.run, log,
+                                plotter)
 end
 
 function DyadInterface.AnalysisSolutionMetadata(sol::FurutaExportCSolution)
@@ -109,5 +126,7 @@ function Base.show(io::IO, ::MIME"text/plain", sol::FurutaExportCSolution)
     println(io, "designed L: ", sol.L)
     if sol.ran
         println(io, "hardware run log: ", sol.log === nothing ? "(none)" : sol.log)
+        sol.plotter === nothing || println(io,
+            "live plot: still open (kill(sol.plotter) to close)")
     end
 end

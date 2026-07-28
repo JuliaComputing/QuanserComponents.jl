@@ -24,5 +24,8 @@ abstract type AbstractFurutaExportCBaseSpec <: DyadInterface.AbstractAnalysisSpe
     umax::Float64 = 10.0
     run::Bool = false
     Tf::Float64 = 10.0
+    live_plot::Bool = false
+    live_plot_cmd::String = "kst2"
+    live_plot_config::String = "kst2config.kst"
     model::Union{Nothing, System} = nothing
 end
