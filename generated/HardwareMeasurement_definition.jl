@@ -81,7 +81,6 @@ Clock-agnostic.
   ### Variables (assignments)
   __ovr_trig = pop!(__overrides, "trig", nothing); isnothing(__ovr_trig) || push!(__eqs, trig ~ __ovr_trig)
   __ovr_trig__initial = pop!(__overrides, "trig__initial", nothing); isnothing(__ovr_trig__initial) || (__initial_conditions[trig] = __ovr_trig__initial)
-  __ovr_trig__guess = pop!(__overrides, "trig__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -95,7 +94,6 @@ Clock-agnostic.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
-  isnothing(__ovr_trig__guess) || (__guesses[trig] = __ovr_trig__guess)
 
   ### Initialization Equations
 

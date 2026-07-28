@@ -20,6 +20,6 @@ end
 
 analysis FurutaExportC
   extends FurutaExportCBase(run = true)
-  model = SwingupWithHoming()
+  model = FurutaHardware()
 relations
 end

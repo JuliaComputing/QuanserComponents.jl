@@ -126,6 +126,12 @@ import Moshi as __Ext__Moshi
   # Subcomponent gain1 of type BlockComponents.Math.Gain
   gain1_overrides = __pop_subcomponent_overrides!(__overrides, "gain1")
   push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=Float64(-1), gain1_overrides...))
+  # Subcomponent add of type BlockComponents.Math.Add
+  add_overrides = __pop_subcomponent_overrides!(__overrides, "add")
+  push!(__systems, @named add = BlockComponents.Math.Add(; add_overrides...))
+  # Subcomponent constant3 of type BlockComponents.Sources.Constant
+  constant3_overrides = __pop_subcomponent_overrides!(__overrides, "constant3")
+  push!(__systems, @named constant3 = BlockComponents.Sources.Constant(; k=1e-16, constant3_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -149,7 +155,6 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(product1.y, gain.u))
   push!(__eqs, connect(limiter.y, realoutput))
   push!(__eqs, connect(energy.E, sub_eref.u1))
-  push!(__eqs, connect(product.y, sign.u))
   push!(__eqs, connect(sign.y, product1.u1))
   push!(__eqs, connect(cos.y, product.u1))
   push!(__eqs, connect(shoulder_angle, arm_centering.u))
@@ -157,6 +162,9 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(add_centering.y, limiter.u))
   push!(__eqs, connect(gain.y, add_centering.u1))
   push!(__eqs, connect(gain1.y, product.u2))
+  push!(__eqs, connect(product.y, add.u2))
+  push!(__eqs, connect(constant3.y, add.u1))
+  push!(__eqs, connect(add.y, sign.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

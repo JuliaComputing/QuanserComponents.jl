@@ -24,11 +24,16 @@ using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
   var"run"::Bool = true
   # Duration [s] of the hardware run when `run = true`
   var"Tf"::Float64 = 10.0
-  # Top-level controller with a two-state machine: it first runs `GoHome` to home the
-  # arm, then switches to the `RuntimeController` (swing-up + stabilization + error
-  # recovery). If the arm stays out of bounds long enough (out-of-bounds counter beyond
-  # `oob_threshold`), it switches back to `GoHome` and re-homes.
-  var"model"::Union{Nothing, System} = QuanserComponents.SwingupWithHoming(; name=:SwingupWithHoming)
+  # The swing-up controller closed around the physical QUBE, with the hardware I/O
+  # inside the synchronous program.
+  # 
+  # `FurutaSwingup` is the same controller closed around the simulated
+  # `QubePendulum`; here the plant is replaced by `HardwareMeasurement` and
+  # `HardwareCommand`, which perform the encoder read and the amplifier write
+  # themselves. Compiling this model therefore yields a synchronous program that
+  # needs nothing from its caller but a clock tick -- see
+  # `generate_swingup_controller` and `SwingupController` in `src/codegen.jl`.
+  var"model"::Union{Nothing, System} = QuanserComponents.FurutaHardware(; name=:FurutaHardware)
 end
 
 function DyadInterface.run_analysis(spec::FurutaExportCSpec)

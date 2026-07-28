@@ -150,14 +150,13 @@ component QubePendulum
   parameter kt::Dyad.ElectricalTorqueConstant = idparams.kt
   "Motor back-EMF (speed) constant"
   parameter km::Dyad.ElectricalTorqueConstant = idparams.km
-
   parameter r_cm_r::Dyad.Length = 0.085 / 2
   "Rotary arm (rod) mass (including rotary encoder)"
   parameter mr::Dyad.Mass = idparams.mr
   "Rotary arm (rod) length"
   parameter r::Dyad.Length = idparams.r
   "Rotary arm (rod) moment of inertia about the shoulder pivot"
-  parameter Jr::Dyad.Inertia = 0.095 * 0.085^2 / 3 - 0.095 * (0.085 / 2)^2
+  parameter Jr::Dyad.Inertia = 0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2
   "Rotary arm (rod) viscous damping coefficient"
   parameter br::Dyad.RotationalDampingConstant = idparams.br
   "Pendulum mass"
@@ -545,36 +544,50 @@ component EnergySwingup
   limiter = BlockComponents.Nonlinear.Limiter(final y_max = umax, y_min = -umax) {^limiter}
   cos = QuanserComponents.Cos() {^cos}
   gain1 = BlockComponents.Math.Gain(k = -1) {^gain1}
+  add = BlockComponents.Math.Add() {^add}
+  constant3 = BlockComponents.Sources.Constant(k = 1e-16) {^constant3}
   "maximum control signal during swingup"
   parameter umax::Real(min = 0.1, max = 50) = 3
 relations
-  connect(elbow_velocity, energy.dα, gain1.u) {^id21}
-  connect(elbow_angle, sub_pi.u1) {^id22}
-  connect(constant1.y, sub_pi.u2) {^id23}
-  connect(constant2.y, energy1.α) {^id24}
-  connect(energy1.dα, constant2.y) {^id25}
-  connect(energy1.E, sub_eref.u2) {^id26}
-  connect(energy.α, sub_pi.y, cos.u) {^id27}
-  connect(product1.u2, sub_eref.y) {^id28}
-  connect(product1.y, gain.u) {^id29}
-  connect(limiter.y, realoutput) {^id30}
-  connect(sub_eref.u1, energy.E) {^id31}
-  connect(product.y, sign.u) {^id32}
-  connect(sign.y, product1.u1) {^id33}
-  connect(cos.y, product.u1) {^id34}
-  connect(shoulder_angle, arm_centering.u) {^id35}
-  connect(arm_centering.y, add_centering.u2) {^id36}
-  connect(add_centering.y, limiter.u) {^id37}
-  connect(gain.y, add_centering.u1) {^id38}
-  connect(gain1.y, product.u2) {^id39}
+  connect(elbow_velocity, energy.dα, gain1.u) {^id23}
+  connect(elbow_angle, sub_pi.u1) {^id24}
+  connect(constant1.y, sub_pi.u2) {^id25}
+  connect(constant2.y, energy1.α) {^id26}
+  connect(energy1.dα, constant2.y) {^id27}
+  connect(energy1.E, sub_eref.u2) {^id28}
+  connect(energy.α, sub_pi.y, cos.u) {^id29}
+  connect(product1.u2, sub_eref.y) {^id30}
+  connect(product1.y, gain.u) {^id31}
+  connect(limiter.y, realoutput) {^id32}
+  connect(sub_eref.u1, energy.E) {^id33}
+  connect(sign.y, product1.u1) {^id34}
+  connect(cos.y, product.u1) {^id35}
+  connect(shoulder_angle, arm_centering.u) {^id36}
+  connect(arm_centering.y, add_centering.u2) {^id37}
+  connect(add_centering.y, limiter.u) {^id38}
+  connect(gain.y, add_centering.u1) {^id39}
+  connect(gain1.y, product.u2) {^id40}
+  connect(add.u2, product.y) {^id41}
+  connect(constant3.y, add.u1) {^id42}
+  connect(add.y, sign.u) {^id43}
 metadata {
   "Dyad": {
-    "experiments": {},
-    "tests": {},
-    "labels": [],
-    "icons": {"default": "dyad://QuanserComponents/EnergySwingup.svg"},
-    "path": {},
-    "doc": {"behavior": true}
+    "labels": [
+      {
+        "label": "add tiny constant as tie break when angle = 0",
+        "x": 870,
+        "y": 190,
+        "rot": 0,
+        "layer": "diagram",
+        "attrs": {
+          "fill": "black",
+          "font-size": "20",
+          "dominant-baseline": "central",
+          "text-anchor": "middle"
+        }
+      }
+    ],
+    "icons": {"default": "dyad://QuanserComponents/EnergySwingup.svg"}
   },
   "_links": {
     "elbow_angle": {
@@ -682,19 +695,11 @@ metadata {
       }
     },
     "product": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 420, "y1": 150, "x2": 520, "y2": 250, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 420, "y1": 40, "x2": 520, "y2": 140}}}
     },
     "sign": {
       "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 540, "y1": 280, "x2": 640, "y2": 380, "rot": 90}
-        },
-        "tags": []
+        "placement": {"diagram": {"x1": 540, "y1": 310, "x2": 640, "y2": 410, "rot": 90}}
       }
     },
     "product1": {
@@ -737,7 +742,15 @@ metadata {
         "tags": []
       }
     },
-    "id21": {
+    "add": {
+      "Dyad": {
+        "placement": {"diagram": {"x1": 540, "x2": 640, "y1": 160, "y2": 260, "rot": 90}}
+      }
+    },
+    "constant3": {
+      "Dyad": {"placement": {"diagram": {"x1": 790, "x2": 690, "y1": 40, "y2": 140}}}
+    },
+    "id23": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [{"x": -50, "y": 340}], "E": -1},
@@ -748,27 +761,27 @@ metadata {
         "renderStyle": "standard"
       }
     },
-    "id22": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id23": {
+    "id24": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id25": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 130, "y": 230}, {"x": 130, "y": 200}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id24": {
+    "id26": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 215, "y": 560}, {"x": 215, "y": 555}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id25": {
+    "id27": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 215, "y": 602}, {"x": 215, "y": 560}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id26": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id27": {
+    "id28": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id29": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [{"x": 265, "y": 262.5}, {"x": 270, "y": 262.5}], "E": -1},
@@ -779,52 +792,36 @@ metadata {
         "renderStyle": "standard"
       }
     },
-    "id28": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id29": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id30": {
+    "id30": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id31": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id32": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 1040, "y": 680}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id31": {
+    "id33": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 240, "y": 520}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id32": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 590, "y": 200}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id33": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 590, "y": 490}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id34": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 384, "y": 60}, {"x": 384, "y": 170}], "E": 2}]
-      }
-    },
-    "id35": {
+    "id34": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 590, "y": 490}], "E": 2}]}},
+    "id35": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id36": {
       "Dyad": {
         "renderStyle": "standard",
         "edges": [{"S": 1, "M": [{"x": -40, "y": 680}], "E": 2}]
       }
     },
-    "id36": {
+    "id37": {
       "Dyad": {
         "renderStyle": "standard",
         "edges": [{"S": 1, "M": [{"x": 660, "y": 680}, {"x": 660, "y": 710}], "E": 2}]
       }
     },
-    "id37": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
-    "id38": {
+    "id38": {"Dyad": {"renderStyle": "standard", "edges": [{"S": 1, "E": 2, "M": []}]}},
+    "id39": {
       "Dyad": {
         "edges": [
           {
@@ -841,12 +838,12 @@ metadata {
         "renderStyle": "standard"
       }
     },
-    "id39": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 410, "y": 300}, {"x": 410, "y": 230}], "E": 2}]
-      }
-    }
+    "id40": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 410, "y": 300}, {"x": 410, "y": 120}], "E": 2}]}
+    },
+    "id41": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 560, "y": 90}], "E": 2}]}},
+    "id42": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 620, "y": 90}], "E": 2}]}},
+    "id43": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
   }
 }
 end
