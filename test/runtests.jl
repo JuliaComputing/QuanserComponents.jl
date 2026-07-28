@@ -68,7 +68,7 @@ render(model, sol, 0.0; lights=qube_lights)[1]
 
 ##
 using Plots
-f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.swingup.u, ssys.swingup.neartop.y])
+f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.swingup.runtime.swingup.u, ssys.swingup.runtime.swingup.neartop.y])
 hline!([pi], l=(:dash, :black), primary=false)
 f2 = plot(sol, idxs=ssys.qubependulum.shoulder_joint.phi)
 plot(f1, f2) |> display
@@ -78,19 +78,19 @@ plot(f1, f2) |> display
 
 plot(sol, idxs=[
     # ssys.swingup.u,
-    ssys.swingup.energyswingup.realoutput,
-    ssys.swingup.energyswingup.limiter.u,
+    ssys.swingup.runtime.swingup.energyswingup.realoutput,
+    ssys.swingup.runtime.swingup.energyswingup.limiter.u,
     # ssys.qubependulum.torquesource.tau,
 ])
 
 
 plot(sol, idxs=[
-    ssys.swingup.velocityestimator_elbow.vel
-    ssys.swingup.velocityestimator_elbow.discretederivative.y
+    ssys.swingup.runtime.swingup.velocityestimator_elbow.vel
+    ssys.swingup.runtime.swingup.velocityestimator_elbow.discretederivative.y
     ssys.qubependulum.elbow_joint.w
 
-    ssys.swingup.velocityestimator_shoulder.vel
-    ssys.swingup.velocityestimator_shoulder.discretederivative.y
+    ssys.swingup.runtime.swingup.velocityestimator_shoulder.vel
+    ssys.swingup.runtime.swingup.velocityestimator_shoulder.discretederivative.y
     ssys.qubependulum.shoulder_joint.w
 ])
 
@@ -204,7 +204,7 @@ import DyadCompilerPasses
         @test isfile(joinpath(dir, "Makefile"))
         hsrc = read(joinpath(dir, "run_hardware.c"), String)
         @test occursin("$(r.mangled)_step", hsrc)
-        @test occursin("qube_hw_open(QUBE_HW_MODE_HIL)", hsrc)
+        @test occursin("qube_hw_open(QUBE_HW_MODE_HIL, ARM0)", hsrc)
         @test !occursin("hil_read_encoder", hsrc)
         # where the Quanser HIL SDK and a C compiler are present, the harness must build
         # (static-linked, so no hardware needs to be connected). This is what proves the
@@ -257,13 +257,22 @@ import DyadCompilerPasses
 
         ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
         N = round(Int, 12.0 / Ts)
-        x = zeros(length(dvs)); x[2] = deg2rad(0.15)   # near hanging
-        elbow = Float64[]; k = Ref(0)
+        x = zeros(length(dvs))
+        x[2] = deg2rad(0.15)   # near hanging
+        elbow = Float64[]
+        k = Ref(0)
         # The controller reads and writes through csrc/qube_hw.c; point that at the
         # discretized plant. `measure` observes the current state, `control` advances it.
         QuanserComponents.bind_hardware!(
-            measure = () -> (y = meas(x, [0.0], pp, k[]*Ts); (y[1], y[2])),
-            control = u -> (x = f_disc(x, [u], pp, k[]*Ts); k[] += 1))
+            measure = function ()
+                y = meas(x, [0.0], pp, k[]*Ts)
+                (y[1], y[2])
+            end,
+            control = function (u)
+                isinteractive() && global x
+                x = f_disc(x, [u], pp, k[]*Ts)
+                k[] += 1
+            end)
         for i in 1:N
             out = ctrl()
             @test isfinite(out.u) && abs(out.u) <= 10
