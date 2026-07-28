@@ -8,3 +8,9 @@
 /.migration-backups/
 # built by QuanserComponents.build_qube_hw! from csrc/qube_hw.c
 /deps/
+*.png
+furuta_c/
+*.csv
+*.html
+*.gif
+*.mp4
