@@ -62,9 +62,9 @@ import Moshi as __Ext__Moshi
   __constants = Any[]
 
   ### Components
-  # Subcomponent swingup of type QuanserComponents.SwingupWithHoming
-  swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
-  push!(__systems, @named swingup = QuanserComponents.SwingupWithHoming(; swingup_overrides...))
+  # Subcomponent control_system of type QuanserComponents.SwingupWithHoming
+  control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
+  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; control_system_overrides...))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
   qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
   push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; idparams=QuanserComponents.identified, qubependulum_overrides...))
@@ -101,12 +101,12 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(zeroorderhold.y, :u_plant, qubependulum.voltage))
   push!(__eqs, connect(qubependulum.elbow_angle, :elbow_y, elbow_sampler.u))
   push!(__eqs, connect(qubependulum.shoulder_angle, :shoulder_y, shoulder_sampler.u))
-  push!(__eqs, connect(elbow_sampler.y, swingup.elbow_angle))
-  push!(__eqs, connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y))
+  push!(__eqs, connect(elbow_sampler.y, control_system.elbow_angle))
+  push!(__eqs, connect(shoulder_sampler.y, control_system.shoulder_angle, periodicclock.y))
   push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
   push!(__eqs, connect(zeroorderhold.y, qubependulum.voltage))
   push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
-  push!(__eqs, connect(swingup.u, gain.u))
+  push!(__eqs, connect(control_system.u, gain.u))
   push!(__eqs, connect(gain.y, zeroorderhold.u))
 
   # Return completely constructed System

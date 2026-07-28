@@ -87,21 +87,21 @@ needs nothing from its caller but a clock tick -- see
 """
 component FurutaHardware
   measurement = HardwareMeasurement() {^measurement}
-  swingup = SwingupWithHoming() {^swingup}
+  control_system = SwingupWithHoming() {^control_system}
   command = HardwareCommand() {^command}
   periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
   "Controller sample time"
   structural parameter Ts::Real = 0.005
 relations
-  connect(measurement.shoulder_angle, swingup.shoulder_angle, periodicclock.y) {^id5}
-  connect(measurement.elbow_angle, swingup.elbow_angle) {^id6}
-  connect(swingup.u, command.u) {^id7}
+  connect(measurement.shoulder_angle, control_system.shoulder_angle, periodicclock.y) {^id5}
+  connect(measurement.elbow_angle, control_system.elbow_angle) {^id6}
+  connect(control_system.u, command.u) {^id7}
 metadata {
   "_links": {
     "measurement": {
       "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 136, "y2": 236}}}
     },
-    "swingup": {
+    "control_system": {
       "Dyad": {"placement": {"diagram": {"x1": 160, "x2": 260, "y1": 140, "y2": 240}}}
     },
     "command": {

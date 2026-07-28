@@ -33,7 +33,7 @@ include("NearTop_test.jl")
 include("QubePendulum_test.jl")
 include("RuntimeController_test.jl")
 include("Sign_test.jl")
+include("SwingupCatch_test.jl")
 include("SwingupWithHoming_test.jl")
-include("Swingup_test.jl")
 include("VelocityEstimator_test.jl")
 end

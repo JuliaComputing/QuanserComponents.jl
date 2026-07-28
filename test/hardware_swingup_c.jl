@@ -39,24 +39,22 @@ function plotD(D, th=0.2)
     plot!(diff(D[1,:]), sp=4, lab="Δt"); hline!([Ts], sp=4, framestyle=:zerolines, lab="Ts")
 end
 
-# @time sol = QuanserComponents.FurutaExportC(; run = true)
-
-dir = "furuta_c"
-export_swingup_c(dir)
-
+dir = joinpath(@__DIR__, "..", "furuta_c")
 
 ##
-tr = @async begin
-    cd(joinpath(@__DIR__, "..", "furuta_c"))
-    run(`make`)
-    run(`./run_hardware`)
-    cd(joinpath(@__DIR__, ".."))
-end
-sleep(0.1)
-tks = @async run(`kst2 kast2config.kst`)
+# Export, build, run on the hardware, and bring up kst2 alongside the run. The analysis
+# launches the viewer with its working directory set to `output_dir`, so the session file's
+# relative reference to run_hardware.csv resolves without changing this process's cwd.
+@time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = true,
+                                              live_plot = true)
 
-wait(tr)
-
-D = readdlm("furuta_c/run_hardware.csv", skipstart=1)'
+D = readdlm(joinpath(dir, "run_hardware.csv"), skipstart=1)'
 plotD(D)
+# The viewer outlives the analysis so the trace stays up; close it with:
+# kill(sol.plotter)
+##
+
+##
+# Export only, without touching the hardware:
+# export_swingup_c(dir)
 ##

@@ -49,13 +49,13 @@ k = ModelingToolkit.ShiftIndex()
 using OrdinaryDiffEqLowOrderRK
 
 @time "solve" sol = solve(prob, BS3(), dt=0.005)
-@assert !all(isnan, sol[ssys.swingup.elbow_angle])
+@assert !all(isnan, sol[ssys.control_system.elbow_angle])
 
 import GLMakie
 using GLMakie: Makie, AmbientLight, SpotLight, PointLight, RGBf, Vec3f, Vec2f
 
 
-@test abs(mod2pi(sol(sol.t[end], idxs=ssys.qubependulum.elbow_joint.phi))) - pi < 0.01
+@test abs(mod2pi(sol(sol.t[end], idxs=ssys.qubependulum.elbow_joint.phi)) - pi) < 0.01
 
 # Spotlight rig — primary key light from above-front-right with a small cone,
 # soft blue rim from behind, low ambient for contrast.
@@ -71,7 +71,7 @@ render(model, sol, 0.0; lights=qube_lights)[1]
 
 ##
 using Plots
-f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.swingup.runtime.swingup.u, ssys.swingup.runtime.swingup.neartop.y])
+f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.control_system.runtime.swingup_catch.u, ssys.control_system.runtime.swingup_catch.neartop.y])
 hline!([pi], l=(:dash, :black), primary=false)
 f2 = plot(sol, idxs=ssys.qubependulum.shoulder_joint.phi)
 plot(f1, f2) |> display
@@ -80,20 +80,20 @@ plot(f1, f2) |> display
 
 
 plot(sol, idxs=[
-    # ssys.swingup.u,
-    ssys.swingup.runtime.swingup.energyswingup.realoutput,
-    ssys.swingup.runtime.swingup.energyswingup.limiter.u,
+    # ssys.control_system.u,
+    ssys.control_system.runtime.swingup_catch.energyswingup.realoutput,
+    ssys.control_system.runtime.swingup_catch.energyswingup.limiter.u,
     # ssys.qubependulum.torquesource.tau,
 ])
 
 
 plot(sol, idxs=[
-    ssys.swingup.runtime.swingup.velocityestimator_elbow.vel
-    ssys.swingup.runtime.swingup.velocityestimator_elbow.discretederivative.y
+    ssys.control_system.runtime.swingup_catch.velocityestimator_elbow.vel
+    ssys.control_system.runtime.swingup_catch.velocityestimator_elbow.discretederivative.y
     ssys.qubependulum.elbow_joint.w
 
-    ssys.swingup.runtime.swingup.velocityestimator_shoulder.vel
-    ssys.swingup.runtime.swingup.velocityestimator_shoulder.discretederivative.y
+    ssys.control_system.runtime.swingup_catch.velocityestimator_shoulder.vel
+    ssys.control_system.runtime.swingup_catch.velocityestimator_shoulder.discretederivative.y
     ssys.qubependulum.shoulder_joint.w
 ])
 
@@ -121,10 +121,10 @@ Ts = 0.005
 
 
 ##
-# Code generation for the Swingup controller.
+# Code generation for the swing-up controller.
 #
 # `QuanserComponents.generate_swingup_controller` / `SwingupController` compile the
-# discrete `Swingup` controller into a standalone SynchJulia node (Julia- or
+# discrete `SwingupWithHoming` controller into a standalone SynchJulia node (Julia- or
 # C-executable), and `export_swingup_c` writes C sources. The tests below drive the
 # generated controller in closed loop against two plants:
 #   A) the Dyad `QubePendulum`, discretized with `SeeToDee.Rk4`, and
@@ -217,6 +217,21 @@ import DyadCompilerPasses
             exe = QuanserComponents.compile_hardware_harness(dir)
             @test isfile(exe)
         end
+    end
+
+    # `FurutaExportCBase` must stay `partial` in dyad/furuta_export_c.dyad. Without it the
+    # compiler emits generated/FurutaExportCBase_definition.jl, which redefines
+    # `FurutaExportCBaseSpec` and adds a second, self-recursive `run_analysis` for it. The
+    # hand-written implementation is included later so it wins at runtime and everything
+    # still appears to work — but the overwrite disables precompilation of the whole
+    # package. This has been silently reintroduced twice by an editor round-trip, hence the
+    # guard.
+    @testset "FurutaExportCBase is partial" begin
+        DI = QuanserComponents.DyadInterface
+        @test length(methods(DI.run_analysis,
+                             (QuanserComponents.FurutaExportCBaseSpec,))) == 1
+        @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
+                               "FurutaExportCBase_definition.jl"))
     end
 
     # ---- FurutaExportC analysis (Dyad analysis wrapper) --------------------

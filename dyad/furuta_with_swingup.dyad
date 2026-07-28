@@ -1,5 +1,5 @@
 component FurutaSwingup
-  swingup = SwingupWithHoming() {^swingup}
+  control_system = SwingupWithHoming() {^control_system}
   qubependulum = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified) {^qubependulum}
   zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
   elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
@@ -12,16 +12,16 @@ relations
   u_plant: analysis_point(zeroorderhold.y, qubependulum.voltage)
   elbow_y: analysis_point(qubependulum.elbow_angle, elbow_sampler.u)
   shoulder_y: analysis_point(qubependulum.shoulder_angle, shoulder_sampler.u)
-  connect(elbow_sampler.y, swingup.elbow_angle) {^id9}
-  connect(shoulder_sampler.y, swingup.shoulder_angle, periodicclock.y) {^id10}
+  connect(elbow_sampler.y, control_system.elbow_angle) {^id9}
+  connect(shoulder_sampler.y, control_system.shoulder_angle, periodicclock.y) {^id10}
   connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id11}
   connect(zeroorderhold.y, qubependulum.voltage) {^id12}
   connect(qubependulum.elbow_angle, elbow_sampler.u) {^id13}
-  connect(gain.u, swingup.u) {^id14}
+  connect(gain.u, control_system.u) {^id14}
   connect(gain.y, zeroorderhold.u) {^id15}
 metadata {
   "_links": {
-    "swingup": {
+    "control_system": {
       "Dyad": {"placement": {"diagram": {"x1": 90, "y1": 300, "x2": 270, "y2": 480}}}
     },
     "qubependulum": {
@@ -924,7 +924,7 @@ metadata {
 }
 end
 
-component Swingup
+component SwingupCatch
   shoulder_angle = Dyad.RealInput() {^shoulder_angle}
   elbow_angle = Dyad.RealInput() {^elbow_angle}
   u = Dyad.RealOutput() {^u}
@@ -948,7 +948,7 @@ relations
   connect(switch1.u3, energyswingup.realoutput) {^id20}
   connect(switch1.u1, lqrstabilizer.u) {^id21}
 metadata {
-  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Swingup.svg"}},
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupCatch.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {
@@ -1409,7 +1409,7 @@ metadata {
 end
 
 """
-The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+The runtime controller: the swing-up/stabilizing `SwingupCatch` wrapped by
 `ErrorRecovery`, which overrides the command to recover the arm when it swings
 out of bounds.
 """
@@ -1420,13 +1420,13 @@ component RuntimeController
   elbow_angle = Dyad.RealInput() {^elbow_angle}
   "Control command"
   u = Dyad.RealOutput() {^u}
-  swingup = QuanserComponents.Swingup() {^swingup}
+  swingup_catch = QuanserComponents.SwingupCatch() {^swingup_catch}
   errorrecovery = QuanserComponents.ErrorRecovery() {^errorrecovery}
 relations
-  connect(elbow_angle, swingup.elbow_angle) {^id6}
-  connect(swingup.u, errorrecovery.u_swingup) {^id7}
+  connect(elbow_angle, swingup_catch.elbow_angle) {^id6}
+  connect(swingup_catch.u, errorrecovery.u_swingup) {^id7}
   connect(errorrecovery.u, u) {^id8}
-  connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle) {^id9}
+  connect(errorrecovery.shoulder_angle, shoulder_angle, swingup_catch.shoulder_angle) {^id9}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/RuntimeController.svg"}},
   "_links": {
@@ -1439,7 +1439,7 @@ metadata {
     "u": {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
     },
-    "swingup": {
+    "swingup_catch": {
       "Dyad": {"placement": {"diagram": {"x1": 310, "x2": 410, "y1": 570, "y2": 470}}}
     },
     "errorrecovery": {

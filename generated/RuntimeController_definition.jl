@@ -9,7 +9,7 @@ import Moshi as __Ext__Moshi
 @doc Markdown.doc"""
    RuntimeController(; name)
 
-The runtime controller: the swing-up/stabilizing `Swingup` wrapped by
+The runtime controller: the swing-up/stabilizing `SwingupCatch` wrapped by
 `ErrorRecovery`, which overrides the command to recover the arm when it swings
 out of bounds.
 
@@ -66,9 +66,9 @@ out of bounds.
   __constants = Any[]
 
   ### Components
-  # Subcomponent swingup of type QuanserComponents.Swingup
-  swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
-  push!(__systems, @named swingup = QuanserComponents.Swingup(; swingup_overrides...))
+  # Subcomponent swingup_catch of type QuanserComponents.SwingupCatch
+  swingup_catch_overrides = __pop_subcomponent_overrides!(__overrides, "swingup_catch")
+  push!(__systems, @named swingup_catch = QuanserComponents.SwingupCatch(; swingup_catch_overrides...))
   # Subcomponent errorrecovery of type QuanserComponents.ErrorRecovery
   errorrecovery_overrides = __pop_subcomponent_overrides!(__overrides, "errorrecovery")
   push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; errorrecovery_overrides...))
@@ -84,10 +84,10 @@ out of bounds.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(elbow_angle, swingup.elbow_angle))
-  push!(__eqs, connect(swingup.u, errorrecovery.u_swingup))
+  push!(__eqs, connect(elbow_angle, swingup_catch.elbow_angle))
+  push!(__eqs, connect(swingup_catch.u, errorrecovery.u_swingup))
   push!(__eqs, connect(errorrecovery.u, u))
-  push!(__eqs, connect(errorrecovery.shoulder_angle, shoulder_angle, swingup.shoulder_angle))
+  push!(__eqs, connect(errorrecovery.shoulder_angle, shoulder_angle, swingup_catch.shoulder_angle))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

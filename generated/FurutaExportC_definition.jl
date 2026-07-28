@@ -24,6 +24,12 @@ using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
   var"run"::Bool = true
   # Duration [s] of the hardware run when `run = true`
   var"Tf"::Float64 = 10.0
+  # Launch a live plotter alongside the hardware run to watch it as it happens (needs `run = true`)
+  var"live_plot"::Bool = true
+  # Live-plot viewer executable
+  var"live_plot_cmd"::String = "kst2"
+  # Viewer session file; a relative path resolves against `output_dir`
+  var"live_plot_config"::String = "kst2config.kst"
   # The swing-up controller closed around the physical QUBE, with the hardware I/O
   # inside the synchronous program.
   # 
@@ -41,7 +47,7 @@ function DyadInterface.run_analysis(spec::FurutaExportCSpec)
   no_namespace_model = toggle_namespacing(spec.model, false)
   
   base_spec = FurutaExportCBaseSpec(;
-    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, run=spec.run, Tf=spec.Tf, model=spec.model
+    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, run=spec.run, Tf=spec.Tf, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, model=spec.model
   )
   run_analysis(base_spec)
 end

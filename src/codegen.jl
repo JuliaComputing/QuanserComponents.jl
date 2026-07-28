@@ -31,7 +31,8 @@ using ControlSystemsMTK: named_ss
 using ControlSystemsBase: c2d, ss, lqr
 using LinearAlgebra: Diagonal, I, pinv
 
-export generate_swingup_controller, export_swingup_c, SwingupController, design_lqr
+export generate_swingup_controller, export_swingup_c, SwingupController, design_lqr,
+       launch_live_plot
 
 """
     design_lqr(; Ts=0.005, Q1=[1000.0, 10.0, 1.0, 1.0], Q2=100.0) -> L::Vector{Float64}
@@ -113,10 +114,11 @@ writes the motor itself, so the angles are results rather than inputs. The LQR g
 and the stabilizer `umax` are the runtime-settable `StaticGains` fields, the rest are baked
 into `AutoPars`.
 
-The controller uses the `Swingup` model's tuned defaults (energy-swingup gain,
+The controller uses the `SwingupCatch` model's tuned defaults (energy-swingup gain,
 arm-centering, LQR gains and saturations), which are set for the QuanserInterface-
 matched `QubePendulum` plant. Pass `overrides` using Dyad's `__`-separated paths
-(e.g. `swingup__runtime__swingup__energyswingup__umax = 2.5`) to change them; `L`
+(e.g. `control_system__runtime__swingup_catch__energyswingup__umax = 2.5`) to change them;
+`L`
 (a 4-vector) and `umax` are shorthands for the two stabilizer paths.
 """
 function generate_swingup_controller(; Ts = 0.005, L = nothing, umax = nothing, overrides...)
@@ -125,7 +127,7 @@ function generate_swingup_controller(; Ts = 0.005, L = nothing, umax = nothing, 
     ensure_qube_hw()
     # `L`/`umax` are the two knobs worth a dedicated argument; route them through the same
     # `__`-path override mechanism as everything else so the model needs no wrapping.
-    stab = :swingup__runtime__swingup__lqrstabilizer__
+    stab = :control_system__runtime__swingup_catch__lqrstabilizer__
     kw = Dict{Symbol, Any}(overrides)
     L    === nothing || (kw[Symbol(stab, :L)]    = collect(float.(L)))
     umax === nothing || (kw[Symbol(stab, :umax)] = float(umax))
@@ -134,7 +136,7 @@ function generate_swingup_controller(; Ts = 0.005, L = nothing, umax = nothing, 
     # Reach for symbols through the un-namespaced view so they match what
     # `default_values` and `stkcompile` see (same reason as in `design_lqr`).
     nsys = ModelingToolkit.toggle_namespacing(sys, false)
-    lqr_stab = nsys.swingup.runtime.swingup.lqrstabilizer
+    lqr_stab = nsys.control_system.runtime.swingup_catch.lqrstabilizer
 
     Lsym, usym, Ldef, umaxdef = _resolve_stabilizer_gains(sys, lqr_stab)
 
@@ -491,6 +493,54 @@ function compile_hardware_harness(dir; quanser_dir = QUANSER_HIL_DIR)
             "-lrt", "-lpthread", "-ldl", "-lm", "-lc"]
     run(Cmd(args))
     return exe
+end
+
+"""
+    launch_live_plot(dir; cmd="kst2", config="kast2config.kst", wait_for_log=5.0) -> Process | Nothing
+
+Start a live plotter on the log the hardware harness writes, for watching the run as it
+happens. Returns the running process, or `nothing` if it could not be started.
+
+`cmd` is the viewer executable and `config` its session file (a relative path resolves
+against `dir`); the default pair is [kst2](https://kst-plot.kde.org/) reading the
+`run_hardware.csv` that `run_hardware` appends to. The viewer is launched with its working
+directory set to `dir`, so a session file referring to the log by relative path works
+wherever `dir` is.
+
+Call this *after* starting the harness but *before* waiting on it — the plotter has to come
+up alongside the run, not after it. It waits up to `wait_for_log` seconds for the log file
+to appear first, since a viewer pointed at a missing file typically gives up rather than
+retrying.
+
+This never throws: a missing viewer, a missing session file or a failed launch is reported
+as a warning and returns `nothing`, because losing the plot is not a reason to abandon a
+hardware run. The process outlives this call and is not reaped — `kill` it when done.
+"""
+function launch_live_plot(dir; cmd = "kst2", config = "kast2config.kst",
+                          wait_for_log = 5.0)
+    dir = abspath(dir)
+    cfg = isabspath(config) ? config : joinpath(dir, config)
+    if Sys.which(cmd) === nothing
+        @warn "live plot: `$cmd` not found on PATH, skipping"
+        return nothing
+    end
+    if !isfile(cfg)
+        @warn "live plot: session file not found, skipping" config = cfg
+        return nothing
+    end
+    csv = joinpath(dir, "run_hardware.csv")
+    t0 = time()
+    while !isfile(csv) && time() - t0 < wait_for_log
+        sleep(0.05)
+    end
+    isfile(csv) ||
+        @warn "live plot: $(basename(csv)) has not appeared, starting $cmd anyway" wait_for_log
+    try
+        return run(Cmd(`$cmd $cfg`; dir = dir); wait = false)
+    catch e
+        @warn "live plot: could not start `$cmd`" exception = e
+        return nothing
+    end
 end
 
 """

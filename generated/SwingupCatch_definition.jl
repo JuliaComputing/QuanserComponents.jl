@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   Swingup(; name)
+   SwingupCatch(; name)
 
 ## Connectors
 
@@ -15,12 +15,12 @@ import Moshi as __Ext__Moshi
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function Swingup(; name = nothing, kwargs...)
+@component function SwingupCatch(; name = nothing, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = Swingup()
+    @named model = SwingupCatch()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -112,4 +112,4 @@ import Moshi as __Ext__Moshi
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export Swingup
+export SwingupCatch

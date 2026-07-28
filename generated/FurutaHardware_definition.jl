@@ -72,9 +72,9 @@ needs nothing from its caller but a clock tick -- see
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
   push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
-  # Subcomponent swingup of type QuanserComponents.SwingupWithHoming
-  swingup_overrides = __pop_subcomponent_overrides!(__overrides, "swingup")
-  push!(__systems, @named swingup = QuanserComponents.SwingupWithHoming(; swingup_overrides...))
+  # Subcomponent control_system of type QuanserComponents.SwingupWithHoming
+  control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
+  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; control_system_overrides...))
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
   push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
@@ -93,9 +93,9 @@ needs nothing from its caller but a clock tick -- see
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(measurement.shoulder_angle, swingup.shoulder_angle, periodicclock.y))
-  push!(__eqs, connect(measurement.elbow_angle, swingup.elbow_angle))
-  push!(__eqs, connect(swingup.u, command.u))
+  push!(__eqs, connect(measurement.shoulder_angle, control_system.shoulder_angle, periodicclock.y))
+  push!(__eqs, connect(measurement.elbow_angle, control_system.elbow_angle))
+  push!(__eqs, connect(control_system.u, command.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
