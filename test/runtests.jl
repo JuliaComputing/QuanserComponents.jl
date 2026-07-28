@@ -138,22 +138,43 @@ import DyadCompilerPasses
 @testset "codegen" begin
     Ts = 0.005
 
+    # The controller does its own I/O by calling into csrc/qube_hw.c, so tests point
+    # that library at a Julia handler instead of the board. `hold(sh, el)` feeds fixed
+    # angles and records what the controller writes.
+    function hold(shoulder, elbow)
+        applied = Ref(NaN)
+        QuanserComponents.bind_hardware!(measure = () -> (shoulder, elbow),
+                                        control = u -> (applied[] = u))
+        applied
+    end
+
     # ---- generated controller: compile once, run on both backends ----------
     @testset "compile and step ($backend)" for backend in (:julia, :c)
         ctrl = QuanserComponents.SwingupController(; Ts, backend)
         # near hanging -> small command; near upright -> stabilizer engages
-        @test isfinite(ctrl(0.0, 0.01))
+        applied = hold(0.0, 0.01)
+        out = ctrl()
+        @test out.shoulder == 0.0 && out.elbow == 0.01   # what the node measured
+        @test isfinite(out.u) && out.u == applied[]      # and what it wrote
         SynchToolkit.reset!(ctrl)
-        u_top = ctrl(0.0, Float64(π))
-        @test isfinite(u_top)
+        applied = hold(0.0, Float64(π))
+        out_top = ctrl()
+        @test isfinite(out_top.u) && out_top.u == applied[]
+        # one read and one write per tick, no more
+        @test QuanserComponents.hardware_counters() == (n_measure = 1, n_write = 1)
+        # a tick that does not fire touches no hardware
+        out_notick = ctrl(; tick = false)
+        @test QuanserComponents.hardware_counters() == (n_measure = 1, n_write = 1)
+        @test out_notick.u === nothing
     end
 
-    # :julia and :c backends must produce identical control signals
+    # :julia and :c backends must produce identical control signals. This is the
+    # single most important property of the ccall-based hardware I/O: the same
+    # controller definition, the same C implementation of the I/O, both targets.
     let cj = QuanserComponents.SwingupController(; Ts, backend=:julia),
         cc = QuanserComponents.SwingupController(; Ts, backend=:c)
-        uj = [cj(0.0, el) for el in (0.01, 0.5, 1.5, Float64(π))]
-        uc = [cc(0.0, el) for el in (0.01, 0.5, 1.5, Float64(π))]
-        @test uj ≈ uc
+        step_all(c) = [(hold(0.0, el); c().u) for el in (0.01, 0.5, 1.5, Float64(π))]
+        @test step_all(cj) ≈ step_all(cc)
     end
 
     # ---- C source export ----------------------------------------------------
@@ -166,14 +187,28 @@ import DyadCompilerPasses
         @test occursin("$(r.mangled)_step", csrc)
         @test occursin("$(r.mangled)_reset", csrc)
 
-        # the runnable hardware control loop is emitted alongside the node sources
+        # The node does its own I/O, so the exported C must declare and call the
+        # hardware entry points by name -- not bake in a Julia function pointer.
+        for sym in ("qube_hw_measure", "qube_hw_shoulder", "qube_hw_elbow", "qube_hw_write")
+            @test occursin("extern double $sym(", csrc)
+        end
+        @test !occursin("(int64_t)0x", csrc)     # no baked-in pointer
+
+        # ... and the implementation of those symbols ships alongside it
+        @test isfile(joinpath(dir, "qube_hw.c"))
+        @test isfile(joinpath(dir, "qube_hw.h"))
+
+        # the runnable control loop is emitted alongside the node sources. It is only
+        # timing and logging now: no hardware calls of its own.
         @test isfile(joinpath(dir, "run_hardware.c"))
         @test isfile(joinpath(dir, "Makefile"))
         hsrc = read(joinpath(dir, "run_hardware.c"), String)
         @test occursin("$(r.mangled)_step", hsrc)
-        @test occursin("hil_read_encoder", hsrc)
+        @test occursin("qube_hw_open(QUBE_HW_MODE_HIL)", hsrc)
+        @test !occursin("hil_read_encoder", hsrc)
         # where the Quanser HIL SDK and a C compiler are present, the harness must build
-        # (static-linked, so no hardware needs to be connected)
+        # (static-linked, so no hardware needs to be connected). This is what proves the
+        # node's `extern qube_hw_*` declarations resolve against qube_hw.c.
         if isdir("/opt/quanser/hil_sdk") &&
            (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
             exe = QuanserComponents.compile_hardware_harness(dir)
@@ -223,14 +258,18 @@ import DyadCompilerPasses
         ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
         N = round(Int, 12.0 / Ts)
         x = zeros(length(dvs)); x[2] = deg2rad(0.15)   # near hanging
-        elbow = Float64[]; u = 0.0
+        elbow = Float64[]; k = Ref(0)
+        # The controller reads and writes through csrc/qube_hw.c; point that at the
+        # discretized plant. `measure` observes the current state, `control` advances it.
+        QuanserComponents.bind_hardware!(
+            measure = () -> (y = meas(x, [0.0], pp, k[]*Ts); (y[1], y[2])),
+            control = u -> (x = f_disc(x, [u], pp, k[]*Ts); k[] += 1))
         for i in 1:N
-            y = meas(x, [u], pp, (i-1)*Ts)
-            u = ctrl(y[1], y[2])
-            @test isfinite(u) && abs(u) <= 10
-            x = f_disc(x, [u], pp, (i-1)*Ts)
-            push!(elbow, mod(y[2], 2π))
+            out = ctrl()
+            @test isfinite(out.u) && abs(out.u) <= 10
+            push!(elbow, mod(out.elbow, 2π))
         end
+        @test QuanserComponents.hardware_counters() == (n_measure = N, n_write = N)
         near_top = abs.(elbow .- π) .< 0.4
         @test any(near_top)                       # reaches upright
         @test all(near_top[end-40:end])           # and stays there (stabilized)
@@ -240,94 +279,32 @@ import DyadCompilerPasses
     # `QubePendulum` is matched to the QuanserInterface hardware-calibrated model
     # (sign conventions and pendulum inertia), so the SAME generated controller —
     # with no per-plant sign flips or retuning — swings up and stabilizes the QI
-    # simulator too. The loop is identical to the one that runs on the real
-    # `QubeServoPendulum` hardware (measure -> controller -> control).
+    # simulator too. Bound through the shim's callback backend; on the real rig the
+    # very same node instead runs `open_hardware!(:hil)` with no Julia in the loop.
     @testset "swingup — QuanserInterface simulator" begin
         process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
         process.x = SA[0.0, deg2rad(0.15), 0.0, 0.0]   # near hanging
         QuanserInterface.initialize(process)
         ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
+        QuanserComponents.bind_hardware!(
+            measure = () -> QuanserInterface.measure(process),   # [arm θ, pendulum α]
+            control = u -> QuanserInterface.control(process, [u]))
         N = round(Int, 15.0 / Ts)
         elbow = Float64[]
         try
             for i in 1:N
-                y = QuanserInterface.measure(process)     # [arm θ, pendulum α]
-                u = ctrl(y[1], y[2])
-                @test isfinite(u) && abs(u) <= 10
-                QuanserInterface.control(process, [u])
-                push!(elbow, mod(y[2], 2π))
+                out = ctrl()
+                @test isfinite(out.u) && abs(out.u) <= 10
+                push!(elbow, mod(out.elbow, 2π))
             end
         finally
-            QuanserInterface.control(process, [0.0])
+            QuanserComponents.close_hardware!()
             QuanserInterface.finalize(process)
         end
+        @test QuanserComponents.hardware_counters() == (n_measure = N, n_write = N)
         near_top = abs.(elbow .- π) .< 0.4
         @test any(near_top)                        # reaches upright
         @test all(near_top[end-100:end])           # and stabilizes there
     end
 
-
-    # ---- Test C: hardware I/O inside the synchronous program ----------------
-    # `FurutaHardware` wraps the same `SwingupWithHoming` state machine, but the
-    # encoder read and the amplifier write are done by `HardwareMeasurement` /
-    # `HardwareCommand` from inside the compiled node instead of by the caller.
-    # Driving it against the same simulator must therefore reproduce test B
-    # exactly -- same plant, same controller, same order of operations -- and
-    # must perform exactly one read and one write per tick.
-    @testset "swingup — hardware IO inside the program" begin
-        Tf = 15.0
-        N = round(Int, Tf / Ts)
-        seed() = SA[0.0, deg2rad(0.15), 0.0, 0.0]   # near hanging, as in test B
-
-        # Reference: the ordinary controller with the I/O in the loop.
-        ref = let process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
-            process.x = seed()
-            c = QuanserComponents.SwingupController(; Ts, backend = :julia)
-            D = Matrix{Float64}(undef, 3, N)
-            for i in 1:N
-                y = QuanserInterface.measure(process)
-                u = c(y[1], y[2])
-                QuanserInterface.control(process, [u])
-                D[:, i] = [y[1], y[2], u]
-            end
-            D
-        end
-
-        process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
-        process.x = seed()
-        io = QuanserComponents.HardwareIO()
-        ctrl = QuanserComponents._make_hardware_runtime(
-            QuanserComponents.generate_hardware_controller(; Ts); io)
-        QuanserComponents.bind_hardware!(ctrl;
-            measure = () -> QuanserInterface.measure(process),
-            control = u -> QuanserInterface.control(process, [u]))
-        SynchToolkit.reset!(ctrl)
-        @test io.n_measure == 0 && io.n_control == 0   # reset! clears the counters
-
-        D = Matrix{Float64}(undef, 3, N)
-        try
-            for i in 1:N
-                out = ctrl()
-                @test isfinite(out.u) && abs(out.u) <= 10
-                D[:, i] = [out.shoulder, out.elbow, out.u]
-            end
-        finally
-            QuanserInterface.control(process, [0.0])
-            QuanserInterface.finalize(process)
-        end
-
-        # Exactly one hardware access of each kind per tick.
-        @test io.n_measure == N
-        @test io.n_control == N
-
-        # And the same closed-loop trajectory as the external loop (only
-        # floating-point reassociation may differ).
-        @test D ≈ ref rtol = 0 atol = 1e-9
-
-        # A tick that does not fire touches no hardware.
-        m0, c0 = io.n_measure, io.n_control
-        out = ctrl(; tick = false)
-        @test io.n_measure == m0 && io.n_control == c0
-        @test out.shoulder === nothing && out.elbow === nothing && out.u === nothing
-    end
 end

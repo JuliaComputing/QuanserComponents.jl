@@ -1,145 +1,259 @@
-# Hardware I/O from inside a synchronous program.
+# Hardware I/O from inside the synchronous controller, on every target.
 #
-# `HardwareMeasurement` and `HardwareCommand` (dyad/hardware_loop.dyad) do their
-# encoder read and amplifier write *inside* the compiled node rather than in the
-# surrounding real-time loop. That needs two things a synchronous dataflow
-# program does not normally have: a way to call arbitrary Julia, and a place to
-# keep a device handle.
+# `HardwareMeasurement` and `HardwareCommand` (dyad/hardware_loop.dyad) do the
+# encoder read and the amplifier write *inside* the compiled node rather than in
+# a surrounding control loop. The implementation is a small C library,
+# csrc/qube_hw.c, and the operators below are one-line `ccall`s into it.
 #
-# Both come from `@register_symbolic`: the operators below are opaque to the
-# Lustre translator, which emits them verbatim into the generated code
-# (SynchToolkit's `build_rhs_op` fallback), and the device handle rides along as
-# an argument of type `HardwareIO`. `HardwareIO` is mutable, so SynchToolkit
-# classifies it as an opaque reference type and passes it through untouched, and
-# its identity is preserved through compilation -- mutating it from outside is
-# how the hardware gets bound after the program has been compiled.
+# Using named `ccall((:sym, lib), ...)` rather than Julia callbacks is what makes
+# one controller definition serve all three targets:
+#
+#   backend = :julia   Julia ccalls the shared library directly.
+#   backend = :c       SynchCompiler links the library into the node's .so.
+#   export_c           the emitted top.c contains
+#                        extern double qube_hw_measure(double arg1);
+#                      plus a named call site, so the standalone C links against
+#                      csrc/qube_hw.c with no Julia involved.
+#
+# The pointer form (`@cfunction`, `Ptr` arguments, FunctionWrappers) would work
+# on the Julia backend but `export_c` rejects it outright -- a process-local
+# function pointer is meaningless in a separately built C module. Hence the
+# fixed symbol names and the `const` library path, both of which the C backend
+# needs statically.
 #
 # Two properties are load-bearing and are asserted by the tests:
 #
 #  1. **Exactly one read and one write per tick.** `stkcompile` does no CSE, no
 #     DCE and no observed-variable inlining, so one equation is one call.
 #  2. **Ordering.** Equation scheduling only respects data dependencies, so the
-#     cache reads take a `dep` argument that carries no information other than
-#     "the read has happened". Without it they could be scheduled before the
+#     two cache accessors take a `dep` argument that carries no information other
+#     than "the read has happened". Without it they could be scheduled before the
 #     read and serve the previous tick's values. (Same trick as
 #     `DiscreteComponents`' `seeded_rand(seed, td)`.)
-#
-# This is a Julia-backend-only mechanism: the C backend cannot cross-compile a
-# call into Julia. The plain `SwingupController` and `export_swingup_c` in
-# codegen.jl are unaffected and remain the route to standalone C.
 
 using ModelingToolkit
 
-export HardwareIO, bind_hardware!
+export build_qube_hw!, open_hardware!, close_hardware!, bind_hardware!,
+       hardware_counters, hardware_state
 
-"""
-    HardwareIO(; measure = () -> (0.0, 0.0), control = u -> nothing)
+# The `ccall` library must be a compile-time constant for the C backend to link
+# it statically, so the path is fixed and `build_qube_hw!` writes to it.
+const QUBE_HW_SRC = normpath(joinpath(@__DIR__, "..", "csrc", "qube_hw.c"))
+const QUBE_HW_DIR = normpath(joinpath(@__DIR__, "..", "deps"))
+const QUBE_HW_LIB = joinpath(QUBE_HW_DIR,
+    "libqube_hw." * (Sys.iswindows() ? "dll" : Sys.isapple() ? "dylib" : "so"))
 
-Device handle passed into a compiled controller that performs its own I/O.
+const QUANSER_HIL_DIR = "/opt/quanser/hil_sdk"
 
-`measure` is called once per tick and must return the two measured angles
-`(shoulder, elbow)` in radians (anything indexable works, e.g. the `Vector`
-returned by `QuanserInterface.measure`). `control` is called once per tick with
-the clamped voltage.
-
-Keeping these as fields rather than calling `QuanserInterface` directly is what
-lets this package stay independent of the HIL stack; bind them with
-[`bind_hardware!`](@ref).
-
-The remaining fields are written by the controller and are readable afterwards:
-`shoulder`, `elbow` and `u` hold the most recent values, and `n_measure` /
-`n_control` count the calls made (used to assert one call per tick).
-"""
-mutable struct HardwareIO
-    measure::Any
-    control::Any
-    shoulder::Float64
-    elbow::Float64
-    u::Float64
-    n_measure::Int
-    n_control::Int
-end
-
-HardwareIO(; measure = () -> (0.0, 0.0), control = u -> nothing) =
-    HardwareIO(measure, control, 0.0, 0.0, 0.0, 0, 0)
-
-"""
-    bind_hardware!(io::HardwareIO; measure, control) -> io
-
-Point `io` at a device and clear its cache and call counters. Typical use with
-QuanserInterface:
-
-```julia
-bind_hardware!(io; measure = () -> QuanserInterface.measure(process),
-                   control = u -> QuanserInterface.control(process, [u]))
-```
-
-Safe to call on an `io` that is already bound into a compiled controller: the
-controller holds the same object, so the new device takes effect immediately
-without recompiling.
-"""
-function bind_hardware!(io::HardwareIO; measure = io.measure, control = io.control)
-    io.measure = measure
-    io.control = control
-    reset_hardware!(io)
+"Path of a C compiler to build the shim with, or `nothing`."
+function _c_compiler()
+    for c in ("cc", "gcc", "clang")
+        p = Sys.which(c)
+        p === nothing || return p
+    end
+    # SynchCompiler ships clang through a Clang_unified_jll extension; use it if
+    # the extension is loaded (it is whenever the `:c` backend is available).
+    try
+        return SynchCompiler.cc()
+    catch
+        return nothing
+    end
 end
 
 """
-    reset_hardware!(io::HardwareIO) -> io
+    build_qube_hw!(; hil=isdir(QUANSER_HIL_DIR), force=false, quanser_dir=QUANSER_HIL_DIR)
 
-Clear the cached angles, the last command and the call counters. `SynchToolkit.reset!`
-resets the node's own state but knows nothing about `io`, so reset both when
-restarting an experiment.
+Compile `csrc/qube_hw.c` into `deps/libqube_hw.\$(Libdl.dlext)`, the library the
+generated controller calls into. Called automatically before the controller is
+compiled; call it directly only to change `hil` or to force a rebuild.
+
+With `hil=true` the Quanser HIL SDK is linked in and `open_hardware!(:hil)`
+talks to the board; with `hil=false` only `open_hardware!(:callback)` works,
+which is enough to run the controller against a simulator. The default follows
+whether the SDK is installed.
+
+Returns the library path.
 """
-function reset_hardware!(io::HardwareIO)
-    io.shoulder = 0.0
-    io.elbow = 0.0
-    io.u = 0.0
-    io.n_measure = 0
-    io.n_control = 0
-    io
+function build_qube_hw!(; hil::Bool = isdir(QUANSER_HIL_DIR), force::Bool = false,
+                          quanser_dir::AbstractString = QUANSER_HIL_DIR)
+    mkpath(QUBE_HW_DIR)
+    stamp = QUBE_HW_LIB * ".stamp"
+    want = string(hil, "\n", mtime(QUBE_HW_SRC))
+    if !force && isfile(QUBE_HW_LIB) && isfile(stamp) && read(stamp, String) == want
+        return QUBE_HW_LIB
+    end
+    cc = _c_compiler()
+    cc === nothing && error("""
+        No C compiler found (tried cc, gcc, clang and SynchCompiler's Clang_unified_jll).
+        One is needed to build $QUBE_HW_SRC, the hardware I/O the generated
+        controller calls into.""")
+    hil && !isdir(quanser_dir) &&
+        error("hil=true but the Quanser HIL SDK was not found at $quanser_dir")
+    flags = ["-O2", "-Wall", "-fPIC", "-shared"]
+    hil && append!(flags, ["-DQUBE_HW_HAVE_HIL", "-I$(joinpath(quanser_dir, "include"))"])
+    libs = hil ? ["-L$(joinpath(quanser_dir, "lib"))", "-lhil", "-lquanser_runtime",
+                  "-lquanser_common", "-lrt", "-lpthread", "-ldl", "-lm"] : String[]
+    run(`$cc $flags -o $QUBE_HW_LIB $QUBE_HW_SRC $libs`)
+    write(stamp, want)
+    return QUBE_HW_LIB
 end
 
-# The registered operators. `HardwareIO` must already be defined at this point:
-# `@register_symbolic` evaluates the argument types at macro-expansion time.
-# The return types are annotated because SynchCompiler rejects a call whose
-# inferred return type is not concrete.
-@register_symbolic hw_measure!(io::HardwareIO)::Real
-@register_symbolic hw_shoulder(io::HardwareIO, dep::Real)::Real
-@register_symbolic hw_elbow(io::HardwareIO, dep::Real)::Real
-@register_symbolic hw_write(io::HardwareIO, u::Real, umax::Real)::Real
-
-"""
-    hw_measure!(io) -> shoulder
-
-The one effectful read: sample both encoders, cache them on `io` and return the
-shoulder angle. The returned value doubles as the dependency token that orders
-[`hw_shoulder`](@ref) and [`hw_elbow`](@ref) after this call.
-"""
-function hw_measure!(io::HardwareIO)::Float64
-    y = io.measure()
-    io.shoulder = y[1]
-    io.elbow = y[2]
-    io.n_measure += 1
-    io.shoulder
+# Build lazily rather than in `__init__`: importing the package should not
+# require a C compiler, only compiling a controller should.
+_qube_hw_ready = false
+function ensure_qube_hw()
+    global _qube_hw_ready
+    _qube_hw_ready && return QUBE_HW_LIB
+    build_qube_hw!()
+    _qube_hw_ready = true
+    return QUBE_HW_LIB
 end
 
-"Cached shoulder angle. `dep` only forces this to be scheduled after `hw_measure!`."
-hw_shoulder(io::HardwareIO, dep::Real)::Float64 = io.shoulder
-
-"Cached elbow angle. `dep` only forces this to be scheduled after `hw_measure!`."
-hw_elbow(io::HardwareIO, dep::Real)::Float64 = io.elbow
+# ---------------------------------------------------------------------------
+## The operators the controller node calls
+# ---------------------------------------------------------------------------
+@register_symbolic hw_measure(dep::Real)::Real
+@register_symbolic hw_shoulder(dep::Real)::Real
+@register_symbolic hw_elbow(dep::Real)::Real
+@register_symbolic hw_write(u::Real, umax::Real)::Real
 
 """
-    hw_write(io, u, umax) -> u_applied
+    hw_measure(dep) -> shoulder
+
+The one effectful read: samples both encoders and caches them. The returned
+shoulder angle doubles as the dependency token that orders [`hw_shoulder`](@ref)
+and [`hw_elbow`](@ref) after this call. `dep` is ignored.
+"""
+hw_measure(dep::Real)::Float64 =
+    ccall((:qube_hw_measure, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+"Cached shoulder angle. `dep` only forces this to be scheduled after `hw_measure`."
+hw_shoulder(dep::Real)::Float64 =
+    ccall((:qube_hw_shoulder, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+"Cached elbow angle. `dep` only forces this to be scheduled after `hw_measure`."
+hw_elbow(dep::Real)::Float64 =
+    ccall((:qube_hw_elbow, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+"""
+    hw_write(u, umax) -> u_applied
 
 Clamp `u` to `[-umax, umax]`, write it to the amplifier and return what was
 applied. Ordered after the read because `u` depends on the measured angles.
 """
-function hw_write(io::HardwareIO, u::Real, umax::Real)::Float64
-    uc = clamp(Float64(u), -Float64(umax), Float64(umax))
-    io.u = uc
-    io.n_control += 1
-    io.control(uc)
-    uc
+hw_write(u::Real, umax::Real)::Float64 =
+    ccall((:qube_hw_write, QUBE_HW_LIB), Cdouble, (Cdouble, Cdouble), u, umax)
+
+# ---------------------------------------------------------------------------
+## Driver-side API
+# ---------------------------------------------------------------------------
+const QUBE_HW_MODE = (callback = Cint(0), hil = Cint(1))
+
+# Callback trampolines. These must be plain top-level functions so `@cfunction`
+# yields a static pointer; the Julia closures they forward to live in these Refs.
+const MEASURE_CB = Ref{Any}(() -> (0.0, 0.0))
+const CONTROL_CB = Ref{Any}(u -> nothing)
+
+function _measure_trampoline(shoulder::Ptr{Cdouble}, elbow::Ptr{Cdouble})::Cvoid
+    y = MEASURE_CB[]()
+    unsafe_store!(shoulder, Float64(y[1]))
+    unsafe_store!(elbow, Float64(y[2]))
+    return nothing
 end
+
+function _control_trampoline(u::Cdouble)::Cvoid
+    CONTROL_CB[](u)
+    return nothing
+end
+
+"""
+    open_hardware!(mode = :hil)
+
+Open the hardware I/O in `:hil` mode (talk to the QUBE through the HIL SDK) or
+`:callback` mode (call the handlers installed by [`bind_hardware!`](@ref)).
+Clears the cached angles and the call counters.
+
+In `:hil` mode this enables the amplifier, zeroes the motor and records the
+current encoder counts as homing offsets, so place the arm at its home position
+with the pendulum hanging before calling.
+"""
+function open_hardware!(mode::Symbol = :hil)
+    ensure_qube_hw()
+    m = get(QUBE_HW_MODE, mode) do
+        throw(ArgumentError("unknown hardware mode $(repr(mode)); use :hil or :callback"))
+    end
+    r = ccall((:qube_hw_open, QUBE_HW_LIB), Cint, (Cint,), m)
+    r == 0 || error("qube_hw_open($mode) failed with code $r" *
+                    (mode === :hil && !have_hil() ?
+                     "; the library was built without HIL support, rebuild with " *
+                     "build_qube_hw!(; hil = true, force = true)" : ""))
+    return nothing
+end
+
+"Zero the motor and release the device. Safe to call when nothing is open."
+function close_hardware!()
+    # Called from `finally` blocks, so tolerate never having built the library.
+    ensure_qube_hw()
+    ccall((:qube_hw_close, QUBE_HW_LIB), Cvoid, ())
+end
+
+"True if `deps/libqube_hw` was built with Quanser HIL SDK support."
+have_hil() = (ensure_qube_hw(); ccall((:qube_hw_have_hil, QUBE_HW_LIB), Cint, ()) != 0)
+
+"""
+    bind_hardware!(; measure, control)
+
+Drive the controller from Julia instead of the board: install `measure`, a
+zero-argument function returning the two angles `(shoulder, elbow)` in radians,
+and `control`, called with the clamped voltage. Opens `:callback` mode.
+
+This is how the controller is exercised against a simulator, e.g.
+
+```julia
+process = QuanserInterface.QubeServoPendulumSimulator(; Ts)
+bind_hardware!(measure = () -> QuanserInterface.measure(process),
+               control = u -> QuanserInterface.control(process, [u]))
+```
+
+On the real rig use [`open_hardware!`](@ref)`(:hil)` instead, which needs no
+Julia in the loop at all and is the same code path the exported C takes.
+"""
+function bind_hardware!(; measure, control)
+    ensure_qube_hw()
+    MEASURE_CB[] = measure
+    CONTROL_CB[] = control
+    ccall((:qube_hw_set_callbacks, QUBE_HW_LIB), Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}),
+          @cfunction(_measure_trampoline, Cvoid, (Ptr{Cdouble}, Ptr{Cdouble})),
+          @cfunction(_control_trampoline, Cvoid, (Cdouble,)))
+    open_hardware!(:callback)
+    return nothing
+end
+
+"""
+    hardware_counters() -> (; n_measure, n_write)
+
+Reads and writes performed since the device was opened. The tests assert one of
+each per tick.
+"""
+hardware_counters() = (
+    n_measure = Int(ccall((:qube_hw_n_measure, QUBE_HW_LIB), Clong, ())),
+    n_write = Int(ccall((:qube_hw_n_write, QUBE_HW_LIB), Clong, ())),
+)
+
+"Reset the call counters without reopening the device."
+reset_hardware_counters!() = ccall((:qube_hw_reset_counters, QUBE_HW_LIB), Cvoid, ())
+
+"""
+    hardware_state() -> (; shoulder, elbow, u, count_shoulder, count_elbow)
+
+Most recent measured angles and applied voltage, plus the raw encoder counts (HIL
+mode only) for diagnosing counter glitches. The controller returns the same
+angles and voltage as outputs; this is for inspecting them out of band.
+"""
+hardware_state() = (
+    shoulder = ccall((:qube_hw_last_shoulder, QUBE_HW_LIB), Cdouble, ()),
+    elbow = ccall((:qube_hw_last_elbow, QUBE_HW_LIB), Cdouble, ()),
+    u = ccall((:qube_hw_last_u, QUBE_HW_LIB), Cdouble, ()),
+    count_shoulder = Int(ccall((:qube_hw_last_count_shoulder, QUBE_HW_LIB), Clong, ())),
+    count_elbow = Int(ccall((:qube_hw_last_count_elbow, QUBE_HW_LIB), Clong, ())),
+)
