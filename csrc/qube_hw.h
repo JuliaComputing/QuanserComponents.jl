@@ -53,10 +53,19 @@ double qube_hw_write(double u, double umax);
 
 /* Open `mode`. Returns 0 on success, negative on failure (including
  * QUBE_HW_MODE_HIL when built without QUBE_HW_HAVE_HIL). Clears the cache and
- * the call counters. In HIL mode this enables the amplifier, zeroes the motor
- * and records the current encoder counts as the homing offsets, so place the arm
- * at its home position with the pendulum hanging before calling. */
-int qube_hw_open(int mode);
+ * the call counters.
+ *
+ * In HIL mode this enables the amplifier, zeroes the motor and records the
+ * current encoder counts as the homing offsets. `arm_home_rad` says where the arm
+ * physically is at that moment, and is added to every shoulder reading, so you do
+ * not have to move the arm to its home position first: park it roughly centred,
+ * pass how far off it is, and 0 still means centred. Pass 0.0 if the arm really is
+ * at home. The pendulum must hang straight down (that reading is always zeroed).
+ *
+ * `arm_home_rad` is ignored in QUBE_HW_MODE_CALLBACK: the handler installed by
+ * `qube_hw_set_callbacks` is expected to return angles that are already
+ * calibrated. */
+int qube_hw_open(int mode, double arm_home_rad);
 
 /* Zero the motor and release the device. Safe to call when not open. */
 void qube_hw_close(void);

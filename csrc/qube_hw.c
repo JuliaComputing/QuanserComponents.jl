@@ -21,6 +21,9 @@ static long   s_n_measure = 0;
 static long   s_n_write   = 0;
 static long   s_count_shoulder = 0;
 static long   s_count_elbow    = 0;
+/* Added to every shoulder reading: where the arm physically sat at `qube_hw_open`
+ * (HIL mode only), so the arm need not be at its home position to calibrate. */
+static double s_arm_offset = 0.0;
 
 static qube_hw_measure_fn s_cb_measure = NULL;
 static qube_hw_write_fn   s_cb_write   = NULL;
@@ -66,7 +69,7 @@ static void qube_hil_read(double *shoulder, double *elbow) {
     hil_read_encoder(s_board, s_encoder_channels, 2, counts);
     s_count_shoulder = (long)counts[0];
     s_count_elbow    = (long)counts[1];
-    *shoulder = (double)(counts[0] - s_counts0[0]) * QUBE_HW_COUNTS2RAD;
+    *shoulder = (double)(counts[0] - s_counts0[0]) * QUBE_HW_COUNTS2RAD + s_arm_offset;
     *elbow    = (double)(counts[1] - s_counts0[1]) * QUBE_HW_COUNTS2RAD;
 }
 
@@ -84,7 +87,7 @@ int qube_hw_have_hil(void) {
 #endif
 }
 
-int qube_hw_open(int mode) {
+int qube_hw_open(int mode, double arm_home_rad) {
     qube_hw_close();
     if (mode == QUBE_HW_MODE_HIL) {
 #ifdef QUBE_HW_HAVE_HIL
@@ -99,6 +102,8 @@ int qube_hw_open(int mode) {
         return -3;
     }
     s_mode = mode;
+    /* Callback handlers return already-calibrated angles, so the offset is HIL-only. */
+    s_arm_offset = (mode == QUBE_HW_MODE_HIL) ? arm_home_rad : 0.0;
     s_shoulder = 0.0;
     s_elbow = 0.0;
     s_u = 0.0;

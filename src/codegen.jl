@@ -244,13 +244,14 @@ function SynchToolkit.reset!(c::SwingupController)
 end
 
 """
-    export_swingup_c(dir; Ts=0.005, L=nothing, umax=nothing, Tf=10.0, overrides...)
+    export_swingup_c(dir; Ts=0.005, L=nothing, umax=nothing, Tf=10.0, arm_deg=0.0, overrides...)
 
 Generate the swing-up controller and export standalone C sources into `dir`: the
 SynchToolkit node (`top.c`, `top.h`, `top.pc`, `synchjulia.h`), the hardware I/O the node
 calls into (`qube_hw.c`, `qube_hw.h`, copied from `csrc/`), and a runnable control loop
 (`run_hardware.c`, `Makefile`) — see [`emit_hardware_harness`](@ref). `L`/`umax` override
-the LQR gains and stabilizer saturation; `Tf` is the run duration baked into the harness.
+the LQR gains and stabilizer saturation; `Tf` is the run duration and `arm_deg` the arm's
+physical angle at start-up (see [`open_hardware!`](@ref)), both baked into the harness.
 
 The exported `top.c` contains `extern double qube_hw_measure(double arg1);` and friends
 plus named call sites, so the node performs its own encoder reads and motor writes and the
@@ -261,14 +262,15 @@ Returns `(; dir, topmod, mangled, gains, auto)` where `mangled` is the base symb
 for the emitted `<mangled>_step` / `<mangled>_reset` functions and `gains`/`auto` are the
 parameter objects embedded into the harness.
 """
-function export_swingup_c(dir; Ts = 0.005, L = nothing, umax = nothing, Tf = 10.0, kwargs...)
+function export_swingup_c(dir; Ts = 0.005, L = nothing, umax = nothing, Tf = 10.0,
+                          arm_deg = 0.0, kwargs...)
     gen = generate_swingup_controller(; Ts, L, umax, kwargs...)
     r = _instantiate(gen; L, umax, export_dir = dir)
     mangled = SynchCompiler.mangle("top", Bool, r.SG, r.AP)
     for f in ("qube_hw.c", "qube_hw.h")
         cp(joinpath(dirname(QUBE_HW_SRC), f), joinpath(dir, f); force = true)
     end
-    emit_hardware_harness(dir; Ts, Tf, mangled, r.gains, r.auto,
+    emit_hardware_harness(dir; Ts, Tf, arm_deg, mangled, r.gains, r.auto,
                           outfields = _out_field_names(joinpath(dir, "top.h"), mangled))
     return (; dir, gen.topmod, mangled, r.gains, r.auto)
 end
@@ -304,7 +306,7 @@ function _param_words(obj)
 end
 
 """
-    emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto)
+    emit_hardware_harness(dir; Ts, Tf, arm_deg, mangled, gains, auto)
 
 Write a standalone C control loop (`run_hardware.c`) plus a `Makefile` into `dir`, next to
 the exported `top.c`/`top.h` and `qube_hw.c`/`qube_hw.h`.
@@ -322,7 +324,7 @@ diagnostics `dt` (achieved period) and `exec` (loop-body duration). Timing mirro
 `@periodically` loop (run body, sleep the remainder of `Ts`); a one-line timing summary is
 printed to stderr on exit.
 """
-function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto,
+function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, arm_deg = 0.0,
                                outfields = ["measurement_shoulder_angle_t_",
                                             "measurement_elbow_angle_t_",
                                             "command_u_applied_t_"])
@@ -353,8 +355,11 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto,
     #define GAINS_PTR ((int64_t)(intptr_t)gains_words)
     #define AUTO_PTR  ((int64_t)(intptr_t)auto_words)
 
-    static const double Ts    = $(Float64(Ts));          /* sample time [s]  */
-    static const double Tf    = $(Float64(Tf));          /* run duration [s] */
+    static const double Ts   = $(Float64(Ts));           /* sample time [s]  */
+    static const double Tf   = $(Float64(Tf));           /* run duration [s] */
+    /* Where the arm physically sits at start-up; added to every shoulder reading so the
+     * arm need not be moved to its home position first. See qube_hw.h. */
+    static const double ARM0 = $(deg2rad(Float64(arm_deg)));  /* [rad] */
 
     static volatile sig_atomic_t stop_flag = 0;
     static void on_signal(int sig) { (void)sig; stop_flag = 1; }
@@ -369,10 +374,10 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto,
         signal(SIGTERM, on_signal);
 
         /* Opening in HIL mode enables the amplifier, zeroes the motor and records the
-         * current encoder counts as homing offsets, so before starting place the arm at
-         * its home position and let the pendulum hang straight down (0 = down, pi = up).
-         * The controller's GoHome then drives the arm. */
-        if (qube_hw_open(QUBE_HW_MODE_HIL) != 0) return 1;
+         * current encoder counts as homing offsets. Let the pendulum hang straight down
+         * (0 = down, pi = up); the arm may be anywhere, as long as ARM0 says where.
+         * The controller's GoHome then drives the arm to centre. */
+        if (qube_hw_open(QUBE_HW_MODE_HIL, ARM0) != 0) return 1;
 
         $(mangled)_mem state;
         memset(&state, 0, sizeof(state));

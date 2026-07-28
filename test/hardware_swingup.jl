@@ -12,9 +12,10 @@ the same C implementation the exported standalone binary links against. So this
 loop only keeps time and records what the controller reports back; there is no
 `measure`/`control` call here, and no QuanserInterface in the loop.
 
-Before starting, place the arm at its home position and let the pendulum hang
-straight down: `open_hardware!(:hil)` records the current encoder counts as the
-homing offsets.
+Before starting, let the pendulum hang straight down; `open_hardware!` records the
+current encoder counts as the homing offsets. The arm does not have to be at its
+home position -- pass `arm_deg` to say how far off it is, as with
+`QuanserInterface.home!(process, -5)`.
 
 ENVIRONMENT: run in the package `test/` environment:
   julia --project=test test/hardware_swingup.jl
@@ -95,7 +96,10 @@ function plotD(D, th = 0.2)
 end
 
 # --- main --------------------------------------------------------------------
-open_hardware!(:hil)     # arm at home, pendulum hanging: this records the offsets
+# Pendulum hanging, arm parked wherever is convenient: `arm_deg` is where the arm
+# physically is now (degrees), so 0 still means centred and there is no need to nudge
+# the arm into position by hand. Same calibration as `home!(process, -5)`.
+open_hardware!(:hil; arm_deg = -5)
 
 D = swingup(ctrl; Tf = 10)
 plotD(D)
@@ -111,5 +115,5 @@ plotD(D)
 cnt = hardware_counters()
 @info "hardware calls" cnt.n_measure cnt.n_write ticks=size(D, 2)
 
-writedlm("swingup.csv",
-         permutedims([["time", "shoulder_angle", "elbow_angle", "control_input"] D]))
+# writedlm("swingup.csv",
+#          permutedims([["time", "shoulder_angle", "elbow_angle", "control_input"] D]))

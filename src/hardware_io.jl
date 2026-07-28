@@ -167,22 +167,29 @@ function _control_trampoline(u::Cdouble)::Cvoid
 end
 
 """
-    open_hardware!(mode = :hil)
+    open_hardware!(mode = :hil; arm_deg = 0.0)
 
 Open the hardware I/O in `:hil` mode (talk to the QUBE through the HIL SDK) or
 `:callback` mode (call the handlers installed by [`bind_hardware!`](@ref)).
 Clears the cached angles and the call counters.
 
 In `:hil` mode this enables the amplifier, zeroes the motor and records the
-current encoder counts as homing offsets, so place the arm at its home position
-with the pendulum hanging before calling.
+current encoder counts as homing offsets. `arm_deg` says where the arm physically
+is at that moment, in degrees, and is added to every shoulder reading — so you do
+not have to move the arm to its home position first: park it roughly centred, pass
+how far off it is, and 0 still means centred. This is the same calibration
+`QuanserInterface.home!(process, arm_deg)` performs. The pendulum must hang
+straight down; that reading is always zeroed.
+
+`arm_deg` is ignored in `:callback` mode, where the handler is expected to return
+angles that are already calibrated.
 """
-function open_hardware!(mode::Symbol = :hil)
+function open_hardware!(mode::Symbol = :hil; arm_deg = 0.0)
     ensure_qube_hw()
     m = get(QUBE_HW_MODE, mode) do
         throw(ArgumentError("unknown hardware mode $(repr(mode)); use :hil or :callback"))
     end
-    r = ccall((:qube_hw_open, QUBE_HW_LIB), Cint, (Cint,), m)
+    r = ccall((:qube_hw_open, QUBE_HW_LIB), Cint, (Cint, Cdouble), m, deg2rad(arm_deg))
     r == 0 || error("qube_hw_open($mode) failed with code $r" *
                     (mode === :hil && !have_hil() ?
                      "; the library was built without HIL support, rebuild with " *
