@@ -30,6 +30,12 @@ using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
   var"live_plot_cmd"::String = "kst2"
   # Viewer session file; a relative path resolves against `output_dir`
   var"live_plot_config"::String = "kst2config.kst"
+  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine
+  var"deploy_host"::String = "fredrikb@192.168.1.49"
+  # Directory on `deploy_host` to copy the sources into
+  var"deploy_dir"::String = "furuta_c"
+  # Arm angle [deg] at start-up, added to every shoulder reading so the arm need not be at its home position
+  var"arm_deg"::Float64 = 0.0
   # The swing-up controller closed around the physical QUBE, with the hardware I/O
   # inside the synchronous program.
   # 
@@ -47,7 +53,7 @@ function DyadInterface.run_analysis(spec::FurutaExportCSpec)
   no_namespace_model = toggle_namespacing(spec.model, false)
   
   base_spec = FurutaExportCBaseSpec(;
-    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, run=spec.run, Tf=spec.Tf, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, model=spec.model
+    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, run=spec.run, Tf=spec.Tf, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, arm_deg=spec.arm_deg, model=spec.model
   )
   run_analysis(base_spec)
 end

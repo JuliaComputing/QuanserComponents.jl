@@ -32,7 +32,7 @@ using ControlSystemsBase: c2d, ss, lqr
 using LinearAlgebra: Diagonal, I, pinv
 
 export generate_swingup_controller, export_swingup_c, SwingupController, design_lqr,
-       launch_live_plot
+       launch_live_plot, deploy_hardware_harness, run_hardware_harness_remote
 
 """
     design_lqr(; Ts=0.005, Q1=[1000.0, 10.0, 1.0, 1.0], Q2=100.0) -> L::Vector{Float64}
@@ -452,11 +452,26 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, arm_deg = 0.0,
     # qube_hw.c is the hardware I/O the generated node calls into; -DQUBE_HW_HAVE_HIL
     # selects the Quanser HIL SDK backend (without it, only the callback backend is
     # compiled in and qube_hw_open(QUBE_HW_MODE_HIL) fails at runtime).
+    #
+    # Two SDK layouts are supported and detected below, so the same sources build on an
+    # x86 host with the older HIL SDK and on a Raspberry Pi with the `quanser-sdk`
+    # packages. Override QUANSER_DIR to force the first.
     QUANSER_DIR ?= /opt/quanser/hil_sdk
     CC          ?= cc
-    CFLAGS      += -I. -I\$(QUANSER_DIR)/include -O2 -Wall -DQUBE_HW_HAVE_HIL
-    LDFLAGS     += -L\$(QUANSER_DIR)/lib
-    LIBS        += -lhil -lquanser_runtime -lquanser_common -lrt -lpthread -ldl -lm -lc
+
+    ifneq (\$(wildcard \$(QUANSER_DIR)/include/hil.h),)
+      QUANSER_CFLAGS  := -I\$(QUANSER_DIR)/include
+      QUANSER_LDFLAGS := -L\$(QUANSER_DIR)/lib
+    else ifneq (\$(wildcard /usr/include/quanser/hil.h),)
+      QUANSER_CFLAGS  := -I/usr/include/quanser
+      QUANSER_LDFLAGS :=
+    else
+      \$(error Quanser HIL SDK not found: no \$(QUANSER_DIR)/include/hil.h and no /usr/include/quanser/hil.h)
+    endif
+
+    CFLAGS  += -I. \$(QUANSER_CFLAGS) -O2 -Wall -DQUBE_HW_HAVE_HIL
+    LDFLAGS += \$(QUANSER_LDFLAGS)
+    LIBS    += -lhil -lquanser_runtime -lquanser_common -lrt -lpthread -ldl -lm
 
     run_hardware: run_hardware.c top.c top.h qube_hw.c qube_hw.h synchjulia.h
     \t\$(CC) \$(CFLAGS) run_hardware.c top.c qube_hw.c -o \$@ \$(LDFLAGS) \$(LIBS)
@@ -483,14 +498,15 @@ function compile_hardware_harness(dir; quanser_dir = QUANSER_HIL_DIR)
     cc = Sys.which("cc")
     cc === nothing && (cc = Sys.which("gcc"))
     cc === nothing && error("compile_hardware_harness: no C compiler (cc/gcc) found on PATH")
+    sdk = quanser_sdk_flags(; quanser_dir)
+    sdk.found || error("""
+        compile_hardware_harness: no Quanser HIL SDK found (looked for
+        $(joinpath(quanser_dir, "include", "hil.h")) and /usr/include/quanser/hil.h).""")
     exe = abspath(joinpath(dir, "run_hardware"))
-    inc = joinpath(quanser_dir, "include")
-    lib = joinpath(quanser_dir, "lib")
-    args = [cc, "-I$dir", "-I$inc", "-O2", "-Wall", "-DQUBE_HW_HAVE_HIL",
+    args = [cc, "-I$dir", sdk.cflags..., "-O2", "-Wall", "-DQUBE_HW_HAVE_HIL",
             joinpath(dir, "run_hardware.c"), joinpath(dir, "top.c"),
             joinpath(dir, "qube_hw.c"), "-o", exe,
-            "-L$lib", "-lhil", "-lquanser_runtime", "-lquanser_common",
-            "-lrt", "-lpthread", "-ldl", "-lm", "-lc"]
+            sdk.ldflags..., QUANSER_LIBS...]
     run(Cmd(args))
     return exe
 end
@@ -541,6 +557,75 @@ function launch_live_plot(dir; cmd = "kst2", config = "kast2config.kst",
         @warn "live plot: could not start `$cmd`" exception = e
         return nothing
     end
+end
+
+# Files `export_swingup_c` writes that the target needs in order to build and run.
+const HARNESS_FILES = ("run_hardware.c", "Makefile", "top.c", "top.h", "synchjulia.h",
+                       "qube_hw.c", "qube_hw.h")
+
+"""
+    deploy_hardware_harness(dir; host, remote_dir="furuta_c", ssh=`ssh`, scp=`scp`) -> remote_dir
+
+Copy the exported sources to `host` and build them there. Returns `remote_dir`.
+
+Building on the target rather than cross-compiling is deliberate: the Quanser SDK is
+installed on the target (headers, libraries and the board driver plugin for its
+architecture), so a cross-toolchain here would have to reproduce that sysroot to gain
+nothing. The emitted `Makefile` detects the SDK layout, so the same sources build on an
+x86 host with the older HIL SDK and on a Raspberry Pi with the `quanser-sdk` packages.
+
+`host` is anything ssh accepts, e.g. `"fredrikb@192.168.1.49"`. Requires
+non-interactive ssh (key-based auth) since nothing here can answer a prompt.
+"""
+function deploy_hardware_harness(dir; host, remote_dir = "furuta_c",
+                                 ssh = `ssh`, scp = `scp`)
+    missing_files = [f for f in HARNESS_FILES if !isfile(joinpath(dir, f))]
+    isempty(missing_files) ||
+        error("deploy_hardware_harness: $dir is missing $(join(missing_files, ", ")) — \
+               run `export_swingup_c` first")
+    run(`$ssh $host mkdir -p $remote_dir`)
+    run(`$scp $([joinpath(dir, f) for f in HARNESS_FILES]) $host:$remote_dir/`)
+    run(`$ssh $host "cd $remote_dir && make"`)
+    return remote_dir
+end
+
+"""
+    run_hardware_harness_remote(host, remote_dir; local_dir, stream_log=false, ssh=`ssh`, scp=`scp`) -> csv_path
+
+Run the harness on `host`, blocking for its baked-in duration, then copy
+`run_hardware.csv` back into `local_dir` and return the local path.
+
+With `stream_log`, the remote log is followed over ssh into `local_dir` *while the run is
+in progress*, so a live plotter watching the local file sees the run as it happens rather
+than only the copy made afterwards.
+"""
+function run_hardware_harness_remote(host, remote_dir; local_dir, stream_log = false,
+                                     ssh = `ssh`, scp = `scp`)
+    csv = joinpath(local_dir, "run_hardware.csv")
+    remote_csv = "$remote_dir/run_hardware.csv"
+    # Start from a clean slate so a stale log cannot be mistaken for this run's.
+    run(`$ssh $host rm -f $remote_csv`)
+    tail = nothing
+    if stream_log
+        rm(csv; force = true)
+        # -F retries until the harness creates the file, so this can start first.
+        tail = try
+            open(csv, "w") do io
+                run(pipeline(`$ssh $host tail -F -n +1 $remote_csv`; stdout = io,
+                             stderr = devnull); wait = false)
+            end
+        catch e
+            @warn "could not start log streaming; the log will arrive after the run" exception = e
+            nothing
+        end
+    end
+    try
+        run(`$ssh $host "cd $remote_dir && ./run_hardware"`)
+    finally
+        tail === nothing || kill(tail)
+    end
+    run(`$scp $host:$remote_csv $csv`)
+    return csv
 end
 
 """

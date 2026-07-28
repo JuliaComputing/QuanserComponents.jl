@@ -27,5 +27,8 @@ abstract type AbstractFurutaExportCBaseSpec <: DyadInterface.AbstractAnalysisSpe
     live_plot::Bool = false
     live_plot_cmd::String = "kst2"
     live_plot_config::String = "kst2config.kst"
+    deploy_host::String = ""
+    deploy_dir::String = "furuta_c"
+    arm_deg::Float64 = 0.0
     model::Union{Nothing, System} = nothing
 end

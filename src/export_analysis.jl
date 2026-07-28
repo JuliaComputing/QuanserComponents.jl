@@ -19,7 +19,8 @@ export FurutaExportCSolution
 Result of the `FurutaExportC` analysis: the `output_dir` written to, the list of generated
 `files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions, and
 the designed LQR gain `L`. When the analysis was run with `run = true`, `ran` is `true` and
-`log` is the path to the hardware run's CSV log (otherwise `nothing`).
+`log` is the path to the hardware run's CSV log (otherwise `nothing`). With a non-empty
+`deploy_host` the build and the run happen on that host and the log is copied back.
 
 `plotter` holds the live-plot viewer process when the analysis was run with
 `live_plot = true`. It deliberately outlives the analysis so the trace stays on screen
@@ -39,12 +40,26 @@ end
 function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
     mkpath(spec.output_dir)
     L = design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
-    res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax, Tf = spec.Tf)
+    res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax,
+                           Tf = spec.Tf, arm_deg = spec.arm_deg)
     # `run = true` compiles the emitted C control loop and executes it on the physical
     # pendulum for `Tf` seconds, capturing the trace as the `:RunLog` artifact.
     log = nothing
     plotter = nothing
-    if spec.run
+    if spec.run && !isempty(spec.deploy_host)
+        # Build and run on another machine (e.g. a Raspberry Pi with the QUBE attached).
+        # The log is streamed back during the run when a live plot is wanted, so the viewer
+        # watches this run rather than the copy fetched afterwards.
+        deploy_hardware_harness(spec.output_dir; host = spec.deploy_host,
+                                remote_dir = spec.deploy_dir)
+        task = @async run_hardware_harness_remote(spec.deploy_host, spec.deploy_dir;
+                                                  local_dir = spec.output_dir,
+                                                  stream_log = spec.live_plot)
+        spec.live_plot && (plotter = launch_live_plot(spec.output_dir;
+                                                      cmd = spec.live_plot_cmd,
+                                                      config = spec.live_plot_config))
+        log = fetch(task)
+    elseif spec.run
         exe = compile_hardware_harness(spec.output_dir)
         # With `live_plot`, the harness runs on a task so the viewer can be brought up
         # while the run is in progress rather than after it. `fetch` rethrows whatever the

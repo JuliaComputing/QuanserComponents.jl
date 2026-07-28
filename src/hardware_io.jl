@@ -34,7 +34,7 @@
 using ModelingToolkit
 
 export build_qube_hw!, open_hardware!, close_hardware!, bind_hardware!,
-       hardware_counters, hardware_state
+       hardware_counters, hardware_state, quanser_sdk_flags
 
 # The `ccall` library must be a compile-time constant for the C backend to link
 # it statically, so the path is fixed and `build_qube_hw!` writes to it.
@@ -44,6 +44,40 @@ const QUBE_HW_LIB = joinpath(QUBE_HW_DIR,
     "libqube_hw." * (Sys.iswindows() ? "dll" : Sys.isapple() ? "dylib" : "so"))
 
 const QUANSER_HIL_DIR = "/opt/quanser/hil_sdk"
+
+# Libraries the HIL API needs, the same for both SDK layouts below.
+const QUANSER_LIBS = ["-lhil", "-lquanser_runtime", "-lquanser_common",
+                      "-lrt", "-lpthread", "-ldl", "-lm"]
+
+"""
+    quanser_sdk_flags(; quanser_dir=QUANSER_HIL_DIR)
+
+Locate the Quanser HIL SDK and return `(; found, layout, cflags, ldflags)`.
+
+Two layouts are in the wild and `csrc/qube_hw.c` compiles against both unchanged —
+only the search paths differ:
+
+  `:sdk_dir`  the older HIL SDK, headers under `\$quanser_dir/include` and static
+              libraries under `\$quanser_dir/lib`.
+  `:system`   the current `quanser-sdk` Debian packages, headers under
+              `/usr/include/quanser` and shared libraries on the default path
+              (this is what the Raspberry Pi target uses).
+
+`:sdk_dir` wins if both are present, since an explicitly installed SDK directory is
+the more deliberate choice.
+"""
+function quanser_sdk_flags(; quanser_dir::AbstractString = QUANSER_HIL_DIR)
+    if isfile(joinpath(quanser_dir, "include", "hil.h"))
+        return (; found = true, layout = :sdk_dir,
+                  cflags = ["-I$(joinpath(quanser_dir, "include"))"],
+                  ldflags = ["-L$(joinpath(quanser_dir, "lib"))"])
+    elseif isfile("/usr/include/quanser/hil.h")
+        return (; found = true, layout = :system,
+                  cflags = ["-I/usr/include/quanser"], ldflags = String[])
+    else
+        return (; found = false, layout = :none, cflags = String[], ldflags = String[])
+    end
+end
 
 "Path of a C compiler to build the shim with, or `nothing`."
 function _c_compiler()
@@ -61,7 +95,7 @@ function _c_compiler()
 end
 
 """
-    build_qube_hw!(; hil=isdir(QUANSER_HIL_DIR), force=false, quanser_dir=QUANSER_HIL_DIR)
+    build_qube_hw!(; hil=quanser_sdk_flags().found, force=false, quanser_dir=QUANSER_HIL_DIR)
 
 Compile `csrc/qube_hw.c` into `deps/libqube_hw.\$(Libdl.dlext)`, the library the
 generated controller calls into. Called automatically before the controller is
@@ -74,11 +108,11 @@ whether the SDK is installed.
 
 Returns the library path.
 """
-function build_qube_hw!(; hil::Bool = isdir(QUANSER_HIL_DIR), force::Bool = false,
+function build_qube_hw!(; hil::Bool = quanser_sdk_flags().found, force::Bool = false,
                           quanser_dir::AbstractString = QUANSER_HIL_DIR)
     mkpath(QUBE_HW_DIR)
     stamp = QUBE_HW_LIB * ".stamp"
-    want = string(hil, "\n", mtime(QUBE_HW_SRC))
+    want = string(hil, "\n", quanser_sdk_flags(; quanser_dir).layout, "\n", mtime(QUBE_HW_SRC))
     if !force && isfile(QUBE_HW_LIB) && isfile(stamp) && read(stamp, String) == want
         return QUBE_HW_LIB
     end
@@ -87,12 +121,13 @@ function build_qube_hw!(; hil::Bool = isdir(QUANSER_HIL_DIR), force::Bool = fals
         No C compiler found (tried cc, gcc, clang and SynchCompiler's Clang_unified_jll).
         One is needed to build $QUBE_HW_SRC, the hardware I/O the generated
         controller calls into.""")
-    hil && !isdir(quanser_dir) &&
-        error("hil=true but the Quanser HIL SDK was not found at $quanser_dir")
+    sdk = quanser_sdk_flags(; quanser_dir)
+    hil && !sdk.found && error("""
+        hil=true but no Quanser HIL SDK was found: neither $(joinpath(quanser_dir, "include", "hil.h"))
+        nor /usr/include/quanser/hil.h exists.""")
     flags = ["-O2", "-Wall", "-fPIC", "-shared"]
-    hil && append!(flags, ["-DQUBE_HW_HAVE_HIL", "-I$(joinpath(quanser_dir, "include"))"])
-    libs = hil ? ["-L$(joinpath(quanser_dir, "lib"))", "-lhil", "-lquanser_runtime",
-                  "-lquanser_common", "-lrt", "-lpthread", "-ldl", "-lm"] : String[]
+    hil && append!(flags, ["-DQUBE_HW_HAVE_HIL"], sdk.cflags)
+    libs = hil ? vcat(sdk.ldflags, QUANSER_LIBS) : String[]
     run(`$cc $flags -o $QUBE_HW_LIB $QUBE_HW_SRC $libs`)
     write(stamp, want)
     return QUBE_HW_LIB
