@@ -274,6 +274,15 @@ function export_swingup_c(dir; Ts = 0.005, L = nothing, umax = nothing, Tf = 10.
     end
     emit_hardware_harness(dir; Ts, Tf, arm_deg, mangled, r.gains, r.auto,
                           outfields = _out_field_names(joinpath(dir, "top.h"), mangled))
+    # `export_c` copies `synchjulia.h` out of the package depot, which is read-only, and
+    # preserves its mode. Everything here is a build output, so leave nothing unwritable:
+    # otherwise a later export or `scp` into the same directory cannot replace it. Only the
+    # user-write bit is added, so an executable stays executable.
+    for f in readdir(dir; join = true)
+        isfile(f) || continue
+        m = filemode(f)
+        (m & 0o200) == 0 && chmod(f, m | 0o200)
+    end
     return (; dir, gen.topmod, mangled, r.gains, r.auto)
 end
 
@@ -583,8 +592,15 @@ function deploy_hardware_harness(dir; host, remote_dir = "furuta_c",
     isempty(missing_files) ||
         error("deploy_hardware_harness: $dir is missing $(join(missing_files, ", ")) — \
                run `export_swingup_c` first")
-    run(`$ssh $host mkdir -p $remote_dir`)
+    @info "Creating remote dir"
+    # Clear the destinations too. An earlier deploy may have left `synchjulia.h` mode 444
+    # (it originates in the read-only package depot), and `scp` cannot reopen such a file
+    # for writing — it fails mid-transfer with "Permission denied".
+    remote_files = join(("$remote_dir/$f" for f in HARNESS_FILES), " ")
+    run(`$ssh $host "mkdir -p $remote_dir && rm -f $remote_files"`)
+    @info "Copying files (scp)"
     run(`$scp $([joinpath(dir, f) for f in HARNESS_FILES]) $host:$remote_dir/`)
+    @info "make on remote host"
     run(`$ssh $host "cd $remote_dir && make"`)
     return remote_dir
 end
