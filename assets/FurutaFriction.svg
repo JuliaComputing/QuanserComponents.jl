@@ -1,0 +1,20 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- The arm spinning at constant speed about the shoulder axis -->
+<circle cx="330" cy="500" r="34" fill="#131316"/>
+<line x1="330" y1="500" x2="330" y2="240" stroke="#131316" stroke-width="18" stroke-linecap="round"/>
+<circle cx="330" cy="240" r="24" stroke="#131316" stroke-width="14" fill="none"/>
+<path d="M330 500 A 260 260 0 1 1 130 420" stroke="#A1A1AA" stroke-width="14" fill="none" stroke-linecap="round" stroke-dasharray="46 40"/>
+<path d="M130 420 L176 440 M130 420 L146 374" stroke="#A1A1AA" stroke-width="14" fill="none" stroke-linecap="round"/>
+<!-- Staircase of constant speeds, logged to a file -->
+<line x1="560" y1="760" x2="940" y2="760" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
+<line x1="580" y1="200" x2="580" y2="780" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
+<path d="M580 660 L680 660 L680 520 L780 520 L780 380 L880 380 L880 250 L940 250"
+      stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

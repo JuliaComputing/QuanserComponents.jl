@@ -8,6 +8,7 @@ using MultibodyComponents
 # using DiscreteComponents
 using SynchToolkit
 using LinearAlgebra
+using Statistics: cor
 # using SynchJulia
 # SynchJulia.backend!(:julia)
 ##
@@ -271,6 +272,128 @@ import DyadCompilerPasses
             L2 = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 50.0)
             @test !(L2 ≈ sol.L)
         end
+    end
+
+    # ---- friction experiment: logging from inside the program ----------------
+    # `FurutaFriction` puts the whole experiment in the synchronous program, including the
+    # log: `DataLogger` calls into csrc/qube_log.c the same way the hardware components
+    # call into csrc/qube_hw.c. So the properties to check are that the log is written
+    # from inside the tick (one row per tick, no driver involvement) and that both
+    # backends write the same file.
+    @testset "friction experiment ($backend)" for backend in (:julia, :c)
+        logfile = joinpath(mktempdir(), "friction.csv")
+        ctrl = QuanserComponents.FrictionController(; Ts, backend, log_file = logfile)
+        @test ctrl.log_file == logfile          # the model carries the filename, not the driver
+
+        # A first-order axis to close the velocity loop around. Coulomb friction included,
+        # so the recovered `kc` below has something to find.
+        w, phi = Ref(0.0), Ref(0.0)
+        QuanserComponents.bind_hardware!(
+            measure = () -> (phi[], 0.0),
+            control = u -> (w[] += Ts * (0.0065u - 1e-4 * w[] - 3e-4 * tanh(w[] / 0.5)) / 1.2e-4;
+                            phi[] += Ts * w[]; nothing))
+
+        # One full sweep of the reference: 6 speeds in each direction.
+        N = round(Int, QuanserComponents.friction_sweep_duration() / Ts)
+        QuanserComponents.open_log!(logfile;
+                                   header = QuanserComponents.FRICTION_LOG_HEADER,
+                                   ncols = QuanserComponents.FRICTION_LOG_NCOLS)
+        SynchToolkit.reset!(ctrl)
+        out = nothing
+        for _ in 1:N
+            out = ctrl()
+        end
+        QuanserComponents.close_log!()
+
+        st = QuanserComponents.log_state()
+        @test st.rows == N          # exactly one row per tick, written inside the tick
+        @test !st.error
+        @test out.row == N          # and the program's own count agrees
+
+        D = QuanserComponents.read_friction_log(logfile)
+        @test collect(keys(D)) == Symbol.(QuanserComponents.FRICTION_LOG_COLUMNS)
+        @test length(D.time) == N
+        @test D.time[1] ≈ Ts && D.time[end] ≈ N * Ts     # the program's own elapsed time
+        # The staircase: `n_levels` speeds in each direction, reaching both extremes.
+        @test maximum(D.w_ref) ≈ 30.0 && minimum(D.w_ref) ≈ -30.0
+        @test length(unique(round.(D.w_ref, digits = 6))) == 12
+        # The velocity loop tracked, so the log is of an actual experiment.
+        @test cor(D.w_ref, D.shoulder_velocity) > 0.9
+        # `log_row` takes eight arguments whatever `n` is; only `n` columns get written.
+        @test all(l -> length(split(l, '\t')) == QuanserComponents.FRICTION_LOG_NCOLS,
+                  readlines(logfile))
+    end
+
+    # `DataLogger`'s inputs are an `n`-long array comprehension padded out to `log_row`'s
+    # fixed arity of 8. `n` has to stay structural for the comprehension and the padding
+    # loops to be resolved at build time.
+    @testset "DataLogger arity" begin
+        lg = QuanserComponents.DataLogger(; name = :lg, n = 3, filename = "x.csv")
+        eqs = string.(ModelingToolkit.equations(lg))
+        @test count(e -> occursin("log_row", e), eqs) == 1     # one row per tick
+        @test count(e -> occursin(r"v\(t\)\)\[[1-3]\] ~ .*u\(t\)", e), eqs) == 3
+        # The five unused columns are padded, and with a *float* zero: an Int literal here
+        # makes SynchToolkit materialise `v` with a mixed-type `vcat`, which the C backend
+        # rejects as non-isbits. Hence this assertion rather than trust.
+        pad = filter(e -> occursin(r"v\(t\)\)\[[4-8]\] ~", e), eqs)
+        @test length(pad) == 5
+        @test all(e -> occursin("~ 0.0", e), pad)
+    end
+
+    # The friction model a fit feeds into. `kv` is the same quantity as the plant's `br`,
+    # and the whole point of the extra terms is the Coulomb one, which `br` cannot express.
+    @testset "Friction model" begin
+        S = ModelingToolkit.Symbolics
+        p = QuanserComponents.FrictionParams(; kc = 2e-3, kv = 1e-4, k2 = 1e-5,
+                                              k3 = 1e-6, w_tanh = 0.5)
+        f = QuanserComponents.Friction(; name = :f, params = p)
+        us, eqs = ModelingToolkit.unknowns(f), ModelingToolkit.equations(f)
+        sym(n) = us[findfirst(u -> string(u) == n, us)]
+        rhs(n) = eqs[findfirst(e -> string(e.lhs) == n, eqs)].rhs
+        # The component is stateless, so inlining `sw` and the parameter defaults leaves
+        # the whole friction law as one expression in `w`; compile that and evaluate it.
+        expr = S.substitute(S.substitute(rhs("tau(t)"),
+                                         Dict(sym("sw(t)") => rhs("sw(t)"))),
+                            Dict(ModelingToolkit.default_values(f)))
+        tau = S.build_function(expr, sym("w(t)"); expression = Val(false))
+
+        # Odd in w: friction opposes the motion whichever way the axis turns.
+        @test tau(3.0) ≈ -tau(-3.0)
+        # The smoothed sign means no jump at standstill, unlike a hard `sign`.
+        @test tau(0.0) == 0.0
+        # Past the smoothing width the Coulomb term is essentially fully developed...
+        @test tau(2.0) > 0.9 * p.kc
+        # ...and the higher-order terms add to it at speed.
+        @test tau(30.0) > p.kc + p.kv * 30
+        # `friction_nominal` is pure viscous at the plant's `br`, so a fit only adds to it.
+        @test QuanserComponents.friction_nominal.kv == QuanserComponents.nominal.br
+        @test QuanserComponents.friction_nominal.kc == 0
+        # `withparams` replaces only what it is given.
+        q = QuanserComponents.withparams(p; kc = 5e-3)
+        @test q.kc == 5e-3 && q.kv == p.kv && q.w_tanh == p.w_tanh
+    end
+
+    # ---- FurutaFrictionExperiment analysis ----------------------------------
+    @testset "FurutaFrictionExperiment analysis" begin
+        DI = QuanserComponents.DyadInterface
+        # Same guard as FurutaExportCBase: `partial` must survive `dyad format`.
+        @test length(methods(DI.run_analysis,
+                             (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
+        @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
+                               "FurutaFrictionBase_definition.jl"))
+
+        logfile = joinpath(mktempdir(), "analysis.csv")
+        # run=false: the analysis defaults to run=true (drive the hardware), which must
+        # not happen in the test suite. It still compiles the program.
+        sol = QuanserComponents.FurutaFrictionExperiment(; Ts, run = false,
+                                                          log_file = logfile)
+        @test sol.log_file == logfile
+        @test !sol.ran
+        @test isempty(DI.AnalysisSolutionMetadata(sol).artifacts)   # no trace without a run
+        @test_throws ArgumentError DI.artifacts(sol, :Trace)
+        @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
+        @test_throws ArgumentError QuanserComponents.FurutaFrictionExperiment(;
+            Ts, run = false, backend = "fortran")
     end
 
     # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------

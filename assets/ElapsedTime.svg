@@ -1,0 +1,20 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Clock face -->
+<circle cx="420" cy="500" r="270" stroke="#131316" stroke-width="14" fill="none"/>
+<line x1="420" y1="500" x2="420" y2="310" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<line x1="420" y1="500" x2="565" y2="560" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<!-- Tick marks -->
+<line x1="420" y1="240" x2="420" y2="285" stroke="#A1A1AA" stroke-width="12" stroke-linecap="round"/>
+<line x1="420" y1="715" x2="420" y2="760" stroke="#A1A1AA" stroke-width="12" stroke-linecap="round"/>
+<line x1="160" y1="500" x2="205" y2="500" stroke="#A1A1AA" stroke-width="12" stroke-linecap="round"/>
+<line x1="635" y1="500" x2="680" y2="500" stroke="#A1A1AA" stroke-width="12" stroke-linecap="round"/>
+<!-- Accumulating one Ts per tick -->
+<path d="M760 640 L820 640 L820 560 L880 560 L880 480 L940 480" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

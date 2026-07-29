@@ -1,0 +1,23 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Signals arriving, one per column -->
+<line x1="60" y1="260" x2="300" y2="260" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<line x1="60" y1="400" x2="300" y2="400" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<line x1="60" y1="540" x2="300" y2="540" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<line x1="60" y1="680" x2="300" y2="680" stroke="#131316" stroke-width="12" stroke-linecap="round"/>
+<path d="M300 400 L256 374 M300 400 L256 426" stroke="#131316" stroke-width="12" fill="none" stroke-linecap="round"/>
+<!-- File, with a folded corner -->
+<path d="M360 150 L740 150 L860 270 L860 850 L360 850 Z" stroke="#131316" stroke-width="16" fill="none" stroke-linejoin="round"/>
+<path d="M740 150 L740 270 L860 270" stroke="#131316" stroke-width="16" fill="none" stroke-linejoin="round"/>
+<!-- Rows -->
+<line x1="440" y1="400" x2="780" y2="400" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<line x1="440" y1="500" x2="780" y2="500" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<line x1="440" y1="600" x2="780" y2="600" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<line x1="440" y1="700" x2="640" y2="700" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

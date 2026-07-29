@@ -1,0 +1,17 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Axes: torque against velocity -->
+<line x1="80" y1="500" x2="920" y2="500" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
+<line x1="500" y1="90" x2="500" y2="910" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
+<!-- Coulomb offset plus a rising viscous/polynomial part, odd about the origin -->
+<path d="M110 830 C 260 730, 400 660, 495 640 L 495 640" stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round"/>
+<path d="M505 360 C 600 340, 740 270, 890 170" stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round"/>
+<!-- The jump across zero: the Coulomb term -->
+<line x1="500" y1="640" x2="500" y2="360" stroke="#131316" stroke-width="16" stroke-linecap="round" stroke-dasharray="40 34"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

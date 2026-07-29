@@ -1,0 +1,369 @@
+"""
+Elapsed time since the program started, accumulated on the clock.
+
+A purely discrete program has no continuous `time` to read, so anything that needs
+a schedule counts sample times instead. The first tick reports `Ts`, not 0.
+
+Clock-agnostic.
+"""
+component ElapsedTime@[input clk extends Discrete]
+  "Time since the first tick [s]"
+  y = Dyad.RealOutput@[clk]() {^y}
+  "Sample time (defaults to SampleTime())"
+  structural parameter Ts::Real = SampleTime()
+relations
+  initial y@(clk-1) = 0
+  y@clk = y@(clk-1) + Ts
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/ElapsedTime.svg"}},
+  "_links": {
+    "y": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    }
+  }
+}
+end
+
+"""
+Staircase velocity reference that sweeps a range of speeds and then repeats it in
+the other direction.
+
+The friction experiment needs the axis held at a *constant* velocity long enough
+for the acceleration to be negligible, so that `τ = J α + f(ω)` collapses to
+`τ = f(ω)` and the inertia never has to be modelled. It also needs both signs,
+because Coulomb friction is what the experiment is mostly after and a one-sided
+sweep cannot separate it from an offset.
+
+So the reference holds `n_levels` speeds, evenly spaced from `w_min` to `w_max`,
+for `t_step` seconds each, then flips sign and sweeps the same speeds again. One
+full cycle therefore takes `2 * n_levels * t_step` seconds, after which it repeats.
+
+`level` and `dir` are held in delayed variables and advanced by an edge detector on
+the elapsed time rather than computed from it with `floor`/`mod`: it makes the block
+a plain discrete state machine of arithmetic and `ifelse`, which is what keeps it
+compiling for the C backend as readily as for Julia.
+
+Clock-agnostic.
+"""
+component VelocityStaircase@[input clk extends Discrete]
+  "Elapsed time [s], e.g. from `ElapsedTime`"
+  t_in = Dyad.RealInput@[clk]() {^t_in}
+  "Velocity reference [rad/s]"
+  w_ref = Dyad.RealOutput@[clk]() {^w_ref}
+  "Slowest speed in the sweep"
+  parameter w_min::Dyad.AngularVelocity = 2.0
+  "Fastest speed in the sweep"
+  parameter w_max::Dyad.AngularVelocity = 30.0
+  "Number of speeds per direction"
+  parameter n_levels::Real = 6
+  "Time held at each speed [s]"
+  parameter t_step::Dyad.Time = 2.0
+  "Completed steps"
+  variable idx::Real
+  "Index of the current speed, 0 to n_levels-1"
+  variable level::Real
+  "Current direction, +1 or -1"
+  variable dir::Real
+  "1 on the tick a new step begins, else 0"
+  variable advance::Real
+relations
+  initial idx@(clk-1) = 0
+  initial level@(clk-1) = 0
+  initial dir@(clk-1) = 1
+
+  # Edge detector: fires on the first tick at or past the next step boundary.
+  advance@clk = ifelse(t_in@clk >= (idx@(clk-1) + 1) * t_step, 1, 0)
+  idx@clk = idx@(clk-1) + advance@clk
+
+  # Walk up the levels; on wrapping past the top level, restart at the bottom in
+  # the opposite direction.
+  level@clk = ifelse(advance@clk > 0.5,
+                     ifelse(level@(clk-1) + 1 >= n_levels, 0, level@(clk-1) + 1),
+                     level@(clk-1))
+  dir@clk = ifelse(advance@clk > 0.5,
+                   ifelse(level@(clk-1) + 1 >= n_levels, -dir@(clk-1), dir@(clk-1)),
+                   dir@(clk-1))
+
+  w_ref@clk = dir@clk * (w_min + (w_max - w_min) * level@clk / max(n_levels - 1, 1))
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/VelocityStaircase.svg"}},
+  "_links": {
+    "t_in": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "w_ref": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    }
+  }
+}
+end
+
+"""
+Writes one row of the connected signals to a file on every tick, from inside the
+synchronous program.
+
+The row is appended by `log_row`, a call out to C (`csrc/qube_log.c`, via
+`src/data_log.jl`), so this logs from the Julia backend, the `:c` backend and
+exported standalone C alike — the same arrangement `HardwareMeasurement` and
+`HardwareCommand` use for the device I/O. No data leaves through the component's
+interface: the file is the output.
+
+`n` sets how many inputs there are, so connect `u[1]` through `u[n]`. `filename` and
+`header` are **structural** parameters, i.e. build-time Julia values that never enter
+the equations — a filename is a string and every signal crossing a synchronous node's
+interface is a `double`, so the file is opened by the driver (`open_log!`) with the
+values the model was built with rather than by the program itself.
+
+`row` is the number of the row just written, or 0 when no log is open — in which
+case the component is inert and the model runs unchanged.
+
+`log_row` has a fixed arity of eight because a registered operator must: there is no
+variable-argument form, and passing an array instead would put an array-valued signal
+inside the clocked partition. So `v` pads the `n` inputs out to eight, and the columns
+past `n` are discarded because the C side writes only the `ncols` it was opened with.
+
+The padding is `0.0` and not `0` on purpose, and this one bites: mixing element types
+across an array variable's equations — some `Float64`, some the integer literal Dyad
+emits for `= 0` — makes SynchToolkit materialise `v` with `vcat` into a
+`SynchJulia.SynchArray`, which SynchCompiler's C lowering then rejects as non-isbits.
+All-`Float64` elements compile on both backends. Nothing in the Dyad source hints that
+`0` and `0.0` differ, and the error surfaces two packages away naming only
+`Tuple{typeof(vcat), Float64, …, Int64}`, so keep the zeros floating.
+
+`u`'s placement carries `show: 8`, which is what fans an array connector out into one
+sub-connector per element across its bounding box (a tall band down the left edge
+here) instead of collapsing it to a single point. The kernel has honoured that since
+June 2026; `dyad-ui` 0.12.1, which the headless diagram exporter bundles, does not, so
+PNGs from that route still draw all `n` connections converging.
+
+Clock-agnostic.
+"""
+component DataLogger@[input clk extends Discrete]
+  "Signals to log, one column each"
+  u = [Dyad.RealInput@[clk]() for i in 1:n] {^u}
+  "Number of the row just written, 0 if no log is open"
+  row = Dyad.RealOutput@[clk]() {^row}
+  "Number of signals logged, 1 to 8"
+  structural parameter n::Integer = 1
+  "File the rows are written to, opened by the driver with this name"
+  structural parameter filename::String = "log.csv"
+  "Tab-separated column names written as the first line; empty writes no header"
+  structural parameter header::String = ""
+  "The inputs, padded out to the operator's fixed arity"
+  variable v::Real[8]
+relations
+  for i in 1:n
+    v[i] = u[i]
+  end
+  for i in n+1:8
+    v[i] = 0.0
+  end
+
+  row@clk = log_row(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8])
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/DataLogger.svg"}},
+  "_links": {
+    "u": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"x1": -100, "x2": 0, "y1": 60, "y2": 940, "show": 8}
+        }
+      }
+    },
+    "row": {"Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}}
+  }
+}
+end
+
+"""
+Friction torque on a rotational axis: Coulomb plus viscous plus a quadratic and a
+cubic term.
+
+```math
+τ_f(ω) = k_c σ(ω) + k_v ω + k_2 σ(ω) ω^2 + k_3 ω^3
+```
+
+with `σ(ω) = tanh(ω / w_tanh)`, or the hard `sign(ω)` when `smooth = false`. The
+sign-odd terms carry `σ` so that `τ_f(-ω) = -τ_f(ω)`: the torque always opposes the
+motion. Smoothing is the default because a hard `sign` at `ω = 0` is both
+numerically awkward and a poor description of what the device does at a standstill;
+`w_tanh` is the width of the transition, in rad/s.
+
+`tau` is the magnitude of the *opposing* torque, i.e. positive for positive `w`, so
+it enters an equation of motion with a minus sign: `J ω̇ = τ_motor - tau`.
+
+The coefficients come from a [`FrictionParams`](@ref) set, so a whole fit can be
+selected in one line — `Friction(params = friction_identified)` — the same
+arrangement `QubePendulum` uses for `IdParams`. Fit them from a constant-velocity
+experiment with `FurutaFrictionExperiment` and
+examples/friction_identification.jl.
+
+`k_v` is the same quantity as `QubePendulum`'s `br`, so a fit is directly usable
+there; what `br` cannot express is `k_c`, which is why the pendulum needs more
+voltage to start moving than to keep moving.
+"""
+component Friction
+  "Angular velocity of the axis [rad/s]"
+  w = Dyad.RealInput() {^w}
+  "Friction torque opposing the motion [N·m]"
+  tau = Dyad.RealOutput() {^tau}
+  "Coefficient set (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)"
+  structural parameter params::Native = friction_nominal
+  "Smooth the sign with tanh instead of using a hard sign"
+  structural parameter smooth::Boolean = true
+  "Coulomb (breakaway) torque"
+  parameter kc::Dyad.Torque = params.kc
+  "Viscous coefficient, comparable with QubePendulum's `br`"
+  parameter kv::Dyad.RotationalDampingConstant = params.kv
+  "Quadratic coefficient"
+  parameter k2::Real = params.k2
+  "Cubic coefficient"
+  parameter k3::Real = params.k3
+  "Width of the smoothed sign transition [rad/s] (only used if `smooth = true`)"
+  parameter w_tanh::Dyad.AngularVelocity = params.w_tanh
+  "Sign of the velocity, smoothed or not"
+  variable sw::Real
+relations
+  # A structural switch, not `ifelse`: `ifelse` evaluates both branches, so the
+  # tanh would divide by zero whenever a hard sign is what was asked for.
+  if smooth
+    sw = tanh(w / w_tanh)
+  else
+    sw = sign(w)
+  end
+  tau = kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Friction.svg"}},
+  "_links": {
+    "w": {"Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}},
+    "tau": {"Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}}
+  }
+}
+end
+
+"""
+Constant-velocity friction experiment on the physical QUBE, as a single synchronous
+program.
+
+The arm is driven around a staircase of constant speeds by a PI velocity
+controller, and every tick a row of `[time, w_ref, shoulder_angle,
+shoulder_velocity, control_input, elbow_angle]` is written to `log_file`. Fit
+`FrictionParams` to that log with examples/friction_identification.jl; run the
+experiment with the `FurutaFrictionExperiment` analysis.
+
+Everything is inside the program: `HardwareMeasurement` reads the encoders,
+`HardwareCommand` writes the motor, `DataLogger` writes the file. So the driver
+supplies nothing but a clock tick — see `generate_friction_controller` and
+`FrictionController` in src/friction.jl.
+
+The velocity loop's `K` and `Ti` stay on `velocity_pi` rather than being lifted to
+parameters here, because those two are the ones worth retuning against the real
+device: they are the compiled program's runtime-settable `TuningGains`, so
+`FrictionController(; K, Ti)` changes them without recompiling. Everything else is
+resolved at build time.
+
+Two things about the experiment that matter more than the model does:
+
+  * **Turn deadband compensation off.** The driver can add a fixed offset in the
+    direction of the command, which lands directly on top of the Coulomb term this
+    experiment exists to measure — enough to make the fitted `kc` come out
+    negative. `FurutaFrictionExperiment` defaults `card_options` to
+    `"deadband_compensation=0.0"` for exactly this reason. The `kc` that comes out
+    then covers the amplifier's own deadband as well as mechanical Coulomb
+    friction; this experiment cannot separate the two.
+  * **The pendulum is a disturbance here.** At a genuinely constant arm speed it
+    contributes no torque about the shoulder axis, but it takes a long time to get
+    there — `bp` is tiny — so it rings through most of each step. The inertia-disc
+    configuration gives a much cleaner fit if the disc is at hand. Otherwise the
+    logged `elbow_angle` is there so the identification script can keep only the
+    samples where the pendulum is also quiet.
+"""
+component FurutaFriction
+  measurement = HardwareMeasurement() {^measurement}
+  elapsed = ElapsedTime() {^elapsed}
+  reference = VelocityStaircase(final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step) {^reference}
+  velocityestimator = VelocityEstimator(final filter_param = filter_param) {^velocityestimator}
+  velocity_pi = DiscreteComponents.DiscretePIDStandard(with_D = false, K = 0.02, Ti = 0.1, wp = 0.2, final y_max = umax) {^velocity_pi}
+  command = HardwareCommand(final umax = umax) {^command}
+  logger = DataLogger(n = FRICTION_LOG_NCOLS, filename = log_file, header = FRICTION_LOG_HEADER) {^logger}
+  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+  "Sample time [s]"
+  structural parameter Ts::Real = 0.005
+  "File the log is written to; the driver opens it with this name"
+  structural parameter log_file::String = FRICTION_LOG_FILE
+  "Motor saturation [V]"
+  parameter umax::Dyad.Voltage = 10.0
+  "Velocity-estimator filter parameter; small means more filtering"
+  parameter filter_param::Real(min = 0, max = 1) = 0.1
+  "Slowest speed in the sweep [rad/s]"
+  parameter w_min::Dyad.AngularVelocity = 2.0
+  "Fastest speed in the sweep [rad/s]"
+  parameter w_max::Dyad.AngularVelocity = 30.0
+  "Number of speeds per direction"
+  parameter n_levels::Real = 6
+  "Time held at each speed [s]"
+  parameter t_step::Dyad.Time = 2.0
+relations
+  # The clock reaches the partition through the measurement, as in FurutaHardware.
+  connect(measurement.shoulder_angle, velocityestimator.pos, periodicclock.y) {^id1}
+  connect(elapsed.y, reference.t_in) {^id2}
+  connect(reference.w_ref, velocity_pi.u_s) {^id3}
+  connect(velocityestimator.vel, velocity_pi.u_m) {^id4}
+  connect(velocity_pi.y, command.u) {^id5}
+  # Logging, in the FRICTION_LOG_COLUMNS order
+  connect(elapsed.y, logger.u[1]) {^id6}
+  connect(reference.w_ref, logger.u[2]) {^id7}
+  connect(measurement.shoulder_angle, logger.u[3]) {^id8}
+  connect(velocityestimator.vel, logger.u[4]) {^id9}
+  connect(command.u_applied, logger.u[5]) {^id10}
+  connect(measurement.elbow_angle, logger.u[6]) {^id11}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaFriction.svg"}},
+  "_links": {
+    "measurement": {
+      "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 300, "y2": 400}}}
+    },
+    "elapsed": {
+      "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 620, "y2": 720}}}
+    },
+    "reference": {
+      "Dyad": {"placement": {"diagram": {"x1": 220, "x2": 320, "y1": 620, "y2": 720}}}
+    },
+    "velocityestimator": {
+      "Dyad": {"placement": {"diagram": {"x1": 220, "x2": 320, "y1": 300, "y2": 400}}}
+    },
+    "velocity_pi": {
+      "Dyad": {"placement": {"diagram": {"x1": 420, "x2": 520, "y1": 460, "y2": 560}}}
+    },
+    "command": {
+      "Dyad": {"placement": {"diagram": {"x1": 620, "x2": 720, "y1": 460, "y2": 560}}}
+    },
+    "logger": {
+      "Dyad": {"placement": {"diagram": {"x1": 840, "x2": 940, "y1": 300, "y2": 720}}}
+    },
+    "periodicclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 120, "y2": 220}}}
+    },
+    "id1": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [], "E": 2},
+          {"S": -1, "M": [{"x": 180, "y": 170}], "E": 3}
+        ],
+        "junctions": [{"x": 180, "y": 350}]
+      }
+    },
+    "id2": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id3": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id4": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id5": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id6": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id7": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id8": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id9": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id10": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id11": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+  }
+}
+end
