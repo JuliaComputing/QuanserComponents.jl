@@ -29,6 +29,7 @@ relations
   shoulder_angle@clk = hw_shoulder(trig)
   elbow_angle@clk = hw_elbow(trig)
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/HardwareMeasurement.svg"}},
   "_links": {
     "shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 170, "y2": 270}}}
@@ -63,6 +64,7 @@ component HardwareCommand@[input clk extends Discrete]
 relations
   u_applied@clk = hw_write(u, umax)
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/HardwareCommand.svg"}},
   "_links": {
     "u": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
@@ -97,6 +99,7 @@ relations
   connect(measurement.elbow_angle, control_system.elbow_angle) {^id6}
   connect(control_system.u, command.u) {^id7}
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaHardware.svg"}},
   "_links": {
     "measurement": {
       "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 136, "y2": 236}}}

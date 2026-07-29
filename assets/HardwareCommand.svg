@@ -1,0 +1,20 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Commanded voltage arriving -->
+<line x1="90" y1="500" x2="250" y2="500" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<path d="M250 500 L206 474 M250 500 L206 526" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+<!-- Amplifier -->
+<path d="M270 340 L270 660 L560 500 Z" stroke="#131316" stroke-width="14" fill="none" stroke-linejoin="round"/>
+<!-- Saturation: the command is clamped to +/-umax before it gets here -->
+<path d="M300 250 L360 250 L420 130 L480 130" stroke="#A1A1AA" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- Motor -->
+<circle cx="760" cy="500" r="150" stroke="#131316" stroke-width="14" fill="none"/>
+<text x="760" y="546" font-family="Arial, Helvetica, sans-serif" font-size="150" font-weight="bold" fill="#131316" text-anchor="middle">M</text>
+<line x1="560" y1="500" x2="610" y2="500" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

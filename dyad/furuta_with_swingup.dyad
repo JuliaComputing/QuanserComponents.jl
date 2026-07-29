@@ -20,6 +20,7 @@ relations
   connect(gain.u, control_system.u) {^id14}
   connect(gain.y, zeroorderhold.u) {^id15}
 metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaSwingup.svg"}},
   "_links": {
     "control_system": {
       "Dyad": {"placement": {"diagram": {"x1": 90, "y1": 300, "x2": 270, "y2": 480}}}
@@ -1095,6 +1096,7 @@ component Cos
   extends BlockComponents.Interfaces.SISO
 relations
   y = cos(u)
+metadata {"Dyad": {"icons": {"default": "dyad://QuanserComponents/Cos.svg"}}}
 end
 
 """

@@ -1,0 +1,15 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Axes -->
+<line x1="120" y1="500" x2="880" y2="500" stroke="#A1A1AA" stroke-width="6"/>
+<line x1="140" y1="220" x2="140" y2="780" stroke="#A1A1AA" stroke-width="6"/>
+<!-- One period of a cosine, starting at its maximum -->
+<path d="M140 260 C 233 260 233 740 326 740 S 419 260 512 260 S 605 740 698 740 S 791 260 884 260"
+      stroke="#131316" stroke-width="18" fill="none" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

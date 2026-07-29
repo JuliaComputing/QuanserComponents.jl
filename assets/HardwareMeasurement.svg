@@ -1,0 +1,27 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Encoder disc: what is actually being read -->
+<circle cx="340" cy="500" r="210" stroke="#131316" stroke-width="14" fill="none"/>
+<!-- Slotted rim, suggesting a quadrature encoder wheel -->
+<line x1="340" y1="290" x2="340" y2="350" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="488" y1="352" x2="446" y2="394" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="550" y1="500" x2="490" y2="500" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="488" y1="648" x2="446" y2="606" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="340" y1="710" x2="340" y2="650" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="192" y1="648" x2="234" y2="606" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="130" y1="500" x2="190" y2="500" stroke="#A1A1AA" stroke-width="12"/>
+<line x1="192" y1="352" x2="234" y2="394" stroke="#A1A1AA" stroke-width="12"/>
+<!-- Hub -->
+<circle cx="340" cy="500" r="46" fill="#131316"/>
+<!-- Two measured angles leaving the block -->
+<line x1="600" y1="360" x2="850" y2="360" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<path d="M850 360 L800 332 M850 360 L800 388" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+<line x1="600" y1="640" x2="850" y2="640" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<path d="M850 640 L800 612 M850 640 L800 668" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>
