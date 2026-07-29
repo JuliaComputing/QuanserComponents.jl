@@ -70,20 +70,13 @@ relations
   initial idx@(clk-1) = 0
   initial level@(clk-1) = 0
   initial dir@(clk-1) = 1
-
   # Edge detector: fires on the first tick at or past the next step boundary.
   advance@clk = ifelse(t_in@clk >= (idx@(clk-1) + 1) * t_step, 1, 0)
   idx@clk = idx@(clk-1) + advance@clk
-
   # Walk up the levels; on wrapping past the top level, restart at the bottom in
   # the opposite direction.
-  level@clk = ifelse(advance@clk > 0.5,
-                     ifelse(level@(clk-1) + 1 >= n_levels, 0, level@(clk-1) + 1),
-                     level@(clk-1))
-  dir@clk = ifelse(advance@clk > 0.5,
-                   ifelse(level@(clk-1) + 1 >= n_levels, -dir@(clk-1), dir@(clk-1)),
-                   dir@(clk-1))
-
+  level@clk = ifelse(advance@clk > 0.5, ifelse(level@(clk-1) + 1 >= n_levels, 0, level@(clk-1) + 1), level@(clk-1))
+  dir@clk = ifelse(advance@clk > 0.5, ifelse(level@(clk-1) + 1 >= n_levels, -dir@(clk-1), dir@(clk-1)), dir@(clk-1))
   w_ref@clk = dir@clk * (w_min + (w_max - w_min) * level@clk / max(n_levels - 1, 1))
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/VelocityStaircase.svg"}},
@@ -155,22 +148,21 @@ relations
   for i in 1:n
     v[i] = u[i]
   end
-  for i in n+1:8
+  for i in n + 1:8
     v[i] = 0.0
   end
-
   row@clk = log_row(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8])
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/DataLogger.svg"}},
   "_links": {
     "u": {
       "Dyad": {
-        "placement": {
-          "diagram": {"x1": -100, "x2": 0, "y1": 60, "y2": 940, "show": 8}
-        }
+        "placement": {"diagram": {"x1": -100, "x2": 0, "y1": 60, "y2": 940, "show": 8}}
       }
     },
-    "row": {"Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}}
+    "row": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    }
   }
 }
 end
@@ -235,8 +227,12 @@ relations
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/Friction.svg"}},
   "_links": {
-    "w": {"Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}},
-    "tau": {"Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}}
+    "w": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "tau": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    }
   }
 }
 end
@@ -283,7 +279,7 @@ component FurutaFriction
   elapsed = ElapsedTime() {^elapsed}
   reference = VelocityStaircase(final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step) {^reference}
   velocityestimator = VelocityEstimator(final filter_param = filter_param) {^velocityestimator}
-  velocity_pi = DiscreteComponents.DiscretePIDStandard(with_D = false, K = 0.02, Ti = 0.1, wp = 0.2, final y_max = umax) {^velocity_pi}
+  velocity_pi = DiscreteComponents.DiscretePIDStandard(with_D = false, K = 0.04, Ti = 0.1, wp = 0.2, final y_max = umax) {^velocity_pi}
   command = HardwareCommand(final umax = umax) {^command}
   logger = DataLogger(n = FRICTION_LOG_NCOLS, filename = log_file, header = FRICTION_LOG_HEADER) {^logger}
   periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
@@ -305,18 +301,18 @@ component FurutaFriction
   parameter t_step::Dyad.Time = 2.0
 relations
   # The clock reaches the partition through the measurement, as in FurutaHardware.
-  connect(measurement.shoulder_angle, velocityestimator.pos, periodicclock.y) {^id1}
-  connect(elapsed.y, reference.t_in) {^id2}
-  connect(reference.w_ref, velocity_pi.u_s) {^id3}
-  connect(velocityestimator.vel, velocity_pi.u_m) {^id4}
-  connect(velocity_pi.y, command.u) {^id5}
+  connect(measurement.shoulder_angle, velocityestimator.pos, periodicclock.y) {^id9}
+  connect(elapsed.y, reference.t_in) {^id10}
+  connect(reference.w_ref, velocity_pi.u_s) {^id11}
+  connect(velocityestimator.vel, velocity_pi.u_m) {^id12}
+  connect(velocity_pi.y, command.u) {^id13}
   # Logging, in the FRICTION_LOG_COLUMNS order
-  connect(elapsed.y, logger.u[1]) {^id6}
-  connect(reference.w_ref, logger.u[2]) {^id7}
-  connect(measurement.shoulder_angle, logger.u[3]) {^id8}
-  connect(velocityestimator.vel, logger.u[4]) {^id9}
-  connect(command.u_applied, logger.u[5]) {^id10}
-  connect(measurement.elbow_angle, logger.u[6]) {^id11}
+  connect(elapsed.y, logger.u[1]) {^id14}
+  connect(reference.w_ref, logger.u[2]) {^id15}
+  connect(measurement.shoulder_angle, logger.u[3]) {^id16}
+  connect(velocityestimator.vel, logger.u[4]) {^id17}
+  connect(command.u_applied, logger.u[5]) {^id18}
+  connect(measurement.elbow_angle, logger.u[6]) {^id19}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaFriction.svg"}},
   "_links": {
@@ -339,12 +335,12 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 620, "x2": 720, "y1": 460, "y2": 560}}}
     },
     "logger": {
-      "Dyad": {"placement": {"diagram": {"x1": 840, "x2": 940, "y1": 300, "y2": 720}}}
+      "Dyad": {"placement": {"diagram": {"x1": 840, "x2": 940, "y1": 460, "y2": 560}}}
     },
     "periodicclock": {
       "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 120, "y2": 220}}}
     },
-    "id1": {
+    "id9": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
@@ -354,16 +350,16 @@ metadata {
         "junctions": [{"x": 180, "y": 350}]
       }
     },
-    "id2": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id3": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id4": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id5": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id6": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id7": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id8": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id9": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
     "id10": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id11": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+    "id11": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id13": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id15": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id16": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id17": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id18": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id19": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
   }
 }
 end

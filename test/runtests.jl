@@ -9,6 +9,7 @@ using MultibodyComponents
 using SynchToolkit
 using LinearAlgebra
 using Statistics: cor
+using Printf: @sprintf
 # using SynchJulia
 # SynchJulia.backend!(:julia)
 ##
@@ -373,27 +374,147 @@ import DyadCompilerPasses
         @test q.kc == 5e-3 && q.kv == p.kv && q.w_tanh == p.w_tanh
     end
 
+    # ---- friction identification --------------------------------------------
+    # The fit is what the experiment exists for, so it runs inside the analysis. Exercise it
+    # on a synthetic log with known coefficients: constant-velocity segments whose command
+    # is the friction model evaluated exactly, so the regression must recover it.
+    @testset "friction fit" begin
+        motor = QuanserComponents.identified
+        g = motor.kt / motor.Rm
+        a_true = [0.12, 0.004, 2.0e-5, 1.0e-7]     # command-space [sign, w, sign*w^2, w^3]
+        Ts_f = 0.005
+        # Six speeds per direction, 2 s each, held exactly constant so `acc` is zero and
+        # every sample past `settle` survives selection.
+        speeds = [s * w for s in (1, -1) for w in range(2, 30, length = 6)]
+        nper = round(Int, 2.0 / Ts_f)
+        w = repeat(speeds, inner = nper)
+        n = length(w)
+        u = a_true[1] .* sign.(w) .+ a_true[2] .* w .+
+            a_true[3] .* sign.(w) .* w .^ 2 .+ a_true[4] .* w .^ 3
+        log = (; time = collect((1:n) .* Ts_f), w_ref = w, shoulder_angle = cumsum(w) .* Ts_f,
+                 shoulder_velocity = w, control_input = u, elbow_angle = zeros(n))
+
+        d = QuanserComponents.friction_data(log)
+        # Only step transients are rejected. `settle` accounts for most of it (0.6 s of each
+        # 2 s segment), and a little more goes because the acceleration smoothing is
+        # zero-phase: the spike at a step bleeds backwards into the tail of the segment
+        # before it, which `settle` alone does not cover.
+        settle_only = n - 12 * round(Int, 0.6 / Ts_f)
+        @test 0.9 * settle_only < count(d.keep) < settle_only
+        @test all(iszero, d.w_elbow)          # a still pendulum disturbs nothing
+
+        fit = QuanserComponents.fit_friction(d; motor)
+        @test fit.a ≈ a_true rtol=1e-6        # exact data, so the regression is exact
+        @test fit.resid_rms < 1e-9
+        @test fit.nkeep == count(d.keep) && fit.nsamples == n
+        # Torque space: kc/k2/k3 scale by kt/Rm, kv additionally folds out the back-EMF.
+        @test fit.params.kc ≈ g * a_true[1]
+        @test fit.params.kv ≈ g * (a_true[2] - motor.km)
+        @test fit.params.k2 ≈ g * a_true[3]
+        @test fit.params.k3 ≈ g * a_true[4]
+        # The report is what gets printed, and it must be paste-ready.
+        rep = QuanserComponents.friction_report(fit)
+        @test occursin("const friction_identified = withparams(friction_nominal;", rep)
+        @test occursin("kc", rep) && occursin("k3", rep)
+
+        # Too little surviving data must warn and return nothing, not throw: losing the
+        # trace would be worse than losing the fit.
+        few = QuanserComponents.friction_data(log; w_min_fit = 1e4)
+        @test count(few.keep) == 0
+        @test (@test_logs (:warn,) match_mode=:any QuanserComponents.fit_friction(few)) ===
+              nothing
+    end
+
     # ---- FurutaFrictionExperiment analysis ----------------------------------
     @testset "FurutaFrictionExperiment analysis" begin
         DI = QuanserComponents.DyadInterface
+        RB = QuanserComponents.RecipesBase
         # Same guard as FurutaExportCBase: `partial` must survive `dyad format`.
         @test length(methods(DI.run_analysis,
                              (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
         @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
                                "FurutaFrictionBase_definition.jl"))
 
-        logfile = joinpath(mktempdir(), "analysis.csv")
-        # run=false: the analysis defaults to run=true (drive the hardware), which must
-        # not happen in the test suite. It still compiles the program.
+        dir = mktempdir()
+        logfile = joinpath(dir, "analysis.csv")
+        # run=false: the analysis defaults to run=true (drive the hardware), which must not
+        # happen in the test suite. It still compiles the program.
         sol = QuanserComponents.FurutaFrictionExperiment(; Ts, run = false,
                                                           log_file = logfile)
         @test sol.log_file == logfile
         @test !sol.ran
-        @test isempty(DI.AnalysisSolutionMetadata(sol).artifacts)   # no trace without a run
+        @test sol.fit === nothing && sol.data === nothing
+        @test isempty(DI.AnalysisSolutionMetadata(sol).artifacts)   # nothing to show yet
         @test_throws ArgumentError DI.artifacts(sol, :Trace)
         @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
         @test_throws ArgumentError QuanserComponents.FurutaFrictionExperiment(;
             Ts, run = false, backend = "fortran")
+
+        # With a log present, `run = false` re-fits it without touching the hardware — the
+        # workflow that used to need a separate script.
+        ctrl = QuanserComponents.FrictionController(; Ts, backend = :julia,
+                                                     log_file = logfile)
+        wr, phi = Ref(0.0), Ref(0.0)
+        QuanserComponents.bind_hardware!(
+            measure = () -> (phi[], 0.0),
+            control = u -> (wr[] += Ts * (0.0065u - 1e-4 * wr[] -
+                                          3e-4 * tanh(wr[] / 0.5)) / 1.2e-4;
+                            phi[] += Ts * wr[]; nothing))
+        QuanserComponents.open_log!(logfile;
+                                   header = QuanserComponents.FRICTION_LOG_HEADER,
+                                   ncols = QuanserComponents.FRICTION_LOG_NCOLS)
+        SynchToolkit.reset!(ctrl)
+        for _ in 1:round(Int, QuanserComponents.friction_sweep_duration() / Ts)
+            ctrl()
+        end
+        QuanserComponents.close_log!()
+
+        sol2 = QuanserComponents.FurutaFrictionExperiment(; Ts, run = false,
+                                                           log_file = logfile)
+        @test sol2.data !== nothing
+        @test sol2.fit !== nothing
+        # The simulated axis has Coulomb friction, so the fit must find some.
+        @test sol2.fit.params.kc > 0
+        @test sol2.fit.nkeep > 100
+
+        # Artifacts: the two plots, the trace table, the parameter table, and the object.
+        md = DI.AnalysisSolutionMetadata(sol2)
+        @test Set(nameof.(md.artifacts)) ==
+              Set([:ExperimentPlot, :Trace, :FitPlot, :FrictionParameters, :FrictionParams])
+        tbl = DI.artifacts(sol2, :Trace)
+        @test collect(keys(tbl)) == Symbol.(QuanserComponents.FRICTION_LOG_COLUMNS)
+        pars = DI.artifacts(sol2, :FrictionParameters)
+        @test length(pars.torque) == 4 && length(pars.command) == 4
+        @test DI.artifacts(sol2, :FrictionParams) === sol2.fit.params
+        @test DI.artifacts(sol2, :FrictionParams) isa QuanserComponents.FrictionParams
+
+        # `plot(sol)` covers every panel without arguments. Applied through RecipesBase
+        # directly so this needs no plotting backend: four panels (three trace + one fit),
+        # each series carrying its subplot index.
+        series = RB.apply_recipe(Dict{Symbol, Any}(), sol2)
+        # 5 experiment series (ω pair + selected scatter, command, diagnostics pair +
+        # threshold lines) and 3 fit series (data, hard-sign curve, tanh curve).
+        @test length(series) == 8
+        @test Set(s.plotattributes[:subplot] for s in series) == Set(1:4)
+        # Restricted to what each plot artifact shows.
+        exp_series = RB.apply_recipe(Dict{Symbol, Any}(:friction_panels => :experiment), sol2)
+        @test maximum(s -> s.plotattributes[:subplot], exp_series) == 3
+        fit_series = RB.apply_recipe(Dict{Symbol, Any}(:friction_panels => :fit), sol2)
+        @test maximum(s -> s.plotattributes[:subplot], fit_series) == 1
+        @test_throws ArgumentError RB.apply_recipe(
+            Dict{Symbol, Any}(:friction_panels => :nonsense), sol2)
+        # ...and end to end through Plots, which is what the user actually calls and what
+        # the two PlotlyPlot artifacts return.
+        @test Plots.plot(sol2) isa Plots.Plot
+        @test DI.artifacts(sol2, :ExperimentPlot) isa Plots.Plot
+        @test DI.artifacts(sol2, :FitPlot) isa Plots.Plot
+
+        # `show` prints the fitted parameters, so the numbers are never more than a
+        # `sol` away.
+        shown = sprint(show, MIME"text/plain"(), sol2)
+        @test occursin("identified friction", shown)
+        @test occursin("friction_identified = withparams", shown)
+        @test occursin(@sprintf("%.8g", sol2.fit.params.kc), shown)
     end
 
     # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------

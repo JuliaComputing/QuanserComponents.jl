@@ -43,6 +43,20 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   var"Ti"::Float64 = 0.1
   # Backend to build the program on, \"julia\" or \"c\"
   var"backend"::String = "julia"
+  # Time [s] discarded after each change of the velocity reference. The fit assumes zero
+  # acceleration, so the transient at each step has to go
+  var"settle"::Float64 = 0.6
+  # Largest |arm acceleration| [rad/s²] still counted as constant speed
+  var"acc_tol"::Float64 = 3.0
+  # Largest |pendulum velocity| [rad/s] accepted. At constant arm speed the pendulum
+  # should be at rest too; while it swings it is a torque disturbance
+  var"elbow_tol"::Float64 = 1.5
+  # Slowest |velocity| [rad/s] used in the fit; near standstill the sign term is undefined
+  var"w_min_fit"::Float64 = 0.5
+  # Fastest |velocity| [rad/s] used in the fit
+  var"w_max_fit"::Float64 = 40.0
+  # Width of the moving average applied to the acceleration before thresholding, in samples
+  var"smooth_n"::Int = 20
   # Constant-velocity friction experiment on the physical QUBE, as a single synchronous
   # program.
   # 
@@ -86,7 +100,7 @@ function DyadInterface.run_analysis(spec::FurutaFrictionExperimentSpec)
   no_namespace_model = toggle_namespacing(spec.model, false)
   
   base_spec = FurutaFrictionBaseSpec(;
-    name=:FurutaFrictionBase, overrides, Ts=spec.Ts, log_file=spec.log_file, run=spec.run, Tf=spec.Tf, arm_deg=spec.arm_deg, card_options=spec.card_options, umax=spec.umax, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, K=spec.K, Ti=spec.Ti, backend=spec.backend, model=spec.model
+    name=:FurutaFrictionBase, overrides, Ts=spec.Ts, log_file=spec.log_file, run=spec.run, Tf=spec.Tf, arm_deg=spec.arm_deg, card_options=spec.card_options, umax=spec.umax, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, K=spec.K, Ti=spec.Ti, backend=spec.backend, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
   )
   run_analysis(base_spec)
 end

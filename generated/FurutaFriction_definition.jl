@@ -155,7 +155,7 @@ Two things about the experiment that matter more than the model does:
   delete!(__velocityestimator_ics, __velocityestimator_filter_param)
   # Subcomponent velocity_pi of type DiscreteComponents.DiscretePIDStandard
   velocity_pi_overrides = __pop_subcomponent_overrides!(__overrides, "velocity_pi")
-  push!(__systems, @named velocity_pi = DiscreteComponents.DiscretePIDStandard(; with_D=false, K=0.02, Ti=0.1, wp=0.2, velocity_pi_overrides...))
+  push!(__systems, @named velocity_pi = DiscreteComponents.DiscretePIDStandard(; with_D=false, K=0.04, Ti=0.1, wp=0.2, velocity_pi_overrides...))
   __bindings[velocity_pi.y_max] = umax
   # Now remove initial conditions in velocity_pi that correspond to the bindings just added
   __velocity_pi_ics = ModelingToolkit.get_initial_conditions(velocity_pi)

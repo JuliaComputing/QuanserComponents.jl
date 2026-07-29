@@ -32,5 +32,11 @@ abstract type AbstractFurutaFrictionBaseSpec <: DyadInterface.AbstractAnalysisSp
     K::Float64 = 0.02
     Ti::Float64 = 0.1
     backend::String = "julia"
+    settle::Float64 = 0.6
+    acc_tol::Float64 = 3.0
+    elbow_tol::Float64 = 1.5
+    w_min_fit::Float64 = 0.5
+    w_max_fit::Float64 = 40.0
+    smooth_n::Int = 20
     model::Union{Nothing, System} = nothing
 end

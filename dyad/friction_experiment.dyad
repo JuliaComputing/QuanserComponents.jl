@@ -40,6 +40,24 @@ partial analysis FurutaFrictionBase
   parameter Ti::Real = 0.1
   "Backend to build the program on, \"julia\" or \"c\""
   parameter backend::String = "julia"
+  """
+  Time [s] discarded after each change of the velocity reference. The fit assumes zero
+  acceleration, so the transient at each step has to go
+  """
+  parameter settle::Real = 0.6
+  "Largest |arm acceleration| [rad/s²] still counted as constant speed"
+  parameter acc_tol::Real = 3.0
+  """
+  Largest |pendulum velocity| [rad/s] accepted. At constant arm speed the pendulum
+  should be at rest too; while it swings it is a torque disturbance
+  """
+  parameter elbow_tol::Real = 1.5
+  "Slowest |velocity| [rad/s] used in the fit; near standstill the sign term is undefined"
+  parameter w_min_fit::Real = 0.5
+  "Fastest |velocity| [rad/s] used in the fit"
+  parameter w_max_fit::Real = 40.0
+  "Width of the moving average applied to the acceleration before thresholding, in samples"
+  parameter smooth_n::Integer = 20
 relations
 end
 
