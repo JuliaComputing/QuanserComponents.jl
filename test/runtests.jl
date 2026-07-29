@@ -206,9 +206,19 @@ import DyadCompilerPasses
         @test isfile(joinpath(dir, "run_hardware.c"))
         @test isfile(joinpath(dir, "Makefile"))
         hsrc = read(joinpath(dir, "run_hardware.c"), String)
-        @test occursin("$(r.mangled)_step", hsrc)
-        @test occursin("qube_hw_open(QUBE_HW_MODE_HIL, ARM0)", hsrc)
+        # The loop is a checked-in C file copied verbatim, so it refers to the controller
+        # only through macros; the mangled symbols live in the generated config header.
+        @test occursin("QUBE_STEP(", hsrc)
+        @test occursin("qube_hw_open(QUBE_HW_MODE_HIL, QUBE_ARM0)", hsrc)
         @test !occursin("hil_read_encoder", hsrc)
+        @test !occursin(r.mangled, hsrc)          # nothing controller-specific baked in
+        @test isfile(joinpath(dir, "run_hardware_config.h"))
+        cfg = read(joinpath(dir, "run_hardware_config.h"), String)
+        @test occursin("#define QUBE_STEP  $(r.mangled)_step", cfg)
+        @test occursin("#define QUBE_RESET $(r.mangled)_reset", cfg)
+        @test occursin("#define QUBE_MEM   $(r.mangled)_mem", cfg)
+        @test occursin("#define QUBE_OUT   $(r.mangled)_out", cfg)
+        @test occursin("gains_words[]", cfg) && occursin("auto_words[]", cfg)
         # where the Quanser HIL SDK and a C compiler are present, the harness must build
         # (static-linked, so no hardware needs to be connected). This is what proves the
         # node's `extern qube_hw_*` declarations resolve against qube_hw.c.
