@@ -527,7 +527,7 @@ function compile_hardware_harness(dir; quanser_dir = QUANSER_HIL_DIR)
 end
 
 """
-    launch_live_plot(dir; cmd="kst2", config="kast2config.kst", wait_for_log=5.0) -> Process | Nothing
+    launch_live_plot(dir; cmd="kst2", config="kst2config.kst", wait_for_log=5.0) -> Process | Nothing
 
 Start a live plotter on the log the hardware harness writes, for watching the run as it
 happens. Returns the running process, or `nothing` if it could not be started.
@@ -547,7 +547,7 @@ This never throws: a missing viewer, a missing session file or a failed launch i
 as a warning and returns `nothing`, because losing the plot is not a reason to abandon a
 hardware run. The process outlives this call and is not reaped — `kill` it when done.
 """
-function launch_live_plot(dir; cmd = "kst2", config = "kast2config.kst",
+function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
                           wait_for_log = 5.0)
     dir = abspath(dir)
     cfg = isabspath(config) ? config : joinpath(dir, config)
