@@ -7,11 +7,17 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   RuntimeController(; name)
+   RuntimeController(; name, umax)
 
 The runtime controller: the swing-up/stabilizing `SwingupCatch` wrapped by
 `ErrorRecovery`, which overrides the command to recover the arm when it swings
 out of bounds.
+
+## Parameters:
+
+| Name         | Description                         | Units  |   Default value |
+| ------------ | ----------------------------------- | ------ | --------------- |
+| `umax`         | Saturation of the stabilizing controller's output [V], forwarded to `swingup_catch`                         | V  |   10.0 |
 
 ## Connectors
 
@@ -19,7 +25,7 @@ out of bounds.
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function RuntimeController(; name = nothing, kwargs...)
+@component function RuntimeController(; name = nothing, umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -50,6 +56,9 @@ out of bounds.
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
+  __local__umax = umax
+  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V], forwarded to `swingup_catch`"])
+  __initial_conditions[umax] = __local__umax
 
   ### Final Parameters (assignments)
 
@@ -69,6 +78,12 @@ out of bounds.
   # Subcomponent swingup_catch of type QuanserComponents.SwingupCatch
   swingup_catch_overrides = __pop_subcomponent_overrides!(__overrides, "swingup_catch")
   push!(__systems, @named swingup_catch = QuanserComponents.SwingupCatch(; swingup_catch_overrides...))
+  __bindings[swingup_catch.umax] = umax
+  # Now remove initial conditions in swingup_catch that correspond to the bindings just added
+  __swingup_catch_ics = ModelingToolkit.get_initial_conditions(swingup_catch)
+  __no_namespace_swingup_catch = ModelingToolkit.toggle_namespacing(swingup_catch, false)
+  __swingup_catch_umax = Symbolics.unwrap(__no_namespace_swingup_catch.umax)::Symbolics.SymbolicT
+  delete!(__swingup_catch_ics, __swingup_catch_umax)
   # Subcomponent errorrecovery of type QuanserComponents.ErrorRecovery
   errorrecovery_overrides = __pop_subcomponent_overrides!(__overrides, "errorrecovery")
   push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; errorrecovery_overrides...))

@@ -130,4 +130,22 @@ const FRICTION_LOG_COLUMNS = ["time", "w_ref", "shoulder_angle", "shoulder_veloc
                               "control_input", "elbow_angle"]
 const FRICTION_LOG_HEADER = join(FRICTION_LOG_COLUMNS, "\t")
 const FRICTION_LOG_NCOLS = length(FRICTION_LOG_COLUMNS)
+
+# ---------------------------------------------------------------------------
+## Swing-up run log layout
+# ---------------------------------------------------------------------------
+# Same arrangement for `FurutaHardware`: the `DataLogger` inside the program writes these
+# columns, whichever target the program was built for, and the driver opens the file with
+# them. The first four are what `plotD` expects (`readdlm(path, skipstart = 1)'`), then the
+# loop diagnostics `dt`/`exec` and the raw encoder counts — the layout the C harness used to
+# write from outside the program, kept identical so existing logs, plot sessions and readers
+# are unaffected. Eight columns is also `log_row`'s arity, so this log is full.
+const SWINGUP_LOG_COLUMNS = ["time", "shoulder_angle", "elbow_angle", "control_input",
+                             "dt", "exec", "count_shoulder", "count_elbow"]
+const SWINGUP_LOG_HEADER = join(SWINGUP_LOG_COLUMNS, "\t")
+const SWINGUP_LOG_NCOLS = length(SWINGUP_LOG_COLUMNS)
+# Relative on purpose: the exported C runs in its own directory on whatever machine it was
+# deployed to, and an absolute path from this machine would be wrong there. The in-process
+# runners resolve it against the analysis' `output_dir`.
+const SWINGUP_LOG_FILE = "run_hardware.csv"
 const FRICTION_LOG_FILE = "friction_experiment.csv"

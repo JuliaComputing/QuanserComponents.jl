@@ -151,6 +151,11 @@ end
 @register_symbolic hw_shoulder(dep::Real)::Real
 @register_symbolic hw_elbow(dep::Real)::Real
 @register_symbolic hw_write(u::Real, umax::Real)::Real
+@register_symbolic hw_time(dep::Real)::Real
+@register_symbolic hw_dt(dep::Real)::Real
+@register_symbolic hw_exec(dep::Real)::Real
+@register_symbolic hw_count_shoulder(dep::Real)::Real
+@register_symbolic hw_count_elbow(dep::Real)::Real
 
 """
     hw_measure(dep) -> shoulder
@@ -178,6 +183,34 @@ applied. Ordered after the read because `u` depends on the measured angles.
 """
 hw_write(u::Real, umax::Real)::Float64 =
     ccall((:qube_hw_write, QUBE_HW_LIB), Cdouble, (Cdouble, Cdouble), u, umax)
+
+"""
+    hw_time(dep), hw_dt(dep), hw_exec(dep), hw_count_shoulder(dep), hw_count_elbow(dep)
+
+This tick's loop diagnostics: wall-clock seconds since the first read, the achieved period,
+the read-to-write duration, and the raw encoder counts. These exist so the program can log
+what a surrounding timing loop would otherwise have to write to a second file — see
+`HardwareDiagnostics` in dyad/hardware_loop.dyad for the ordering the `dep` token buys and
+csrc/qube_hw.h for what each one measures exactly.
+"""
+hw_time(dep::Real)::Float64 =
+    ccall((:qube_hw_time, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+@doc (@doc hw_time)
+hw_dt(dep::Real)::Float64 =
+    ccall((:qube_hw_dt, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+@doc (@doc hw_time)
+hw_exec(dep::Real)::Float64 =
+    ccall((:qube_hw_exec, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+@doc (@doc hw_time)
+hw_count_shoulder(dep::Real)::Float64 =
+    ccall((:qube_hw_count_shoulder, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+@doc (@doc hw_time)
+hw_count_elbow(dep::Real)::Float64 =
+    ccall((:qube_hw_count_elbow, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
 
 # ---------------------------------------------------------------------------
 ## Driver-side API
@@ -299,8 +332,15 @@ hardware_counters() = (
     n_write = Int(ccall((:qube_hw_n_write, QUBE_HW_LIB), Clong, ())),
 )
 
-"Reset the call counters without reopening the device."
-reset_hardware_counters!() = ccall((:qube_hw_reset_counters, QUBE_HW_LIB), Cvoid, ())
+"""
+Reset the call counters and the `time`/`dt`/`exec` measurement without reopening the
+device, so a second run through the same open device logs its own timeline rather than
+continuing the first one's.
+"""
+function reset_hardware_counters!()
+    ccall((:qube_hw_reset_counters, QUBE_HW_LIB), Cvoid, ())
+    ccall((:qube_hw_reset_timing, QUBE_HW_LIB), Cvoid, ())
+end
 
 """
     hardware_state() -> (; shoulder, elbow, u, count_shoulder, count_elbow)
