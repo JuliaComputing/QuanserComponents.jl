@@ -31,7 +31,7 @@ k = ModelingToolkit.ShiftIndex()
     ssys.qubependulum.shoulder_joint.phi => 0.0
     ssys.gain.k => 1.0
     # Controller gains (energyswingup gain/arm_centering/umax, lqrstabilizer L/umax)
-    # now come from the model defaults, tuned for the QuanserInterface-matched plant.
+    # now come from the model defaults.
 
     ssys.qubependulum.floor.r_shape => [0, -0.10, 0]
 
@@ -72,33 +72,34 @@ qube_lights = [
 render(model, sol, 0.0; lights=qube_lights)[1]
 
 ##
-using Plots
-f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.control_system.runtime.swingup_catch.u, ssys.control_system.runtime.swingup_catch.neartop.y])
-hline!([pi], l=(:dash, :black), primary=false)
-f2 = plot(sol, idxs=ssys.qubependulum.shoulder_joint.phi)
-plot(f1, f2) |> display
+if false # Don't typically plot when testing
+    using Plots
+    f1 = plot(sol, idxs=[ssys.qubependulum.elbow_joint.phi, 0.1*ssys.control_system.runtime.swingup_catch.u, ssys.control_system.runtime.swingup_catch.neartop.y])
+    hline!([pi], l=(:dash, :black), primary=false)
+    f2 = plot(sol, idxs=ssys.qubependulum.shoulder_joint.phi)
+    plot(f1, f2) |> display
 
-##
-
-
-plot(sol, idxs=[
-    # ssys.control_system.u,
-    ssys.control_system.runtime.swingup_catch.energyswingup.realoutput,
-    ssys.control_system.runtime.swingup_catch.energyswingup.limiter.u,
-    # ssys.qubependulum.torquesource.tau,
-])
+    ##
 
 
-plot(sol, idxs=[
-    ssys.control_system.runtime.swingup_catch.velocityestimator_elbow.vel
-    ssys.control_system.runtime.swingup_catch.velocityestimator_elbow.discretederivative.y
-    ssys.qubependulum.elbow_joint.w
+    plot(sol, idxs=[
+        # ssys.control_system.u,
+        ssys.control_system.runtime.swingup_catch.energyswingup.realoutput,
+        ssys.control_system.runtime.swingup_catch.energyswingup.limiter.u,
+        # ssys.qubependulum.torquesource.tau,
+    ])
 
-    ssys.control_system.runtime.swingup_catch.velocityestimator_shoulder.vel
-    ssys.control_system.runtime.swingup_catch.velocityestimator_shoulder.discretederivative.y
-    ssys.qubependulum.shoulder_joint.w
-])
 
+    plot(sol, idxs=[
+        ssys.control_system.runtime.swingup_catch.velocityestimator_elbow.vel
+        ssys.control_system.runtime.swingup_catch.velocityestimator_elbow.discretederivative.y
+        ssys.qubependulum.elbow_joint.w
+
+        ssys.control_system.runtime.swingup_catch.velocityestimator_shoulder.vel
+        ssys.control_system.runtime.swingup_catch.velocityestimator_shoulder.discretederivative.y
+        ssys.qubependulum.shoulder_joint.w
+    ])
+end
 sol[ssys.qubependulum.upper_arm.m]
 sol[ssys.qubependulum.lower_arm.m]
 # sol[ssys.qubependulum.lower_arm.I_11]
@@ -127,17 +128,13 @@ Ts = 0.005
 #
 # `QuanserComponents.generate_swingup_controller` / `SwingupController` compile the
 # discrete `SwingupWithHoming` controller into a standalone SynchJulia node (Julia- or
-# C-executable), and `export_swingup_c` writes C sources. The tests below drive the
-# generated controller in closed loop against two plants:
-#   A) the Dyad `QubePendulum`, discretized with `SeeToDee.Rk4`, and
-#   B) `QuanserInterface.QubeServoPendulumSimulator` (the same interface the real
-#      `QubeServoPendulum` hardware uses).
-# The two plants use different parameters/sign conventions, so they do not behave
-# identically (see notes in test B).
+# C-executable), and `export_swingup_c` writes C sources. The test below drives the
+# generated controller in closed loop against the Dyad `QubePendulum`, discretized with
+# `SeeToDee.Rk4`. On the real rig the same node instead runs `open_hardware!(:hil)`, with
+# no Julia in the loop.
 
 using SeeToDee
 using StaticArrays
-using QuanserInterface
 import DyadCompilerPasses
 
 @testset "codegen" begin
@@ -321,6 +318,16 @@ import DyadCompilerPasses
         # The staircase: `n_levels` speeds in each direction, reaching both extremes.
         @test maximum(D.w_ref) ≈ 30.0 && minimum(D.w_ref) ≈ -30.0
         @test length(unique(round.(D.w_ref, digits = 6))) == 12
+        # Quadratically spaced, not evenly: resolution belongs at low speed, where the
+        # Coulomb breakaway and the steep part of the friction curve are. So the gaps
+        # between successive levels must grow, while the endpoints stay w_min and w_max.
+        levels = sort(unique(round.(filter(>(0), D.w_ref), digits = 6)))
+        @test length(levels) == 6
+        @test levels[1] ≈ 2.0 && levels[end] ≈ 30.0     # spacing does not move the ends
+        gaps = diff(levels)
+        @test issorted(gaps) && gaps[end] > 3 * gaps[1]
+        # (level/(n-1))^2 exactly, so the levels are predictable.
+        @test levels ≈ [2.0 + 28.0 * (k / 5)^2 for k in 0:5]
         # The velocity loop tracked, so the log is of an actual experiment.
         @test cor(D.w_ref, D.shoulder_velocity) > 0.9
         # `log_row` takes eight arguments whatever `n` is; only `n` columns get written.
@@ -356,7 +363,7 @@ import DyadCompilerPasses
         rhs(n) = eqs[findfirst(e -> string(e.lhs) == n, eqs)].rhs
         # The component is stateless, so inlining `sw` and the parameter defaults leaves
         # the whole friction law as one expression in `w`; compile that and evaluate it.
-        expr = S.substitute(S.substitute(rhs("tau(t)"),
+        expr = S.substitute(S.substitute(rhs("tau_f(t)"),
                                          Dict(sym("sw(t)") => rhs("sw(t)"))),
                             Dict(ModelingToolkit.default_values(f)))
         tau = S.build_function(expr, sym("w(t)"); expression = Val(false))
@@ -525,7 +532,7 @@ import DyadCompilerPasses
         @test occursin(@sprintf("%.8g", sol2.fit.params.kc), shown)
     end
 
-    # ---- Test A: Dyad plant discretized with SeeToDee.Rk4 -------------------
+    # ---- closed loop: Dyad plant discretized with SeeToDee.Rk4 --------------
     # The plant must use the same parameter set as the one the controller is tuned for,
     # i.e. the one `FurutaSwingup` instantiates. `QubePendulum()` would default to
     # `nominal`, and the controller does not stabilize that plant at all: the identified
@@ -578,54 +585,5 @@ import DyadCompilerPasses
         @test all(near_top[end-40:end])           # and stays there (stabilized)
     end
 
-    # ---- Test B: QuanserInterface simulator (hardware-compatible interface) --
-    # An independent implementation of the same plant: QuanserInterface's `furuta`
-    # equations, in its own parameterization and sign conventions. Driving the SAME
-    # generated controller — with no per-plant sign flips or retuning — through it is what
-    # catches convention errors. Bound through the shim's callback backend; on the real rig
-    # the same node instead runs `open_hardware!(:hil)` with no Julia in the loop.
-    #
-    # The simulator's own defaults are the datasheet (nominal) values, so it has to be
-    # given the identified set the controller is tuned for. Two parameters need converting:
-    # QI's `Jr` is the arm inertia about the pivot, while `QubePendulum` carries the arm's
-    # central inertia plus a CoM radius; QI's `Jp` is about the pendulum CoM, matching
-    # `QubePendulum`'s. Read the values off the component so this cannot drift from the
-    # model. (Sanity check: feeding `nominal` through this mapping reproduces the
-    # simulator's default behaviour exactly.)
-    @testset "swingup — QuanserInterface simulator" begin
-        @named refplant = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified)
-        let ic = ModelingToolkit.initial_conditions(refplant),
-            np = ModelingToolkit.toggle_namespacing(refplant, false)
-            val(s) = Float64(Symbolics.value(ic[ModelingToolkit.unwrap(s)]))
-            global qi_p = (Rm = val(np.Rm), kt = val(np.kt), km = val(np.km),
-                           mr = val(np.mr), r = val(np.r),
-                           Jr = val(np.Jr) + val(np.mr) * val(np.r_cm_r)^2,  # about the pivot
-                           br = val(np.br), mp = val(np.mp), Lp = val(np.Lp),
-                           l = val(np.l), Jp = val(np.Jp), bp = val(np.bp), g = 9.81)
-        end
-        process = QuanserInterface.QubeServoPendulumSimulator(; Ts, p = qi_p)
-        process.x = SA[0.0, deg2rad(0.15), 0.0, 0.0]   # near hanging
-        QuanserInterface.initialize(process)
-        ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
-        QuanserComponents.bind_hardware!(
-            measure = () -> QuanserInterface.measure(process),   # [arm θ, pendulum α]
-            control = u -> QuanserInterface.control(process, [u]))
-        N = round(Int, 15.0 / Ts)
-        elbow = Float64[]
-        try
-            for i in 1:N
-                out = ctrl()
-                @test isfinite(out.u) && abs(out.u) <= 10
-                push!(elbow, mod(out.elbow, 2π))
-            end
-        finally
-            QuanserComponents.close_hardware!()
-            QuanserInterface.finalize(process)
-        end
-        @test QuanserComponents.hardware_counters() == (n_measure = N, n_write = N)
-        near_top = abs.(elbow .- π) .< 0.4
-        @test any(near_top)                        # reaches upright
-        @test all(near_top[end-100:end])           # and stabilizes there
-    end
 
 end

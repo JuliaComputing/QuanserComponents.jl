@@ -122,10 +122,56 @@ metadata {
 }
 end
 
-component QubePendulum
-  torquesource = RotationalComponents.Sources.TorqueSource() {^torquesource}
+"""
+Permanent-magnet DC motor driving a rotational axis, with the armature inductance
+neglected.
+
+```math
+i = (v - k_m ω) / R_m, \\quad τ = k_t i
+```
+
+so the torque falls off with speed through the back-EMF term — the physical effect that a
+plain `voltage -> torque` gain has to fake by adding `k_t k_m / R_m` to a damper. Keeping
+it here instead means a friction element on the same axis models *only* friction, and the
+two no longer have to share a coefficient.
+
+`w` is the shaft speed relative to the support, so the back-EMF is right even when the
+housing moves.
+"""
+component DCMotor
+  extends RotationalComponents.Interfaces.PartialTorque
+  "Applied armature voltage"
   voltage = Dyad.RealInput() {^voltage}
-  voltage_to_torque = BlockComponents.Math.Gain(final k = kt / Rm) {^voltage_to_torque}
+  "Armature resistance"
+  parameter Rm::Dyad.Resistance = 8.4
+  "Current-to-torque constant"
+  parameter kt::Dyad.ElectricalTorqueConstant = 0.042
+  "Back-EMF (speed) constant"
+  parameter km::Dyad.ElectricalTorqueConstant = 0.042
+  "Shaft speed relative to the support"
+  variable w::Dyad.AngularVelocity
+  "Armature current"
+  variable i::Dyad.Current
+  "Torque delivered to the shaft"
+  variable tau::Dyad.Torque
+relations
+  w = der(phi)
+  i = (voltage - km * w) / Rm
+  tau = kt * i
+  spline.tau = -tau
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/DCMotor.svg"}},
+  "_links": {
+    "voltage": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    }
+  }
+}
+end
+
+component QubePendulum
+  motor = QuanserComponents.DCMotor(final Rm = Rm, final kt = kt, final km = km) {^motor}
+  voltage = Dyad.RealInput() {^voltage}
   shoulder_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [0, 1, 0], color = [0.8, 0.8, 0.8, 1], radius = 0.01, cylinder_length = 0.03) {^shoulder_joint}
   elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [-1, 0, 0]) {^elbow_joint}
   upper_arm = MultibodyComponents.BodyShape(final m = mr, final r = [r, 0, 0], final r_cm = [r_cm_r, 0, 0], final I_11 = 1e-9, final I_22 = Jr, final I_33 = Jr, radius = 0.0025, color = [0.9, 0.9, 0.9, 1], shapefile = joinpath("assets", "qube", "qube_arm.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0])) {^upper_arm}
@@ -134,7 +180,7 @@ component QubePendulum
   shoulder_sensor = RotationalComponents.Sensors.AngleSensor() {^shoulder_sensor}
   shoulder_angle = Dyad.RealOutput() {^shoulder_angle}
   elbow_angle = Dyad.RealOutput() {^elbow_angle}
-  damper = RotationalComponents.Components.Damper(final d = br + kt * km / Rm) {^damper}
+  friction = QuanserComponents.RotationalFriction(params = friction_params, final kv = br) {^friction}
   damper1 = RotationalComponents.Components.Damper(final d = bp) {^damper1}
   fixed = MultibodyComponents.Fixed() {^fixed}
   base_box = MultibodyComponents.ShapefileVisualizer(color = [0.1, 0.1, 0.1, 1], shapefile = joinpath("assets", "qube", "qube_block.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0])) {^base_box}
@@ -145,6 +191,8 @@ component QubePendulum
   motor_part_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.5, 0.5, 0.5, 1], shapefile = joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0])) {^motor_part_mesh}
   "Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)"
   structural parameter idparams::Native = nominal
+  "Shoulder-axis friction coefficients (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)"
+  structural parameter friction_params::Native = friction_identified
   "Motor armature resistance"
   parameter Rm::Dyad.Resistance = idparams.Rm
   "Motor current-to-torque constant"
@@ -173,50 +221,34 @@ component QubePendulum
   "Edge length of the cubic base box (visualization only)"
   parameter base_size::Dyad.Length = 0.1
 relations
-  connect(shoulder_joint.frame_b, upper_arm.frame_a) {^id21}
-  connect(upper_arm.frame_b, elbow_joint.frame_a) {^id22}
-  connect(elbow_joint.frame_b, lower_arm.frame_a) {^id23}
-  connect(elbow_sensor.phi, elbow_angle) {^id24}
-  connect(fixed.frame_b, shoulder_joint.frame_a) {^id25}
-  connect(voltage_to_torque.u, voltage) {^id26}
-  connect(voltage_to_torque.y, torquesource.tau) {^id27}
-  connect(damper.spline_a, shoulder_joint.support) {^id28}
-  connect(damper.spline_b, shoulder_joint.axis) {^id29}
-  connect(shoulder_joint.support, torquesource.support) {^id30}
-  connect(shoulder_sensor.spline, torquesource.spline, shoulder_joint.axis) {^id31}
-  connect(shoulder_sensor.phi, shoulder_angle) {^id32}
-  connect(elbow_joint.support, damper1.spline_a) {^id33}
-  connect(damper1.spline_b, elbow_joint.axis) {^id34}
-  connect(elbow_sensor.spline, damper1.spline_b) {^id35}
-  connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b) {^id36}
-  connect(motor_main_mesh.frame_a, shoulder_cylinder.frame_a) {^id37}
-  connect(motor_part_mesh.frame_a, motor_main_mesh.frame_a) {^id38}
-  connect(motor_front_mesh.frame_a, motor_part_mesh.frame_a) {^id39}
-  connect(base_box.frame_a, fixed.frame_b) {^id40}
-  connect(floor.frame_a, base_box.frame_a) {^id41}
+  connect(shoulder_joint.frame_b, upper_arm.frame_a) {^id20}
+  connect(upper_arm.frame_b, elbow_joint.frame_a) {^id21}
+  connect(elbow_joint.frame_b, lower_arm.frame_a) {^id22}
+  connect(elbow_sensor.phi, elbow_angle) {^id23}
+  connect(fixed.frame_b, shoulder_joint.frame_a) {^id24}
+  connect(voltage, motor.voltage) {^id25}
+  connect(shoulder_joint.support, motor.support, friction.spline_a) {^id26}
+  connect(shoulder_sensor.spline, motor.spline, shoulder_joint.axis, friction.spline_b) {^id27}
+  connect(shoulder_sensor.phi, shoulder_angle) {^id28}
+  connect(elbow_joint.support, damper1.spline_a) {^id29}
+  connect(damper1.spline_b, elbow_joint.axis) {^id30}
+  connect(elbow_sensor.spline, damper1.spline_b) {^id31}
+  connect(shoulder_cylinder.frame_a, shoulder_joint.frame_b) {^id32}
+  connect(motor_main_mesh.frame_a, shoulder_cylinder.frame_a) {^id33}
+  connect(motor_part_mesh.frame_a, motor_main_mesh.frame_a) {^id34}
+  connect(motor_front_mesh.frame_a, motor_part_mesh.frame_a) {^id35}
+  connect(base_box.frame_a, fixed.frame_b) {^id36}
+  connect(floor.frame_a, base_box.frame_a) {^id37}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/QubePendulum.svg"}},
   "_links": {
-    "torquesource": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 240, "y1": 360, "x2": 340, "y2": 460, "rot": 0}
-        },
-        "tags": []
-      }
+    "motor": {
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 250, "y1": 360, "y2": 460}}}
     },
     "voltage": {
       "Dyad": {
         "placement": {
           "diagram": {"iconName": "default", "x1": 10, "y1": 460, "x2": 90, "y2": 540, "rot": 0}
-        },
-        "tags": []
-      }
-    },
-    "voltage_to_torque": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 110, "y1": 360, "x2": 210, "y2": 460, "rot": 0}
         },
         "tags": []
       }
@@ -285,13 +317,8 @@ metadata {
         "tags": []
       }
     },
-    "damper": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 300, "y1": 690, "x2": 340, "y2": 730, "rot": 0}
-        },
-        "tags": []
-      }
+    "friction": {
+      "Dyad": {"placement": {"diagram": {"x1": 230, "x2": 290, "y1": 490, "y2": 550}}}
     },
     "damper1": {
       "Dyad": {
@@ -332,97 +359,91 @@ metadata {
     "motor_part_mesh": {
       "Dyad": {"placement": {"diagram": {"x1": 420, "x2": 520, "y1": 930, "y2": 1030}}}
     },
-    "id21": {
+    "id20": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 425, "y": 615}, {"x": 425, "y": 610}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id22": {
+    "id21": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 740, "y": 610}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id23": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id24": {
+    "id22": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
+    "id23": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 890, "y": 490}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id25": {
+    "id24": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 220, "y": 615}], "E": 2}],
         "renderStyle": "standard"
       }
     },
+    "id25": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 122.5, "y": 500}, {"x": 122.5, "y": 410}], "E": 2}],
+        "path": {}
+      }
+    },
     "id26": {
       "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 50, "y": 410}], "E": 2}]
-      }
-    },
-    "id27": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "renderStyle": "standard"}},
-    "id28": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 294, "y": 710}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id29": {
-      "Dyad": {
-        "renderStyle": "standard",
-        "edges": [{"S": 1, "M": [{"x": 350, "y": 710}], "E": 2}]
-      }
-    },
-    "id30": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 290, "y": 615}], "E": 2}],
-        "renderStyle": "standard"
-      }
-    },
-    "id31": {
-      "Dyad": {
         "edges": [
-          {"S": 1, "M": [], "E": -1},
+          {"S": 1, "M": [{"x": 290, "y": 590}, {"x": 200, "y": 590}], "E": -1},
           {"S": -1, "M": [], "E": 2},
           {"S": 3, "M": [], "E": -1}
         ],
-        "junctions": [{"x": 350, "y": 410}],
-        "renderStyle": "standard"
+        "junctions": [{"x": 200, "y": 520}],
+        "path": {}
       }
     },
-    "id32": {
+    "id27": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": 2, "M": [], "E": -1},
+          {"S": -1, "M": [], "E": -2},
+          {"S": -2, "M": [], "E": 3},
+          {"S": 4, "M": [], "E": -2}
+        ],
+        "junctions": [{"x": 350, "y": 410}, {"x": 350, "y": 520}],
+        "path": {}
+      }
+    },
+    "id28": {
       "Dyad": {
         "renderStyle": "standard",
         "edges": [{"S": 1, "M": [{"x": 520, "y": 410}], "E": 2}]
       }
     },
-    "id33": {
+    "id29": {
       "Dyad": {
         "renderStyle": "standard",
         "edges": [{"S": 1, "M": [{"x": 740, "y": 733.5}, {"x": 840, "y": 733.5}], "E": 2}]
       }
     },
-    "id34": {
+    "id30": {
       "Dyad": {
         "renderStyle": "standard",
         "edges": [{"S": 1, "M": [{"x": 840, "y": 785}, {"x": 740, "y": 785}], "E": 2}]
       }
     },
-    "id35": {
+    "id31": {
       "Dyad": {
         "edges": [{"S": 1, "M": [{"x": 890, "y": 790}, {"x": 840, "y": 790}], "E": 2}],
         "renderStyle": "standard"
       }
     },
-    "id36": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id37": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id38": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id39": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id40": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 180, "y": 710}], "E": 2}]}},
-    "id41": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 180, "y": 860}], "E": 2}]}}
+    "id32": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id33": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id34": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id35": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id36": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 180, "y": 710}], "E": 2}]}},
+    "id37": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 180, "y": 860}], "E": 2}]}}
   }
 }
 end
@@ -937,17 +958,30 @@ component SwingupCatch
   neartop = QuanserComponents.NearTop() {^neartop}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
   switch1 = BlockComponents.Logical.Switch() {^switch1}
+  friction_ff = QuanserComponents.Friction(params = friction_params) {^friction_ff}
+  friction_gain = BlockComponents.Math.Gain(final k = friction_comp * volt_per_torque) {^friction_gain}
+  friction_add = BlockComponents.Math.Add() {^friction_add}
+  "Friction coefficients used for the feedforward (see dyad/definitions.jl)"
+  structural parameter friction_params::Native = friction_identified
+  "Fraction of the modelled friction to compensate; 0 disables the feedforward"
+  parameter friction_comp::Real = 1.0
+  "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"
+  parameter volt_per_torque::Real = identified.Rm / identified.kt
 relations
-  connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u) {^id12}
-  connect(lqrstabilizer.shoulder_velocity, velocityestimator_shoulder.vel, energyswingup.shoulder_velocity) {^id13}
-  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id14}
-  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id15}
-  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id16}
-  connect(gain.y, u) {^id17}
-  connect(neartop.y, switch1.u2) {^id18}
-  connect(switch1.y, gain.u) {^id19}
-  connect(switch1.u3, energyswingup.realoutput) {^id20}
-  connect(switch1.u1, lqrstabilizer.u) {^id21}
+  connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u) {^id15}
+  connect(energyswingup.shoulder_velocity, lqrstabilizer.shoulder_velocity, velocityestimator_shoulder.vel, friction_ff.w) {^id16}
+  connect(lqrstabilizer.elbow_velocity, velocityestimator_elbow.vel, energyswingup.elbow_velocity) {^id17}
+  connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle) {^id18}
+  connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u) {^id19}
+  connect(gain.y, u) {^id20}
+  connect(neartop.y, switch1.u2) {^id21}
+  # Friction compensation, after switch1 so it applies to whichever controller is active.
+  connect(switch1.y, friction_add.u1) {^id22}
+  connect(friction_ff.tau_f, friction_gain.u) {^id23}
+  connect(friction_gain.y, friction_add.u2) {^id24}
+  connect(friction_add.y, gain.u) {^id25}
+  connect(switch1.u3, energyswingup.realoutput) {^id26}
+  connect(switch1.u1, lqrstabilizer.u) {^id27}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupCatch.svg"}},
   "_links": {
@@ -968,12 +1002,7 @@ metadata {
       }
     },
     "u": {
-      "Dyad": {
-        "placement": {
-          "diagram": {"iconName": "default", "x1": 1000, "y1": 450, "x2": 1100, "y2": 550, "rot": 0}
-        },
-        "tags": []
-      }
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "y1": 450, "x2": 1100, "y2": 550}}}
     },
     "velocityestimator_shoulder": {
       "Dyad": {
@@ -987,66 +1016,81 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 60, "y1": 220, "x2": 160, "y2": 320}}}
     },
     "energyswingup": {
-      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 290, "x2": 520, "y2": 450}}}
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 280, "x2": 520, "y2": 440}}}
     },
     "anglenormalization": {"Dyad": {"placement": {"diagram": {"x1": 60, "y1": 80, "x2": 160, "y2": 180}}}},
     "lqrstabilizer": {
-      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 690, "x2": 530, "y2": 860}}}
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 670, "x2": 530, "y2": 840}}}
     },
     "neartop": {
-      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 520, "x2": 460, "y2": 620}}}
+      "Dyad": {"placement": {"diagram": {"x1": 360, "y1": 510, "x2": 460, "y2": 610}}}
     },
     "gain": {
-      "Dyad": {"placement": {"diagram": {"x1": 820, "y1": 450, "x2": 920, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 880, "y1": 450, "x2": 980, "y2": 550}}}
     },
     "switch1": {
-      "Dyad": {"placement": {"diagram": {"x1": 640, "x2": 740, "y1": 550, "y2": 450}}}
+      "Dyad": {"placement": {"diagram": {"x1": 630, "x2": 730, "y1": 520, "y2": 420}}}
     },
-    "id12": {
-      "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": 230, "y": 130}], "E": -1},
-          {"S": 2, "M": [{"x": 291.8, "y": 312.4}, {"x": 291.8, "y": 310}], "E": -1},
-          {"S": -1, "M": [], "E": -2},
-          {"S": -2, "M": [{"x": 230, "y": 701.9}], "E": 3},
-          {"S": 4, "M": [], "E": -2}
-        ],
-        "junctions": [{"x": 230, "y": 310}, {"x": 230, "y": 570}]
-      }
+    "friction_ff": {
+      "Dyad": {"placement": {"diagram": {"x1": 270, "x2": 370, "y1": 880, "y2": 980}}}
     },
-    "id13": {
-      "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": 220, "y": 837.9}, {"x": 220, "y": 870}], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": 3, "M": [{"x": 190, "y": 432.4}], "E": -1}
-        ],
-        "junctions": [{"x": 190, "y": 870}]
-      }
+    "friction_gain": {
+      "Dyad": {"placement": {"diagram": {"x1": 570, "x2": 670, "y1": 880, "y2": 980}}}
     },
-    "id14": {
-      "Dyad": {
-        "edges": [
-          {"S": 1, "M": [{"x": 250, "y": 744.4}], "E": -1},
-          {"S": -1, "M": [{"x": 250, "y": 270}], "E": 2},
-          {"S": 3, "M": [{"x": 301, "y": 350.8}, {"x": 301, "y": 350}], "E": -1}
-        ],
-        "junctions": [{"x": 250, "y": 350}]
-      }
+    "friction_add": {
+      "Dyad": {"placement": {"diagram": {"x1": 760, "x2": 860, "y1": 450, "y2": 550}}}
     },
     "id15": {
       "Dyad": {
         "edges": [
-          {"S": -1, "M": [], "E": 1},
-          {"S": 2, "M": [{"x": 20, "y": 390.8}], "E": -1},
-          {"S": 3, "M": [{"x": 20, "y": 870}], "E": -2},
-          {"S": -2, "M": [], "E": -1},
-          {"S": 4, "M": [{"x": 186.25, "y": 798.8}, {"x": 186.25, "y": 800}], "E": -2}
+          {"S": 1, "M": [{"x": 230, "y": 130}], "E": -1},
+          {"S": 2, "M": [{"x": 291.8, "y": 302.4}, {"x": 291.8, "y": 300}], "E": -1},
+          {"S": -1, "M": [], "E": -2},
+          {"S": -2, "M": [{"x": 230, "y": 681.9}], "E": 3},
+          {"S": 4, "M": [], "E": -2}
         ],
-        "junctions": [{"x": 20, "y": 680}, {"x": 20, "y": 800}]
+        "junctions": [{"x": 230, "y": 300}, {"x": 230, "y": 560}],
+        "path": {}
       }
     },
     "id16": {
+      "Dyad": {
+        "edges": [
+          {"S": -1, "M": [{"x": 190, "y": 422.4}], "E": 1},
+          {"S": 2, "M": [{"x": 270.75, "y": 817.9}, {"x": 270.75, "y": 820}], "E": -1},
+          {"S": 3, "M": [], "E": -2},
+          {"S": -2, "M": [], "E": -1},
+          {"S": 4, "M": [{"x": 190, "y": 930}], "E": -2}
+        ],
+        "junctions": [{"x": 190, "y": 820}, {"x": 190, "y": 870}],
+        "path": {}
+      }
+    },
+    "id17": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 250, "y": 724.4}], "E": -1},
+          {"S": -1, "M": [{"x": 250, "y": 270}], "E": 2},
+          {"S": 3, "M": [{"x": 301, "y": 340.8}, {"x": 301, "y": 340}], "E": -1}
+        ],
+        "junctions": [{"x": 250, "y": 340}],
+        "path": {}
+      }
+    },
+    "id18": {
+      "Dyad": {
+        "edges": [
+          {"S": -1, "M": [], "E": 1},
+          {"S": 2, "M": [{"x": 20, "y": 380.8}], "E": -1},
+          {"S": 3, "M": [{"x": 20, "y": 870}], "E": -2},
+          {"S": -2, "M": [], "E": -1},
+          {"S": 4, "M": [{"x": 186.25, "y": 778.8}, {"x": 186.25, "y": 780}], "E": -2}
+        ],
+        "junctions": [{"x": 20, "y": 680}, {"x": 20, "y": 780}],
+        "path": {}
+      }
+    },
+    "id19": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [{"x": 20, "y": 270}], "E": -1},
@@ -1056,18 +1100,33 @@ metadata {
         "junctions": [{"x": 20, "y": 210}]
       }
     },
-    "id17": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id18": {
-      "Dyad": {"edges": [{"S": 1, "M": [{"x": 550, "y": 570}, {"x": 550, "y": 500}], "E": 2}]}
-    },
-    "id19": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id20": {
+    "id20": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id21": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 580.2, "y": 468}, {"x": 580.2, "y": 370}], "E": 2}]
+        "edges": [{"S": 1, "M": [{"x": 550, "y": 560}, {"x": 550, "y": 470}], "E": 2}],
+        "path": {}
       }
     },
-    "id21": {
-      "Dyad": {"edges": [{"S": 1, "M": [{"x": 580, "y": 532}, {"x": 580, "y": 775}], "E": 2}]}
+    "id22": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id23": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id24": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 730, "y": 930}, {"x": 730, "y": 530}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id25": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id26": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 580.2, "y": 438}, {"x": 580.2, "y": 360}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id27": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 580, "y": 502}, {"x": 580, "y": 755}], "E": 2}],
+        "path": {}
+      }
     }
   }
 }

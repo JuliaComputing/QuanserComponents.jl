@@ -7,7 +7,15 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   SwingupCatch(; name)
+   SwingupCatch(; name, friction_params, friction_comp, volt_per_torque)
+
+## Parameters:
+
+| Name         | Description                         | Units  |   Default value |
+| ------------ | ----------------------------------- | ------ | --------------- |
+| `friction_params`         | Friction coefficients used for the feedforward (see dyad/definitions.jl)                         | --  |   friction_identified |
+| `friction_comp`         | Fraction of the modelled friction to compensate; 0 disables the feedforward                         | --  |   1.0 |
+| `volt_per_torque`         | Command needed per unit of motor torque, Rm/kt [V/(N*m)]                         | --  |   identified....entified.kt |
 
 ## Connectors
 
@@ -15,7 +23,7 @@ import Moshi as __Ext__Moshi
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SwingupCatch(; name = nothing, kwargs...)
+@component function SwingupCatch(; name = nothing, friction_params=friction_identified, friction_comp=Float64(1.0), volt_per_torque=identified.Rm / identified.kt, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -46,6 +54,12 @@ import Moshi as __Ext__Moshi
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
+  __local__friction_comp = friction_comp
+  append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate; 0 disables the feedforward"])
+  __initial_conditions[friction_comp] = __local__friction_comp
+  __local__volt_per_torque = volt_per_torque
+  append!(__params, @parameters (volt_per_torque::Real), [description = "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"])
+  __initial_conditions[volt_per_torque] = __local__volt_per_torque
 
   ### Final Parameters (assignments)
 
@@ -86,6 +100,21 @@ import Moshi as __Ext__Moshi
   # Subcomponent switch1 of type BlockComponents.Logical.Switch
   switch1_overrides = __pop_subcomponent_overrides!(__overrides, "switch1")
   push!(__systems, @named switch1 = BlockComponents.Logical.Switch(; switch1_overrides...))
+  # Subcomponent friction_ff of type QuanserComponents.Friction
+  friction_ff_overrides = __pop_subcomponent_overrides!(__overrides, "friction_ff")
+  push!(__systems, @named friction_ff = QuanserComponents.Friction(; params=friction_params, friction_ff_overrides...))
+  # Subcomponent friction_gain of type BlockComponents.Math.Gain
+  friction_gain_overrides = __pop_subcomponent_overrides!(__overrides, "friction_gain")
+  push!(__systems, @named friction_gain = BlockComponents.Math.Gain(; friction_gain_overrides...))
+  __bindings[friction_gain.k] = friction_comp * volt_per_torque
+  # Now remove initial conditions in friction_gain that correspond to the bindings just added
+  __friction_gain_ics = ModelingToolkit.get_initial_conditions(friction_gain)
+  __no_namespace_friction_gain = ModelingToolkit.toggle_namespacing(friction_gain, false)
+  __friction_gain_k = Symbolics.unwrap(__no_namespace_friction_gain.k)::Symbolics.SymbolicT
+  delete!(__friction_gain_ics, __friction_gain_k)
+  # Subcomponent friction_add of type BlockComponents.Math.Add
+  friction_add_overrides = __pop_subcomponent_overrides!(__overrides, "friction_add")
+  push!(__systems, @named friction_add = BlockComponents.Math.Add(; friction_add_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -99,13 +128,16 @@ import Moshi as __Ext__Moshi
 
   ### Equations
   push!(__eqs, connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u))
-  push!(__eqs, connect(velocityestimator_shoulder.vel, lqrstabilizer.shoulder_velocity, energyswingup.shoulder_velocity))
+  push!(__eqs, connect(velocityestimator_shoulder.vel, energyswingup.shoulder_velocity, lqrstabilizer.shoulder_velocity, friction_ff.w))
   push!(__eqs, connect(velocityestimator_elbow.vel, lqrstabilizer.elbow_velocity, energyswingup.elbow_velocity))
   push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, lqrstabilizer.shoulder_angle))
   push!(__eqs, connect(velocityestimator_elbow.pos, elbow_angle, anglenormalization.u))
   push!(__eqs, connect(gain.y, u))
   push!(__eqs, connect(neartop.y, switch1.u2))
-  push!(__eqs, connect(switch1.y, gain.u))
+  push!(__eqs, connect(switch1.y, friction_add.u1))
+  push!(__eqs, connect(friction_ff.tau_f, friction_gain.u))
+  push!(__eqs, connect(friction_gain.y, friction_add.u2))
+  push!(__eqs, connect(friction_add.y, gain.u))
   push!(__eqs, connect(energyswingup.realoutput, switch1.u3))
   push!(__eqs, connect(lqrstabilizer.u, switch1.u1))
 

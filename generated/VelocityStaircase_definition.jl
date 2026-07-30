@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   VelocityStaircase(; name, w_min, w_max, n_levels, t_step)
+   VelocityStaircase(; name, w_min, w_max, n_levels, t_step, spacing)
 
 Staircase velocity reference that sweeps a range of speeds and then repeats it in
 the other direction.
@@ -18,9 +18,20 @@ for the acceleration to be negligible, so that `τ = J α + f(ω)` collapses to
 because Coulomb friction is what the experiment is mostly after and a one-sided
 sweep cannot separate it from an offset.
 
-So the reference holds `n_levels` speeds, evenly spaced from `w_min` to `w_max`,
-for `t_step` seconds each, then flips sign and sweeps the same speeds again. One
-full cycle therefore takes `2 * n_levels * t_step` seconds, after which it repeats.
+So the reference holds `n_levels` speeds spanning `w_min` to `w_max` for `t_step`
+seconds each, then flips sign and sweeps the same speeds again. One full cycle
+therefore takes `2 * n_levels * t_step` seconds, after which it repeats.
+
+The speeds are spaced as `(level / (n_levels - 1)) ^ spacing`, i.e. **quadratically**
+by default rather than evenly. That is deliberate: everything the friction fit is
+really after — the Coulomb breakaway and the steep part of the curve — lives at low
+speed, so that is where the resolution is wanted, while evenly spaced levels would
+spend half the experiment at high speeds that only pin down the cubic term. With
+`w_min = 1`, `w_max = 40`, `n_levels = 10` the steps come out roughly 0.5 rad/s apart
+near the bottom and 8 rad/s apart near the top. `spacing = 1` gives even spacing back.
+
+Either way `level = 0` yields exactly `w_min` and `level = n_levels - 1` exactly
+`w_max`, so changing `spacing` redistributes the speeds without moving the endpoints.
 
 `level` and `dir` are held in delayed variables and advanced by an edge detector on
 the elapsed time rather than computed from it with `floor`/`mod`: it makes the block
@@ -37,6 +48,7 @@ Clock-agnostic.
 | `w_max`         | Fastest speed in the sweep                         | rad/s  |   30.0 |
 | `n_levels`         | Number of speeds per direction                         | --  |   6 |
 | `t_step`         | Time held at each speed [s]                         | s  |   2.0 |
+| `spacing`         | Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly                         | --  |   2 |
 
 ## Connectors
 
@@ -52,7 +64,7 @@ Clock-agnostic.
 | `dir`         | Current direction, +1 or -1                         | --  |
 | `advance`         | 1 on the tick a new step begins, else 0                         | --  |
 """
-@component function VelocityStaircase(; name = nothing, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), kwargs...)
+@component function VelocityStaircase(; name = nothing, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), spacing=Float64(2), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -95,6 +107,9 @@ Clock-agnostic.
   __local__t_step = t_step
   append!(__params, @parameters (t_step::Real), [description = "Time held at each speed [s]"])
   __initial_conditions[t_step] = __local__t_step
+  __local__spacing = spacing
+  append!(__params, @parameters (spacing::Real), [description = "Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly"])
+  __initial_conditions[spacing] = __local__spacing
 
   ### Final Parameters (assignments)
 
@@ -111,12 +126,16 @@ Clock-agnostic.
   ### Variables (assignments)
   __ovr_idx = pop!(__overrides, "idx", nothing); isnothing(__ovr_idx) || push!(__eqs, idx ~ __ovr_idx)
   __ovr_idx__initial = pop!(__overrides, "idx__initial", nothing); isnothing(__ovr_idx__initial) || (__initial_conditions[idx] = __ovr_idx__initial)
+  __ovr_idx__guess = pop!(__overrides, "idx__guess", nothing)
   __ovr_level = pop!(__overrides, "level", nothing); isnothing(__ovr_level) || push!(__eqs, level ~ __ovr_level)
   __ovr_level__initial = pop!(__overrides, "level__initial", nothing); isnothing(__ovr_level__initial) || (__initial_conditions[level] = __ovr_level__initial)
+  __ovr_level__guess = pop!(__overrides, "level__guess", nothing)
   __ovr_dir = pop!(__overrides, "dir", nothing); isnothing(__ovr_dir) || push!(__eqs, dir ~ __ovr_dir)
   __ovr_dir__initial = pop!(__overrides, "dir__initial", nothing); isnothing(__ovr_dir__initial) || (__initial_conditions[dir] = __ovr_dir__initial)
+  __ovr_dir__guess = pop!(__overrides, "dir__guess", nothing)
   __ovr_advance = pop!(__overrides, "advance", nothing); isnothing(__ovr_advance) || push!(__eqs, advance ~ __ovr_advance)
   __ovr_advance__initial = pop!(__overrides, "advance__initial", nothing); isnothing(__ovr_advance__initial) || (__initial_conditions[advance] = __ovr_advance__initial)
+  __ovr_advance__guess = pop!(__overrides, "advance__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -127,6 +146,10 @@ Clock-agnostic.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_idx__guess) || (__guesses[idx] = __ovr_idx__guess)
+  isnothing(__ovr_level__guess) || (__guesses[level] = __ovr_level__guess)
+  isnothing(__ovr_dir__guess) || (__guesses[dir] = __ovr_dir__guess)
+  isnothing(__ovr_advance__guess) || (__guesses[advance] = __ovr_advance__guess)
 
   ### Initialization Equations
   push!(__initialization_eqs, idx(ShiftIndex() -1) ~ 0)
@@ -141,7 +164,7 @@ Clock-agnostic.
   push!(__eqs, idx ~ idx(ShiftIndex() -1) + advance)
   push!(__eqs, level ~ ifelse(advance > 0.5, ifelse(level(ShiftIndex() -1) + 1 >= n_levels, 0, level(ShiftIndex() -1) + 1), level(ShiftIndex() -1)))
   push!(__eqs, dir ~ ifelse(advance > 0.5, ifelse(level(ShiftIndex() -1) + 1 >= n_levels, -dir(ShiftIndex() -1), dir(ShiftIndex() -1)), dir(ShiftIndex() -1)))
-  push!(__eqs, w_ref ~ dir * (w_min + (w_max - w_min) * level / max(n_levels - 1, 1)))
+  push!(__eqs, w_ref ~ dir * (w_min + (w_max - w_min) * (level / max(n_levels - 1, 1)) ^ spacing))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

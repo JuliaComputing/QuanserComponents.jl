@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   FurutaFriction(; name, Ts, log_file, umax, K, Ti, filter_param, w_min, w_max, n_levels, t_step)
+   FurutaFriction(; name, Ts, log_file, umax, K, Ti, filter_param, w_min, w_max, n_levels, t_step, spacing)
 
 Constant-velocity friction experiment on the physical QUBE, as a single synchronous
 program.
@@ -31,13 +31,6 @@ the compiled program's runtime-settable `TuningGains`, which requires them to be
 Because the binding makes `velocity_pi.K` an expression in `K`, SynchToolkit substitutes
 it away entirely: the node reads one `K`, with no second copy in `AutoPars` that could
 fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
-
-`Ni`, the anti-windup gain, is set explicitly instead of being left at
-`DiscretePIDStandard`'s default of `sqrt(max(Td/Ti, 1e-6))`. That expression is for a
-PID — it makes the tracking time constant `sqrt(Ti*Td)` — and with `with_D = false` the
-`Td` it reads is a meaningless leftover, so the anti-windup gain came out as an arbitrary
-function of `Ti`. `Ni = 1` is the usual PI choice: the tracking time constant then equals
-`Ti`.
 
 Two things about the experiment that matter more than the model does:
 
@@ -63,14 +56,15 @@ Two things about the experiment that matter more than the model does:
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   FRICTION_LOG_FILE |
 | `umax`         | Motor saturation [V]                         | V  |   10.0 |
 | `K`         | Velocity-loop proportional gain [V·s/rad]                         | --  |   0.05 |
-| `Ti`         | Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well above `Ts`: at `Ti = Ts` it moves by the whole error every tick                         | s  |   0.5 |
+| `Ti`         | Velocity-loop integral time [s]; must be well above Ts, the integrator is forward-Euler                         | s  |   0.5 |
 | `filter_param`         | Velocity-estimator filter parameter; small means more filtering                         | --  |   0.1 |
 | `w_min`         | Slowest speed in the sweep [rad/s]                         | rad/s  |   2.0 |
 | `w_max`         | Fastest speed in the sweep [rad/s]                         | rad/s  |   30.0 |
 | `n_levels`         | Number of speeds per direction                         | --  |   6 |
 | `t_step`         | Time held at each speed [s]                         | s  |   2.0 |
+| `spacing`         | Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly                         | --  |   2 |
 """
-@component function FurutaFriction(; name = nothing, Ts=0.005, log_file=FRICTION_LOG_FILE, umax=Float64(10.0), K=0.05, Ti=0.5, filter_param=0.1, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), kwargs...)
+@component function FurutaFriction(; name = nothing, Ts=0.005, log_file=FRICTION_LOG_FILE, umax=Float64(10.0), K=0.05, Ti=0.5, filter_param=0.1, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), spacing=Float64(2), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -108,8 +102,7 @@ Two things about the experiment that matter more than the model does:
   append!(__params, @parameters (K::Real), [description = "Velocity-loop proportional gain [V·s/rad]"])
   __initial_conditions[K] = __local__K
   __local__Ti = Ti
-  append!(__params, @parameters (Ti::Real), [description = "Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be
-  append!(__params, @parameters (Ti::Real), [description = well above `Ts`: at `Ti = Ts` it moves by the whole error every tick"])
+  append!(__params, @parameters (Ti::Real), [description = "Velocity-loop integral time [s]; must be well above Ts, the integrator is forward-Euler"])
   __initial_conditions[Ti] = __local__Ti
   __local__filter_param = filter_param
   append!(__params, @parameters (filter_param::Real), [description = "Velocity-estimator filter parameter; small means more filtering", bounds = (0, 1)])
@@ -126,6 +119,9 @@ Two things about the experiment that matter more than the model does:
   __local__t_step = t_step
   append!(__params, @parameters (t_step::Real), [description = "Time held at each speed [s]"])
   __initial_conditions[t_step] = __local__t_step
+  __local__spacing = spacing
+  append!(__params, @parameters (spacing::Real), [description = "Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly"])
+  __initial_conditions[spacing] = __local__spacing
 
   ### Final Parameters (assignments)
 
@@ -152,6 +148,7 @@ Two things about the experiment that matter more than the model does:
   __bindings[reference.w_max] = w_max
   __bindings[reference.n_levels] = n_levels
   __bindings[reference.t_step] = t_step
+  __bindings[reference.spacing] = spacing
   # Now remove initial conditions in reference that correspond to the bindings just added
   __reference_ics = ModelingToolkit.get_initial_conditions(reference)
   __no_namespace_reference = ModelingToolkit.toggle_namespacing(reference, false)
@@ -163,6 +160,8 @@ Two things about the experiment that matter more than the model does:
   delete!(__reference_ics, __reference_n_levels)
   __reference_t_step = Symbolics.unwrap(__no_namespace_reference.t_step)::Symbolics.SymbolicT
   delete!(__reference_ics, __reference_t_step)
+  __reference_spacing = Symbolics.unwrap(__no_namespace_reference.spacing)::Symbolics.SymbolicT
+  delete!(__reference_ics, __reference_spacing)
   # Subcomponent velocityestimator of type QuanserComponents.VelocityEstimator
   velocityestimator_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator")
   push!(__systems, @named velocityestimator = QuanserComponents.VelocityEstimator(; velocityestimator_overrides...))

@@ -37,6 +37,9 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   var"n_levels"::Float64 = 10
   # Time held at each speed [s]
   var"t_step"::Float64 = 2.0
+  # Speed-distribution exponent: 2 (quadratic) clusters the levels at low speed, where the
+  # friction curve has its structure; 1 spaces them evenly
+  var"spacing"::Float64 = 2
   # Velocity-loop proportional gain [V·s/rad]
   var"K"::Float64 = 0.05
   # Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
@@ -81,13 +84,6 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # it away entirely: the node reads one `K`, with no second copy in `AutoPars` that could
   # fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
   # 
-  # `Ni`, the anti-windup gain, is set explicitly instead of being left at
-  # `DiscretePIDStandard`'s default of `sqrt(max(Td/Ti, 1e-6))`. That expression is for a
-  # PID — it makes the tracking time constant `sqrt(Ti*Td)` — and with `with_D = false` the
-  # `Td` it reads is a meaningless leftover, so the anti-windup gain came out as an arbitrary
-  # function of `Ti`. `Ni = 1` is the usual PI choice: the tracking time constant then equals
-  # `Ti`.
-  # 
   # Two things about the experiment that matter more than the model does:
   # 
   #   * **Turn deadband compensation off.** The driver can add a fixed offset in the
@@ -116,8 +112,9 @@ function DyadInterface.run_analysis(spec::FurutaFrictionExperimentSpec)
   push!(overrides, no_namespace_model.w_max => spec.var"w_max")
   push!(overrides, no_namespace_model.n_levels => spec.var"n_levels")
   push!(overrides, no_namespace_model.t_step => spec.var"t_step")
+  push!(overrides, no_namespace_model.spacing => spec.var"spacing")
   base_spec = FurutaFrictionBaseSpec(;
-    name=:FurutaFrictionBase, overrides, Ts=spec.Ts, log_file=spec.log_file, run=spec.run, Tf=spec.Tf, arm_deg=spec.arm_deg, card_options=spec.card_options, umax=spec.umax, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, K=spec.K, Ti=spec.Ti, backend=spec.backend, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
+    name=:FurutaFrictionBase, overrides, Ts=spec.Ts, log_file=spec.log_file, run=spec.run, Tf=spec.Tf, arm_deg=spec.arm_deg, card_options=spec.card_options, umax=spec.umax, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, spacing=spec.spacing, K=spec.K, Ti=spec.Ti, backend=spec.backend, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
   )
   run_analysis(base_spec)
 end

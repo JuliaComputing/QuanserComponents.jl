@@ -4,9 +4,12 @@
 <rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
 <!-- Zero axis -->
 <line x1="70" y1="500" x2="940" y2="500" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
-<line x1="90" y1="150" x2="90" y2="850" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
-<!-- Staircase up (positive speeds), then the mirror image below zero -->
-<path d="M90 440 L230 440 L230 330 L370 330 L370 220 L510 220 L510 560 L650 560 L650 670 L790 670 L790 780 L930 780"
+<line x1="90" y1="130" x2="90" y2="870" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
+<!-- Quadratically spaced speeds: fine near zero, coarse at the top. Levels at
+     w = 1 + 39*(k/4)^2 for k = 0..4, scaled into the upper half, then mirrored below. -->
+<path d="M90 480 L230 480 L230 456 L370 456 L370 407 L510 407 L510 334 L650 334 L650 236 L790 236"
+      stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M790 236 L790 520 L930 520"
       stroke="#131316" stroke-width="16" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 <defs>

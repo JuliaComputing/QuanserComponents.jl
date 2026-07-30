@@ -94,8 +94,25 @@ withparams(p::FrictionParams; changes...) =
 # `QubePendulum` already models. A fit should mostly add `kc`.
 const friction_nominal = FrictionParams()
 
-# The identified set. Replace with the output of examples/friction_identification.jl.
-const friction_identified = friction_nominal
+# The identified set, from a constant-velocity run on the QUBE (2026-07-30, 40 s sweep,
+# 1..40 rad/s in both directions; 4875 of 8000 samples survived the constant-velocity
+# selection, residual RMS 0.0105 V over a 4.01 V command range).
+#
+# `kv` came out **negative**, which is not physical. It is
+# `kt/Rm * (a₂ - km)` where `a₂ = 0.0203` V per rad/s is the measured command slope and
+# `km = 0.042`; the measured slope is less than the back-EMF constant alone demands, which
+# cannot happen in a passive system. Either `km` is too large for this unit or the command
+# is not the armature voltage 1:1 (the ratio `km/a₂ ≈ 2.07` is suspiciously close to 2).
+# So `QubePendulum` deliberately does not use this `kv` — its damper already carries the
+# viscous term as `br`, and the `Friction` block there is instantiated with `kv = 0` to
+# supply only the terms `br` cannot represent. Re-run with
+# `card_options = "deadband_compensation=0.0"` before trusting `kc` in absolute terms.
+const friction_identified = withparams(friction_nominal;
+    kc      = 0.0050123039,
+    kv      = -0.0001439297,
+    k2      = 2.9809712e-06,
+    k3      = -3.0210217e-08,
+)
 
 # ---------------------------------------------------------------------------
 ## Friction-experiment log layout

@@ -22,8 +22,10 @@ motion. Smoothing is the default because a hard `sign` at `ω = 0` is both
 numerically awkward and a poor description of what the device does at a standstill;
 `w_tanh` is the width of the transition, in rad/s.
 
-`tau` is the magnitude of the *opposing* torque, i.e. positive for positive `w`, so
-it enters an equation of motion with a minus sign: `J ω̇ = τ_motor - tau`.
+`tau_f` is the magnitude of the *opposing* torque, i.e. positive for positive `w`, so
+it enters an equation of motion with a minus sign: `J ω̇ = τ_motor - tau_f`.
+The name avoids colliding with the flange torque `tau` that
+[`RotationalFriction`](@ref) inherits from the rotational interface.
 
 The coefficients come from a [`FrictionParams`](@ref) set, so a whole fit can be
 selected in one line — `Friction(params = friction_identified)` — the same
@@ -50,7 +52,7 @@ voltage to start moving than to keep moving.
 ## Connectors
 
  * `w` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
- * `tau` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `tau_f` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 
 ## Variables
 
@@ -109,7 +111,7 @@ voltage to start moving than to keep moving.
 
   ### Final Path Parameters
   append!(__vars, @variables (w(t)::Real), [input = true])
-  append!(__vars, @variables (tau(t)::Real), [output = true])
+  append!(__vars, @variables (tau_f(t)::Real), [output = true])
 
   ### Variables (declarations)
   append!(__vars, @variables (sw(t)::Real), [description = "Sign of the velocity, smoothed or not"])
@@ -117,6 +119,7 @@ voltage to start moving than to keep moving.
   ### Variables (assignments)
   __ovr_sw = pop!(__overrides, "sw", nothing); isnothing(__ovr_sw) || push!(__eqs, sw ~ __ovr_sw)
   __ovr_sw__initial = pop!(__overrides, "sw__initial", nothing); isnothing(__ovr_sw__initial) || (__initial_conditions[sw] = __ovr_sw__initial)
+  __ovr_sw__guess = pop!(__overrides, "sw__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -127,6 +130,7 @@ voltage to start moving than to keep moving.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_sw__guess) || (__guesses[sw] = __ovr_sw__guess)
 
   ### Initialization Equations
 
@@ -134,7 +138,7 @@ voltage to start moving than to keep moving.
   __assertions = []
 
   ### Equations
-  push!(__eqs, tau ~ kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3)
+  push!(__eqs, tau_f ~ kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3)
 
   ### Control Structures
   if smooth

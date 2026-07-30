@@ -34,9 +34,20 @@ for the acceleration to be negligible, so that `τ = J α + f(ω)` collapses to
 because Coulomb friction is what the experiment is mostly after and a one-sided
 sweep cannot separate it from an offset.
 
-So the reference holds `n_levels` speeds, evenly spaced from `w_min` to `w_max`,
-for `t_step` seconds each, then flips sign and sweeps the same speeds again. One
-full cycle therefore takes `2 * n_levels * t_step` seconds, after which it repeats.
+So the reference holds `n_levels` speeds spanning `w_min` to `w_max` for `t_step`
+seconds each, then flips sign and sweeps the same speeds again. One full cycle
+therefore takes `2 * n_levels * t_step` seconds, after which it repeats.
+
+The speeds are spaced as `(level / (n_levels - 1)) ^ spacing`, i.e. **quadratically**
+by default rather than evenly. That is deliberate: everything the friction fit is
+really after — the Coulomb breakaway and the steep part of the curve — lives at low
+speed, so that is where the resolution is wanted, while evenly spaced levels would
+spend half the experiment at high speeds that only pin down the cubic term. With
+`w_min = 1`, `w_max = 40`, `n_levels = 10` the steps come out roughly 0.5 rad/s apart
+near the bottom and 8 rad/s apart near the top. `spacing = 1` gives even spacing back.
+
+Either way `level = 0` yields exactly `w_min` and `level = n_levels - 1` exactly
+`w_max`, so changing `spacing` redistributes the speeds without moving the endpoints.
 
 `level` and `dir` are held in delayed variables and advanced by an edge detector on
 the elapsed time rather than computed from it with `floor`/`mod`: it makes the block
@@ -58,6 +69,8 @@ component VelocityStaircase@[input clk extends Discrete]
   parameter n_levels::Real = 6
   "Time held at each speed [s]"
   parameter t_step::Dyad.Time = 2.0
+  "Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly"
+  parameter spacing::Real = 2
   "Completed steps"
   variable idx::Real
   "Index of the current speed, 0 to n_levels-1"
@@ -77,7 +90,7 @@ relations
   # the opposite direction.
   level@clk = ifelse(advance@clk > 0.5, ifelse(level@(clk-1) + 1 >= n_levels, 0, level@(clk-1) + 1), level@(clk-1))
   dir@clk = ifelse(advance@clk > 0.5, ifelse(level@(clk-1) + 1 >= n_levels, -dir@(clk-1), dir@(clk-1)), dir@(clk-1))
-  w_ref@clk = dir@clk * (w_min + (w_max - w_min) * level@clk / max(n_levels - 1, 1))
+  w_ref@clk = dir@clk * (w_min + (w_max - w_min) * (level@clk / max(n_levels - 1, 1)) ^ spacing)
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/VelocityStaircase.svg"}},
   "_links": {
@@ -181,8 +194,10 @@ motion. Smoothing is the default because a hard `sign` at `ω = 0` is both
 numerically awkward and a poor description of what the device does at a standstill;
 `w_tanh` is the width of the transition, in rad/s.
 
-`tau` is the magnitude of the *opposing* torque, i.e. positive for positive `w`, so
-it enters an equation of motion with a minus sign: `J ω̇ = τ_motor - tau`.
+`tau_f` is the magnitude of the *opposing* torque, i.e. positive for positive `w`, so
+it enters an equation of motion with a minus sign: `J ω̇ = τ_motor - tau_f`.
+The name avoids colliding with the flange torque `tau` that
+[`RotationalFriction`](@ref) inherits from the rotational interface.
 
 The coefficients come from a [`FrictionParams`](@ref) set, so a whole fit can be
 selected in one line — `Friction(params = friction_identified)` — the same
@@ -198,7 +213,7 @@ component Friction
   "Angular velocity of the axis [rad/s]"
   w = Dyad.RealInput() {^w}
   "Friction torque opposing the motion [N·m]"
-  tau = Dyad.RealOutput() {^tau}
+  tau_f = Dyad.RealOutput() {^tau_f}
   "Coefficient set (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)"
   structural parameter params::Native = friction_nominal
   "Smooth the sign with tanh instead of using a hard sign"
@@ -223,17 +238,59 @@ relations
   else
     sw = sign(w)
   end
-  tau = kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3
+  tau_f = kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/Friction.svg"}},
   "_links": {
     "w": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
     },
-    "tau": {
+    "tau_f": {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
     }
   }
+}
+end
+
+"""
+[`Friction`](@ref) as a rotational two-port, so it drops in exactly where a `Damper`
+would: connect it between a joint's `axis` and `support` and nothing else changes.
+`Damper` contributes `tau = d * w_rel`; this contributes the whole friction law.
+
+It *contains* a `Friction` rather than extending it: extending would inherit that block's
+`w` and `tau_f` signal connectors, and a rotational two-port should present flanges and
+nothing else. So the law and the `FrictionParams` plumbing still have exactly one
+definition in the package, and the two bridging equations tie it to the flange variables
+supplied by the same rotational interface `Damper` uses.
+
+The coefficients are re-declared here only to forward them with `final`, which keeps
+`RotationalFriction(params = friction_identified)` working and still lets an individual
+coefficient be overridden — `kv` being the one that matters, since whatever carries the
+viscous term must carry it exactly once.
+"""
+component RotationalFriction
+  extends RotationalComponents.Interfaces.PartialCompliantWithRelativeStates
+  friction = QuanserComponents.Friction(params = params, smooth = smooth, final kc = kc, final kv = kv, final k2 = k2, final k3 = k3, final w_tanh = w_tanh) {^friction}
+  "Coefficient set (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)"
+  structural parameter params::Native = friction_nominal
+  "Smooth the sign with tanh instead of using a hard sign"
+  structural parameter smooth::Boolean = true
+  "Coulomb (breakaway) torque"
+  parameter kc::Dyad.Torque = params.kc
+  "Viscous coefficient"
+  parameter kv::Dyad.RotationalDampingConstant = params.kv
+  "Quadratic coefficient"
+  parameter k2::Real = params.k2
+  "Cubic coefficient"
+  parameter k3::Real = params.k3
+  "Width of the smoothed sign transition [rad/s] (only used if `smooth = true`)"
+  parameter w_tanh::Dyad.AngularVelocity = params.w_tanh
+relations
+  friction.w = w_rel
+  tau = friction.tau_f
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/Friction.svg"}},
+  "_links": {"friction": {}}
 }
 end
 
@@ -280,7 +337,7 @@ Two things about the experiment that matter more than the model does:
 component FurutaFriction
   measurement = HardwareMeasurement() {^measurement}
   elapsed = ElapsedTime() {^elapsed}
-  reference = VelocityStaircase(final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step) {^reference}
+  reference = VelocityStaircase(final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step, final spacing = spacing) {^reference}
   velocityestimator = VelocityEstimator(final filter_param = filter_param) {^velocityestimator}
   velocity_pi = DiscreteComponents.DiscretePIDStandard(with_D = false, final K = K, final Ti = Ti, Ni = 1.0, final y_max = umax, wp = 1.2) {^velocity_pi}
   command = HardwareCommand(final umax = umax) {^command}
@@ -294,10 +351,7 @@ component FurutaFriction
   parameter umax::Dyad.Voltage = 10.0
   "Velocity-loop proportional gain [V·s/rad]"
   parameter K::Real = 0.05
-  """
-  Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be
-  well above `Ts`
-  """
+  "Velocity-loop integral time [s]; must be well above Ts, the integrator is forward-Euler"
   parameter Ti::Dyad.Time = 0.5
   "Velocity-estimator filter parameter; small means more filtering"
   parameter filter_param::Real(min = 0, max = 1) = 0.1
@@ -309,6 +363,8 @@ component FurutaFriction
   parameter n_levels::Real = 6
   "Time held at each speed [s]"
   parameter t_step::Dyad.Time = 2.0
+  "Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly"
+  parameter spacing::Real = 2
 relations
   connect(velocity_pi.y, command.u) {^id9}
   # Logging, in the FRICTION_LOG_COLUMNS order

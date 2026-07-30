@@ -441,7 +441,9 @@ end
     npanels == 0 && throw(ArgumentError("nothing to plot for friction_panels = \
                                          $(repr(friction_panels))"))
     layout --> (npanels, 1)
-    size --> (900, 280 * npanels)
+    # Stacked time series want to be wide and short; the fit on its own is a scatter plot
+    # against velocity and wants to be roughly square, or the curve is unreadable.
+    size --> (want_fit && !want_exp ? (780, 580) : (900, 280 * npanels))
     framestyle --> :zerolines
     legend --> :outertopright
     panel = 0

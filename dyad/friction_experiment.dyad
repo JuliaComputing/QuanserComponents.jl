@@ -34,6 +34,11 @@ partial analysis FurutaFrictionBase
   parameter n_levels::Real = 6
   "Time held at each speed [s]"
   parameter t_step::Real = 2.0
+  """
+  Speed-distribution exponent: 2 (quadratic) clusters the levels at low speed, where the
+  friction curve has its structure; 1 spaces them evenly
+  """
+  parameter spacing::Real = 2
   "Velocity-loop proportional gain [V·s/rad]"
   parameter K::Real = 0.05
   """
@@ -73,6 +78,6 @@ analysis FurutaFrictionExperiment
   # by the implementation. `Ts` and `log_file` are deliberately absent: they are structural,
   # so they are not parameters of the built system at all (`toggle_namespacing(model,
   # false).Ts` throws) and have to be given when the model is constructed.
-  model = FurutaFriction(final K = K, final Ti = Ti, final umax = umax, final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step)
+  model = FurutaFriction(final K = K, final Ti = Ti, final umax = umax, final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step, final spacing = spacing)
 relations
 end

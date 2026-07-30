@@ -111,6 +111,7 @@ Clock-agnostic.
   ### Variables (assignments)
   __ovr_v = pop!(__overrides, "v", nothing); isnothing(__ovr_v) || push!(__eqs, v ~ __ovr_v)
   __ovr_v__initial = pop!(__overrides, "v__initial", nothing); isnothing(__ovr_v__initial) || (__initial_conditions[v] = __ovr_v__initial)
+  __ovr_v__guess = pop!(__overrides, "v__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -121,6 +122,7 @@ Clock-agnostic.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
+  isnothing(__ovr_v__guess) || (__guesses[v] = __ovr_v__guess)
 
   ### Initialization Equations
 

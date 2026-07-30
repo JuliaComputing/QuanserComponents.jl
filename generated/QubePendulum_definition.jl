@@ -7,13 +7,14 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   QubePendulum(; name, idparams, Rm, kt, km, r_cm_r, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
+   QubePendulum(; name, idparams, friction_params, Rm, kt, km, r_cm_r, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `idparams`         | Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)                         | --  |   nominal |
+| `friction_params`         | Shoulder-axis friction coefficients (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)                         | --  |   friction_identified |
 | `Rm`         | Motor armature resistance                         | Ω  |   idparams.Rm |
 | `kt`         | Motor current-to-torque constant                         | N.m/A  |   idparams.kt |
 | `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   idparams.km |
@@ -35,7 +36,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, idparams=nominal, r_cm_r=0.085 / 2, Jr=0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, mr=idparams.mr, r=idparams.r, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
+@component function QubePendulum(; name = nothing, idparams=nominal, friction_params=friction_identified, r_cm_r=0.085 / 2, Jr=0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, mr=idparams.mr, r=idparams.r, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -124,24 +125,27 @@ import Moshi as __Ext__Moshi
   __constants = Any[]
 
   ### Components
-  # Subcomponent torquesource of type RotationalComponents.Sources.TorqueSource
-  torquesource_overrides = __pop_subcomponent_overrides!(__overrides, "torquesource")
-  push!(__systems, @named torquesource = RotationalComponents.Sources.TorqueSource(; torquesource_overrides...))
-  # Subcomponent voltage_to_torque of type BlockComponents.Math.Gain
-  voltage_to_torque_overrides = __pop_subcomponent_overrides!(__overrides, "voltage_to_torque")
-  push!(__systems, @named voltage_to_torque = BlockComponents.Math.Gain(; voltage_to_torque_overrides...))
-  __bindings[voltage_to_torque.k] = kt / Rm
-  # Now remove initial conditions in voltage_to_torque that correspond to the bindings just added
-  __voltage_to_torque_ics = ModelingToolkit.get_initial_conditions(voltage_to_torque)
-  __no_namespace_voltage_to_torque = ModelingToolkit.toggle_namespacing(voltage_to_torque, false)
-  __voltage_to_torque_k = Symbolics.unwrap(__no_namespace_voltage_to_torque.k)::Symbolics.SymbolicT
-  delete!(__voltage_to_torque_ics, __voltage_to_torque_k)
+  # Subcomponent motor of type QuanserComponents.DCMotor
+  motor_overrides = __pop_subcomponent_overrides!(__overrides, "motor")
+  push!(__systems, @named motor = QuanserComponents.DCMotor(; motor_overrides...))
+  __bindings[motor.Rm] = Rm
+  __bindings[motor.kt] = kt
+  __bindings[motor.km] = km
+  # Now remove initial conditions in motor that correspond to the bindings just added
+  __motor_ics = ModelingToolkit.get_initial_conditions(motor)
+  __no_namespace_motor = ModelingToolkit.toggle_namespacing(motor, false)
+  __motor_Rm = Symbolics.unwrap(__no_namespace_motor.Rm)::Symbolics.SymbolicT
+  delete!(__motor_ics, __motor_Rm)
+  __motor_kt = Symbolics.unwrap(__no_namespace_motor.kt)::Symbolics.SymbolicT
+  delete!(__motor_ics, __motor_kt)
+  __motor_km = Symbolics.unwrap(__no_namespace_motor.km)::Symbolics.SymbolicT
+  delete!(__motor_ics, __motor_km)
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_joint")
-  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(0), Float64(1), Float64(0)], color=[0.8, 0.8, 0.8, Float64(1)], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
+  push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=MultibodyComponents.RootedFrame.FrameA(), n=[Float64(0), Float64(1), Float64(0)], color=[0.8, 0.8, 0.8, Float64(1)], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
   # Subcomponent elbow_joint of type MultibodyComponents.Revolute
   elbow_joint_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_joint")
-  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=RootedFrame.FrameA(), n=[Float64(-1), Float64(0), Float64(0)], elbow_joint_overrides...))
+  push!(__systems, @named elbow_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=MultibodyComponents.RootedFrame.FrameA(), n=[Float64(-1), Float64(0), Float64(0)], elbow_joint_overrides...))
   # Subcomponent upper_arm of type MultibodyComponents.BodyShape
   upper_arm_overrides = __pop_subcomponent_overrides!(__overrides, "upper_arm")
   push!(__systems, @named upper_arm = MultibodyComponents.BodyShape(; radius=0.0025, color=[0.9, 0.9, 0.9, Float64(1)], shapefile=joinpath("assets", "qube", "qube_arm.stl"), shape_transform=MultibodyComponents.Rp2T(MultibodyComponents.RotZ(-pi / 2), [0.05, 0, 0]), upper_arm_overrides...))
@@ -193,15 +197,15 @@ import Moshi as __Ext__Moshi
   # Subcomponent shoulder_sensor of type RotationalComponents.Sensors.AngleSensor
   shoulder_sensor_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_sensor")
   push!(__systems, @named shoulder_sensor = RotationalComponents.Sensors.AngleSensor(; shoulder_sensor_overrides...))
-  # Subcomponent damper of type RotationalComponents.Components.Damper
-  damper_overrides = __pop_subcomponent_overrides!(__overrides, "damper")
-  push!(__systems, @named damper = RotationalComponents.Components.Damper(; damper_overrides...))
-  __bindings[damper.d] = br + kt * km / Rm
-  # Now remove initial conditions in damper that correspond to the bindings just added
-  __damper_ics = ModelingToolkit.get_initial_conditions(damper)
-  __no_namespace_damper = ModelingToolkit.toggle_namespacing(damper, false)
-  __damper_d = Symbolics.unwrap(__no_namespace_damper.d)::Symbolics.SymbolicT
-  delete!(__damper_ics, __damper_d)
+  # Subcomponent friction of type QuanserComponents.RotationalFriction
+  friction_overrides = __pop_subcomponent_overrides!(__overrides, "friction")
+  push!(__systems, @named friction = QuanserComponents.RotationalFriction(; params=friction_params, friction_overrides...))
+  __bindings[friction.kv] = br
+  # Now remove initial conditions in friction that correspond to the bindings just added
+  __friction_ics = ModelingToolkit.get_initial_conditions(friction)
+  __no_namespace_friction = ModelingToolkit.toggle_namespacing(friction, false)
+  __friction_kv = Symbolics.unwrap(__no_namespace_friction.kv)::Symbolics.SymbolicT
+  delete!(__friction_ics, __friction_kv)
   # Subcomponent damper1 of type RotationalComponents.Components.Damper
   damper1_overrides = __pop_subcomponent_overrides!(__overrides, "damper1")
   push!(__systems, @named damper1 = RotationalComponents.Components.Damper(; damper1_overrides...))
@@ -249,12 +253,9 @@ import Moshi as __Ext__Moshi
   push!(__eqs, connect(elbow_joint.frame_b, lower_arm.frame_a))
   push!(__eqs, connect(elbow_sensor.phi, elbow_angle))
   push!(__eqs, connect(fixed.frame_b, shoulder_joint.frame_a))
-  push!(__eqs, connect(voltage_to_torque.u, voltage))
-  push!(__eqs, connect(voltage_to_torque.y, torquesource.tau))
-  push!(__eqs, connect(damper.spline_a, shoulder_joint.support))
-  push!(__eqs, connect(damper.spline_b, shoulder_joint.axis))
-  push!(__eqs, connect(shoulder_joint.support, torquesource.support))
-  push!(__eqs, connect(shoulder_sensor.spline, torquesource.spline, shoulder_joint.axis))
+  push!(__eqs, connect(voltage, motor.voltage))
+  push!(__eqs, connect(shoulder_joint.support, motor.support, friction.spline_a))
+  push!(__eqs, connect(shoulder_sensor.spline, motor.spline, shoulder_joint.axis, friction.spline_b))
   push!(__eqs, connect(shoulder_sensor.phi, shoulder_angle))
   push!(__eqs, connect(elbow_joint.support, damper1.spline_a))
   push!(__eqs, connect(damper1.spline_b, elbow_joint.axis))
