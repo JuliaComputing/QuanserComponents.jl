@@ -35,10 +35,15 @@ partial analysis FurutaFrictionBase
   "Time held at each speed [s]"
   parameter t_step::Real = 2.0
   "Velocity-loop proportional gain [V·s/rad]"
-  parameter K::Real = 0.02
-  "Velocity-loop integral time [s]"
-  parameter Ti::Real = 0.1
-  "Backend to build the program on, \"julia\" or \"c\""
+  parameter K::Real = 0.05
+  """
+  Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
+  above `Ts`
+  """
+  parameter Ti::Real = 0.5
+  """
+  Backend to build the program on, \"julia\" or \"c\"
+  """
   parameter backend::String = "julia"
   """
   Time [s] discarded after each change of the velocity reference. The fit assumes zero
@@ -62,7 +67,12 @@ relations
 end
 
 analysis FurutaFrictionExperiment
-  extends FurutaFrictionBase()
-  model = FurutaFriction()
+  extends FurutaFrictionBase(Ti = 0.07, card_options = "", w_min = 1.0, w_max = 40.0, n_levels = 10)
+  # Every *symbolic* parameter the model owns is forwarded here, so the analysis'
+  # parameters parameterize the model directly instead of being read back out of the spec
+  # by the implementation. `Ts` and `log_file` are deliberately absent: they are structural,
+  # so they are not parameters of the built system at all (`toggle_namespacing(model,
+  # false).Ts` throws) and have to be given when the model is constructed.
+  model = FurutaFriction(final K = K, final Ti = Ti, final umax = umax, final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step)
 relations
 end

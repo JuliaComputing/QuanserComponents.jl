@@ -26,21 +26,22 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # Card-specific options applied after opening the board. Deadband compensation
   # offsets the command in the direction it points, which lands on top of the Coulomb
   # term this experiment measures, so it is off by default
-  var"card_options"::String = "deadband_compensation=0.0"
+  var"card_options"::String = ""
   # Motor saturation [V]
   var"umax"::Float64 = 10.0
   # Slowest speed in the sweep [rad/s]
-  var"w_min"::Float64 = 2.0
+  var"w_min"::Float64 = 1.0
   # Fastest speed in the sweep [rad/s]
-  var"w_max"::Float64 = 30.0
+  var"w_max"::Float64 = 40.0
   # Number of speeds per direction
-  var"n_levels"::Float64 = 6
+  var"n_levels"::Float64 = 10
   # Time held at each speed [s]
   var"t_step"::Float64 = 2.0
   # Velocity-loop proportional gain [V·s/rad]
-  var"K"::Float64 = 0.02
-  # Velocity-loop integral time [s]
-  var"Ti"::Float64 = 0.1
+  var"K"::Float64 = 0.05
+  # Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
+  # above `Ts`
+  var"Ti"::Float64 = 0.07
   # Backend to build the program on, \"julia\" or \"c\"
   var"backend"::String = "julia"
   # Time [s] discarded after each change of the velocity reference. The fit assumes zero
@@ -71,11 +72,21 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # supplies nothing but a clock tick — see `generate_friction_controller` and
   # `FrictionController` in src/friction.jl.
   # 
-  # The velocity loop's `K` and `Ti` stay on `velocity_pi` rather than being lifted to
-  # parameters here, because those two are the ones worth retuning against the real
-  # device: they are the compiled program's runtime-settable `TuningGains`, so
-  # `FrictionController(; K, Ti)` changes them without recompiling. Everything else is
-  # resolved at build time.
+  # `K` and `Ti` are parameters *here*, bound down into `velocity_pi` with `final`, so that
+  # the `FurutaFrictionExperiment` analysis can forward its own `K`/`Ti` into the model the
+  # ordinary way (`model = FurutaFriction(final K = K, final Ti = Ti, ...)`). They are also
+  # the compiled program's runtime-settable `TuningGains`, which requires them to be
+  # *unbound* — hence root parameters bound downwards rather than `velocity_pi`'s own.
+  # Because the binding makes `velocity_pi.K` an expression in `K`, SynchToolkit substitutes
+  # it away entirely: the node reads one `K`, with no second copy in `AutoPars` that could
+  # fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
+  # 
+  # `Ni`, the anti-windup gain, is set explicitly instead of being left at
+  # `DiscretePIDStandard`'s default of `sqrt(max(Td/Ti, 1e-6))`. That expression is for a
+  # PID — it makes the tracking time constant `sqrt(Ti*Td)` — and with `with_D = false` the
+  # `Td` it reads is a meaningless leftover, so the anti-windup gain came out as an arbitrary
+  # function of `Ti`. `Ni = 1` is the usual PI choice: the tracking time constant then equals
+  # `Ti`.
   # 
   # Two things about the experiment that matter more than the model does:
   # 
@@ -98,7 +109,13 @@ end
 function DyadInterface.run_analysis(spec::FurutaFrictionExperimentSpec)
   overrides = Dict{SymbolicT, SymbolicT}()
   no_namespace_model = toggle_namespacing(spec.model, false)
-  
+  push!(overrides, no_namespace_model.K => spec.var"K")
+  push!(overrides, no_namespace_model.Ti => spec.var"Ti")
+  push!(overrides, no_namespace_model.umax => spec.var"umax")
+  push!(overrides, no_namespace_model.w_min => spec.var"w_min")
+  push!(overrides, no_namespace_model.w_max => spec.var"w_max")
+  push!(overrides, no_namespace_model.n_levels => spec.var"n_levels")
+  push!(overrides, no_namespace_model.t_step => spec.var"t_step")
   base_spec = FurutaFrictionBaseSpec(;
     name=:FurutaFrictionBase, overrides, Ts=spec.Ts, log_file=spec.log_file, run=spec.run, Tf=spec.Tf, arm_deg=spec.arm_deg, card_options=spec.card_options, umax=spec.umax, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, K=spec.K, Ti=spec.Ti, backend=spec.backend, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
   )

@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   FurutaFriction(; name, Ts, log_file, umax, filter_param, w_min, w_max, n_levels, t_step)
+   FurutaFriction(; name, Ts, log_file, umax, K, Ti, filter_param, w_min, w_max, n_levels, t_step)
 
 Constant-velocity friction experiment on the physical QUBE, as a single synchronous
 program.
@@ -23,11 +23,21 @@ Everything is inside the program: `HardwareMeasurement` reads the encoders,
 supplies nothing but a clock tick — see `generate_friction_controller` and
 `FrictionController` in src/friction.jl.
 
-The velocity loop's `K` and `Ti` stay on `velocity_pi` rather than being lifted to
-parameters here, because those two are the ones worth retuning against the real
-device: they are the compiled program's runtime-settable `TuningGains`, so
-`FrictionController(; K, Ti)` changes them without recompiling. Everything else is
-resolved at build time.
+`K` and `Ti` are parameters *here*, bound down into `velocity_pi` with `final`, so that
+the `FurutaFrictionExperiment` analysis can forward its own `K`/`Ti` into the model the
+ordinary way (`model = FurutaFriction(final K = K, final Ti = Ti, ...)`). They are also
+the compiled program's runtime-settable `TuningGains`, which requires them to be
+*unbound* — hence root parameters bound downwards rather than `velocity_pi`'s own.
+Because the binding makes `velocity_pi.K` an expression in `K`, SynchToolkit substitutes
+it away entirely: the node reads one `K`, with no second copy in `AutoPars` that could
+fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
+
+`Ni`, the anti-windup gain, is set explicitly instead of being left at
+`DiscretePIDStandard`'s default of `sqrt(max(Td/Ti, 1e-6))`. That expression is for a
+PID — it makes the tracking time constant `sqrt(Ti*Td)` — and with `with_D = false` the
+`Td` it reads is a meaningless leftover, so the anti-windup gain came out as an arbitrary
+function of `Ti`. `Ni = 1` is the usual PI choice: the tracking time constant then equals
+`Ti`.
 
 Two things about the experiment that matter more than the model does:
 
@@ -52,13 +62,15 @@ Two things about the experiment that matter more than the model does:
 | `Ts`         | Sample time [s]                         | --  |   0.005 |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   FRICTION_LOG_FILE |
 | `umax`         | Motor saturation [V]                         | V  |   10.0 |
+| `K`         | Velocity-loop proportional gain [V·s/rad]                         | --  |   0.05 |
+| `Ti`         | Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well above `Ts`: at `Ti = Ts` it moves by the whole error every tick                         | s  |   0.5 |
 | `filter_param`         | Velocity-estimator filter parameter; small means more filtering                         | --  |   0.1 |
 | `w_min`         | Slowest speed in the sweep [rad/s]                         | rad/s  |   2.0 |
 | `w_max`         | Fastest speed in the sweep [rad/s]                         | rad/s  |   30.0 |
 | `n_levels`         | Number of speeds per direction                         | --  |   6 |
 | `t_step`         | Time held at each speed [s]                         | s  |   2.0 |
 """
-@component function FurutaFriction(; name = nothing, Ts=0.005, log_file=FRICTION_LOG_FILE, umax=Float64(10.0), filter_param=0.1, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), kwargs...)
+@component function FurutaFriction(; name = nothing, Ts=0.005, log_file=FRICTION_LOG_FILE, umax=Float64(10.0), K=0.05, Ti=0.5, filter_param=0.1, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -92,6 +104,13 @@ Two things about the experiment that matter more than the model does:
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Motor saturation [V]"])
   __initial_conditions[umax] = __local__umax
+  __local__K = K
+  append!(__params, @parameters (K::Real), [description = "Velocity-loop proportional gain [V·s/rad]"])
+  __initial_conditions[K] = __local__K
+  __local__Ti = Ti
+  append!(__params, @parameters (Ti::Real), [description = "Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be
+  append!(__params, @parameters (Ti::Real), [description = well above `Ts`: at `Ti = Ts` it moves by the whole error every tick"])
+  __initial_conditions[Ti] = __local__Ti
   __local__filter_param = filter_param
   append!(__params, @parameters (filter_param::Real), [description = "Velocity-estimator filter parameter; small means more filtering", bounds = (0, 1)])
   __initial_conditions[filter_param] = __local__filter_param
@@ -155,11 +174,17 @@ Two things about the experiment that matter more than the model does:
   delete!(__velocityestimator_ics, __velocityestimator_filter_param)
   # Subcomponent velocity_pi of type DiscreteComponents.DiscretePIDStandard
   velocity_pi_overrides = __pop_subcomponent_overrides!(__overrides, "velocity_pi")
-  push!(__systems, @named velocity_pi = DiscreteComponents.DiscretePIDStandard(; with_D=false, K=0.04, Ti=0.1, wp=0.2, velocity_pi_overrides...))
+  push!(__systems, @named velocity_pi = DiscreteComponents.DiscretePIDStandard(; with_D=false, Ni=Float64(1.0), wp=1.2, velocity_pi_overrides...))
+  __bindings[velocity_pi.K] = K
+  __bindings[velocity_pi.Ti] = Ti
   __bindings[velocity_pi.y_max] = umax
   # Now remove initial conditions in velocity_pi that correspond to the bindings just added
   __velocity_pi_ics = ModelingToolkit.get_initial_conditions(velocity_pi)
   __no_namespace_velocity_pi = ModelingToolkit.toggle_namespacing(velocity_pi, false)
+  __velocity_pi_K = Symbolics.unwrap(__no_namespace_velocity_pi.K)::Symbolics.SymbolicT
+  delete!(__velocity_pi_ics, __velocity_pi_K)
+  __velocity_pi_Ti = Symbolics.unwrap(__no_namespace_velocity_pi.Ti)::Symbolics.SymbolicT
+  delete!(__velocity_pi_ics, __velocity_pi_Ti)
   __velocity_pi_y_max = Symbolics.unwrap(__no_namespace_velocity_pi.y_max)::Symbolics.SymbolicT
   delete!(__velocity_pi_ics, __velocity_pi_y_max)
   # Subcomponent command of type QuanserComponents.HardwareCommand
@@ -189,17 +214,13 @@ Two things about the experiment that matter more than the model does:
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(measurement.shoulder_angle, velocityestimator.pos, periodicclock.y))
-  push!(__eqs, connect(elapsed.y, reference.t_in))
-  push!(__eqs, connect(reference.w_ref, velocity_pi.u_s))
-  push!(__eqs, connect(velocityestimator.vel, velocity_pi.u_m))
   push!(__eqs, connect(velocity_pi.y, command.u))
-  push!(__eqs, connect(elapsed.y, logger.u[1]))
-  push!(__eqs, connect(reference.w_ref, logger.u[2]))
-  push!(__eqs, connect(measurement.shoulder_angle, logger.u[3]))
-  push!(__eqs, connect(velocityestimator.vel, logger.u[4]))
+  push!(__eqs, connect(elapsed.y, logger.u[1], reference.t_in))
+  push!(__eqs, connect(reference.w_ref, logger.u[2], velocity_pi.u_s))
+  push!(__eqs, connect(measurement.shoulder_angle, logger.u[3], velocityestimator.pos))
+  push!(__eqs, connect(velocityestimator.vel, logger.u[4], velocity_pi.u_m))
   push!(__eqs, connect(command.u_applied, logger.u[5]))
-  push!(__eqs, connect(measurement.elbow_angle, logger.u[6]))
+  push!(__eqs, connect(measurement.elbow_angle, logger.u[6], periodicclock.y))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

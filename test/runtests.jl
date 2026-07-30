@@ -283,7 +283,10 @@ import DyadCompilerPasses
     # backends write the same file.
     @testset "friction experiment ($backend)" for backend in (:julia, :c)
         logfile = joinpath(mktempdir(), "friction.csv")
-        ctrl = QuanserComponents.FrictionController(; Ts, backend, log_file = logfile)
+        # Explicit gains: this testset is about the logging, and the model's `velocity_pi`
+        # values are whatever the loop is currently tuned to.
+        ctrl = QuanserComponents.FrictionController(; Ts, backend, log_file = logfile,
+                                                     K = 0.05, Ti = 0.5)
         @test ctrl.log_file == logfile          # the model carries the filename, not the driver
 
         # A first-order axis to close the velocity loop around. Coulomb friction included,
@@ -453,7 +456,8 @@ import DyadCompilerPasses
         # With a log present, `run = false` re-fits it without touching the hardware — the
         # workflow that used to need a separate script.
         ctrl = QuanserComponents.FrictionController(; Ts, backend = :julia,
-                                                     log_file = logfile)
+                                                     log_file = logfile,
+                                                     K = 0.05, Ti = 0.5)
         wr, phi = Ref(0.0), Ref(0.0)
         QuanserComponents.bind_hardware!(
             measure = () -> (phi[], 0.0),
@@ -469,8 +473,12 @@ import DyadCompilerPasses
         end
         QuanserComponents.close_log!()
 
+        # Gains stated explicitly rather than inherited: the analysis now leaves `K`/`Ti`
+        # at 0 meaning "use the model's", and the model's are whatever the loop is
+        # currently tuned to, which a test must not depend on.
         sol2 = QuanserComponents.FurutaFrictionExperiment(; Ts, run = false,
-                                                           log_file = logfile)
+                                                           log_file = logfile,
+                                                           K = 0.05, Ti = 0.5)
         @test sol2.data !== nothing
         @test sol2.fit !== nothing
         # The simulated axis has Coulomb friction, so the fit must find some.

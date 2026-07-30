@@ -252,11 +252,14 @@ Everything is inside the program: `HardwareMeasurement` reads the encoders,
 supplies nothing but a clock tick — see `generate_friction_controller` and
 `FrictionController` in src/friction.jl.
 
-The velocity loop's `K` and `Ti` stay on `velocity_pi` rather than being lifted to
-parameters here, because those two are the ones worth retuning against the real
-device: they are the compiled program's runtime-settable `TuningGains`, so
-`FrictionController(; K, Ti)` changes them without recompiling. Everything else is
-resolved at build time.
+`K` and `Ti` are parameters *here*, bound down into `velocity_pi` with `final`, so that
+the `FurutaFrictionExperiment` analysis can forward its own `K`/`Ti` into the model the
+ordinary way (`model = FurutaFriction(final K = K, final Ti = Ti, ...)`). They are also
+the compiled program's runtime-settable `TuningGains`, which requires them to be
+*unbound* — hence root parameters bound downwards rather than `velocity_pi`'s own.
+Because the binding makes `velocity_pi.K` an expression in `K`, SynchToolkit substitutes
+it away entirely: the node reads one `K`, with no second copy in `AutoPars` that could
+fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
 
 Two things about the experiment that matter more than the model does:
 
@@ -279,7 +282,7 @@ component FurutaFriction
   elapsed = ElapsedTime() {^elapsed}
   reference = VelocityStaircase(final w_min = w_min, final w_max = w_max, final n_levels = n_levels, final t_step = t_step) {^reference}
   velocityestimator = VelocityEstimator(final filter_param = filter_param) {^velocityestimator}
-  velocity_pi = DiscreteComponents.DiscretePIDStandard(with_D = false, K = 0.04, Ti = 0.1, wp = 0.2, final y_max = umax) {^velocity_pi}
+  velocity_pi = DiscreteComponents.DiscretePIDStandard(with_D = false, final K = K, final Ti = Ti, Ni = 1.0, final y_max = umax, wp = 1.2) {^velocity_pi}
   command = HardwareCommand(final umax = umax) {^command}
   logger = DataLogger(n = FRICTION_LOG_NCOLS, filename = log_file, header = FRICTION_LOG_HEADER) {^logger}
   periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
@@ -289,6 +292,13 @@ component FurutaFriction
   structural parameter log_file::String = FRICTION_LOG_FILE
   "Motor saturation [V]"
   parameter umax::Dyad.Voltage = 10.0
+  "Velocity-loop proportional gain [V·s/rad]"
+  parameter K::Real = 0.05
+  """
+  Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be
+  well above `Ts`
+  """
+  parameter Ti::Dyad.Time = 0.5
   "Velocity-estimator filter parameter; small means more filtering"
   parameter filter_param::Real(min = 0, max = 1) = 0.1
   "Slowest speed in the sweep [rad/s]"
@@ -300,36 +310,31 @@ component FurutaFriction
   "Time held at each speed [s]"
   parameter t_step::Dyad.Time = 2.0
 relations
-  # The clock reaches the partition through the measurement, as in FurutaHardware.
-  connect(measurement.shoulder_angle, velocityestimator.pos, periodicclock.y) {^id9}
-  connect(elapsed.y, reference.t_in) {^id10}
-  connect(reference.w_ref, velocity_pi.u_s) {^id11}
-  connect(velocityestimator.vel, velocity_pi.u_m) {^id12}
-  connect(velocity_pi.y, command.u) {^id13}
+  connect(velocity_pi.y, command.u) {^id9}
   # Logging, in the FRICTION_LOG_COLUMNS order
-  connect(elapsed.y, logger.u[1]) {^id14}
-  connect(reference.w_ref, logger.u[2]) {^id15}
-  connect(measurement.shoulder_angle, logger.u[3]) {^id16}
-  connect(velocityestimator.vel, logger.u[4]) {^id17}
-  connect(command.u_applied, logger.u[5]) {^id18}
-  connect(measurement.elbow_angle, logger.u[6]) {^id19}
+  connect(elapsed.y, logger.u[1], reference.t_in) {^id10}
+  connect(reference.w_ref, logger.u[2], velocity_pi.u_s) {^id11}
+  connect(measurement.shoulder_angle, logger.u[3], velocityestimator.pos) {^id12}
+  connect(velocityestimator.vel, logger.u[4], velocity_pi.u_m) {^id13}
+  connect(command.u_applied, logger.u[5]) {^id14}
+  connect(measurement.elbow_angle, logger.u[6], periodicclock.y) {^id15}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaFriction.svg"}},
   "_links": {
     "measurement": {
-      "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 300, "y2": 400}}}
+      "Dyad": {"placement": {"diagram": {"x1": 50, "x2": 150, "y1": 660, "y2": 760}}}
     },
     "elapsed": {
-      "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 620, "y2": 720}}}
+      "Dyad": {"placement": {"diagram": {"x1": 30, "x2": 130, "y1": 430, "y2": 530}}}
     },
     "reference": {
-      "Dyad": {"placement": {"diagram": {"x1": 220, "x2": 320, "y1": 620, "y2": 720}}}
+      "Dyad": {"placement": {"diagram": {"x1": 240, "x2": 340, "y1": 430, "y2": 530}}}
     },
     "velocityestimator": {
-      "Dyad": {"placement": {"diagram": {"x1": 220, "x2": 320, "y1": 300, "y2": 400}}}
+      "Dyad": {"placement": {"diagram": {"x1": 240, "x2": 340, "y1": 560, "y2": 660}}}
     },
     "velocity_pi": {
-      "Dyad": {"placement": {"diagram": {"x1": 420, "x2": 520, "y1": 460, "y2": 560}}}
+      "Dyad": {"placement": {"diagram": {"x1": 440, "x2": 540, "y1": 460, "y2": 560}}}
     },
     "command": {
       "Dyad": {"placement": {"diagram": {"x1": 620, "x2": 720, "y1": 460, "y2": 560}}}
@@ -338,28 +343,73 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 840, "x2": 940, "y1": 460, "y2": 560}}}
     },
     "periodicclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 40, "x2": 140, "y1": 120, "y2": 220}}}
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 50, "y1": 810, "y2": 910}}}
     },
-    "id9": {
+    "id9": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id10": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": -1, "M": [{"x": 180, "y": 170}], "E": 3}
+          {
+            "S": -1,
+            "M": [{"x": 200, "y": 360}, {"x": 800, "y": 360}, {"x": 800, "y": 510}],
+            "E": 2
+          },
+          {"S": 3, "M": [], "E": -1}
         ],
-        "junctions": [{"x": 180, "y": 350}]
+        "junctions": [{"x": 200, "y": 480}]
       }
     },
-    "id10": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id11": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id13": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
+    "id11": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {
+            "S": -1,
+            "M": [
+              {"x": 375, "y": 480},
+              {"x": 375, "y": 420},
+              {"x": 790, "y": 420},
+              {"x": 790, "y": 510}
+            ],
+            "E": 2
+          },
+          {"S": 3, "M": [{"x": 370, "y": 482}], "E": -1}
+        ],
+        "junctions": [{"x": 370, "y": 480}]
+      }
+    },
+    "id12": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [{"x": 790, "y": 682}, {"x": 790, "y": 510}], "E": 2},
+          {"S": 3, "M": [{"x": 200, "y": 610}], "E": -1}
+        ],
+        "junctions": [{"x": 200, "y": 682}]
+      }
+    },
+    "id13": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [{"x": 770, "y": 610}, {"x": 770, "y": 510}], "E": 2},
+          {"S": 3, "M": [{"x": 410, "y": 534}], "E": -1}
+        ],
+        "junctions": [{"x": 410, "y": 610}]
+      }
+    },
     "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id15": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id16": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id17": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id18": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id19": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+    "id15": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [{"x": 810, "y": 737}, {"x": 810, "y": 510}], "E": 2},
+          {"S": 3, "M": [{"x": 200, "y": 860}], "E": -1}
+        ],
+        "junctions": [{"x": 200, "y": 737}]
+      }
+    }
   }
 }
 end

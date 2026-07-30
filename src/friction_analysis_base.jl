@@ -29,8 +29,10 @@ abstract type AbstractFurutaFrictionBaseSpec <: DyadInterface.AbstractAnalysisSp
     w_max::Float64 = 30.0
     n_levels::Float64 = 6.0
     t_step::Float64 = 2.0
-    K::Float64 = 0.02
-    Ti::Float64 = 0.1
+    # Forwarded into the model by the concrete analysis' `model = FurutaFriction(final K = K,
+    # final Ti = Ti, ...)`, so these arrive as `overrides` rather than being read from here.
+    K::Float64 = 0.05
+    Ti::Float64 = 0.5
     backend::String = "julia"
     settle::Float64 = 0.6
     acc_tol::Float64 = 3.0

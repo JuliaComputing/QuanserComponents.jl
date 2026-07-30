@@ -38,21 +38,24 @@ resolved once here rather than tracking a later runtime change to `Ti` — retun
 large factor is worth a recompile.
 """
 function generate_friction_controller(; Ts = 0.005, log_file = FRICTION_LOG_FILE,
-                                        overrides...)
+                                        param_overrides = nothing, overrides...)
     # Both C libraries the program calls into have to exist before the `:c` backend links
     # them (the Julia backend only needs them at call time).
     ensure_qube_hw()
     ensure_qube_log()
-    sys = FurutaFriction(; name = :friction, Ts, log_file, overrides...)
+    kw = Dict{Symbol, Any}(overrides)
+    merge!(kw, _model_kwargs(param_overrides))
+    sys = FurutaFriction(; name = :friction, Ts, log_file, kw...)
     # `sys` is the root, so its own name is not part of the flattened symbol names; reach
     # for symbols through the un-namespaced view, as `generate_swingup_controller` does.
     nsys = ModelingToolkit.toggle_namespacing(sys, false)
 
-    # The velocity loop's own parameters, not lifted copies: a `ParametersStruct` field must
-    # be an unbound parameter, which is why these live on `velocity_pi` (same reason
-    # `TuningGains` in codegen.jl reaches for `lqrstabilizer.L` rather than a wrapper's).
-    Ksym = ModelingToolkit.unwrap(nsys.velocity_pi.K)
-    Tisym = ModelingToolkit.unwrap(nsys.velocity_pi.Ti)
+    # `FurutaFriction`'s own `K`/`Ti`, not `velocity_pi`'s: the loop's are bound to these
+    # by `final K = K`, and a `ParametersStruct` field must be an *unbound* parameter.
+    # `velocity_pi.K` then has `K` as its default expression, which `AutoPars(gains)`
+    # resolves from the struct — the same mechanism `Ni` relies on.
+    Ksym = ModelingToolkit.unwrap(nsys.K)
+    Tisym = ModelingToolkit.unwrap(nsys.Ti)
     SymT = ModelingToolkit.SymbolicT
     dv = Dict{SymT, SymT}(ModelingToolkit.default_values(ModelingToolkit.expand_connections(sys)))
     ModelingToolkit.evaluate_varmap!(dv, [Ksym, Tisym])
@@ -80,9 +83,23 @@ function generate_friction_controller(; Ts = 0.005, log_file = FRICTION_LOG_FILE
     return (; topmod, Kdef, Tidef, log_file = String(log_file))
 end
 
+# The Dyad compiler turns an analysis' `model = FurutaFriction(final K = K, ...)` into a
+# `Dict{SymbolicT, SymbolicT}` of un-namespaced model parameter => value, handed to the
+# implementation as `spec.overrides`. Translate it into the keyword form the generated model
+# constructor takes, so the analysis' parameters reach the model through the model's own
+# entry point. Nested paths arrive as `a₊b` and become Dyad's `a__b` override syntax.
+_model_kwargs(::Nothing) = Dict{Symbol, Any}()
+function _model_kwargs(overrides)
+    kw = Dict{Symbol, Any}()
+    for (k, v) in overrides
+        kw[Symbol(replace(string(k), "₊" => "__"))] = Symbolics.value(v)
+    end
+    return kw
+end
+
 """
     FrictionController(; Ts=0.005, backend=:julia, log_file=FRICTION_LOG_FILE, K=nothing,
-                         Ti=nothing, overrides...)
+                         Ti=nothing, param_overrides=nothing, overrides...)
 
 A ready-to-call runtime wrapper around the generated friction experiment. Compiles the
 program, builds a `SynchExecutable` on `backend` (`:julia` or `:c`), and populates the
@@ -106,8 +123,8 @@ end
 
 function FrictionController(; Ts = 0.005, backend::Symbol = :julia,
                              log_file = FRICTION_LOG_FILE, K = nothing, Ti = nothing,
-                             kwargs...)
-    gen = generate_friction_controller(; Ts, log_file, kwargs...)
+                             param_overrides = nothing, kwargs...)
+    gen = generate_friction_controller(; Ts, log_file, param_overrides, kwargs...)
     return _make_friction_runtime(gen; backend, K, Ti, Ts)
 end
 
@@ -118,6 +135,14 @@ function _make_friction_runtime(gen; backend::Symbol = :julia, K = nothing, Ti =
                                 Ts = 0.005)
     Kv = float(something(K, gen.Kdef))
     Tiv = float(something(Ti, gen.Tidef))
+    # The integrator is forward-Euler: `I += (Ts/Ti) * e` each tick. `Ti` below a few
+    # sample times therefore moves the integrator by more than the error itself every
+    # tick, which does not track — it oscillates or runs away. Worth saying out loud,
+    # because a too-small `Ti` looks like a tuning problem rather than a broken one.
+    Tiv > 5 * Ts || @warn """
+        Ti = $Tiv is not much larger than Ts = $Ts, so the integrator gain Ts/Ti = \
+        $(round(Ts / Tiv, digits = 3)) per tick is very aggressive; the velocity loop will \
+        not settle. Use Ti of at least a few tens of sample times.""" maxlog=1
     function consume(m)
         gains = m.TuningGains(; K = Kv, Ti = Tiv)
         auto = m.AutoPars(gains)

@@ -106,16 +106,22 @@ function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
     # `log_file` reaches the model, not only the driver: it is the `DataLogger`'s structural
     # `filename`, so the component that writes the file and the call that opens it cannot
     # disagree about which file that is.
+    # The model's parameters come from `spec.overrides`, which is what the Dyad compiler
+    # builds out of the analysis' `model = FurutaFriction(final K = K, ...)` line — the
+    # analysis' parameters parameterize the model, rather than the implementation reading
+    # them back off the spec field by field. `Ts` and `log_file` are the exception: they are
+    # structural, so they are not parameters of the built system and have to be passed to
+    # the constructor.
     ctrl = FrictionController(; Ts = spec.Ts, backend, log_file = spec.log_file,
-                                K = spec.K, Ti = spec.Ti,
-                                umax = spec.umax, w_min = spec.w_min, w_max = spec.w_max,
-                                n_levels = spec.n_levels, t_step = spec.t_step)
+                                param_overrides = spec.overrides)
     ran, rows, ticks, timing = false, 0, 0, (; median_dt = NaN, max_dt = NaN)
     if spec.run
+        @info "Running friction experiment"
         r = run_friction_experiment(ctrl; Tf, arm_deg = spec.arm_deg,
                                     card_options = isempty(spec.card_options) ? nothing :
                                                    spec.card_options)
         ran, rows, ticks = true, r.rows, r.ticks
+        @info "Experiment done"
         timing = (; median_dt = Float64(r.timing.median_dt),
                     max_dt = Float64(r.timing.max_dt))
     end
@@ -126,6 +132,7 @@ function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
     if isfile(spec.log_file)
         data = friction_data(read_friction_log(spec.log_file); spec.settle, spec.acc_tol,
                              spec.elbow_tol, spec.w_min_fit, spec.w_max_fit, spec.smooth_n)
+        @info "Fitting friction model"
         fit = fit_friction(data)
     elseif spec.run
         @warn "the program reported rows but no log file is readable" file = spec.log_file

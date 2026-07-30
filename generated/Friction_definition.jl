@@ -117,7 +117,6 @@ voltage to start moving than to keep moving.
   ### Variables (assignments)
   __ovr_sw = pop!(__overrides, "sw", nothing); isnothing(__ovr_sw) || push!(__eqs, sw ~ __ovr_sw)
   __ovr_sw__initial = pop!(__overrides, "sw__initial", nothing); isnothing(__ovr_sw__initial) || (__initial_conditions[sw] = __ovr_sw__initial)
-  __ovr_sw__guess = pop!(__overrides, "sw__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -128,7 +127,6 @@ voltage to start moving than to keep moving.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
-  isnothing(__ovr_sw__guess) || (__guesses[sw] = __ovr_sw__guess)
 
   ### Initialization Equations
 

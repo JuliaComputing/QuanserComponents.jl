@@ -111,16 +111,12 @@ Clock-agnostic.
   ### Variables (assignments)
   __ovr_idx = pop!(__overrides, "idx", nothing); isnothing(__ovr_idx) || push!(__eqs, idx ~ __ovr_idx)
   __ovr_idx__initial = pop!(__overrides, "idx__initial", nothing); isnothing(__ovr_idx__initial) || (__initial_conditions[idx] = __ovr_idx__initial)
-  __ovr_idx__guess = pop!(__overrides, "idx__guess", nothing)
   __ovr_level = pop!(__overrides, "level", nothing); isnothing(__ovr_level) || push!(__eqs, level ~ __ovr_level)
   __ovr_level__initial = pop!(__overrides, "level__initial", nothing); isnothing(__ovr_level__initial) || (__initial_conditions[level] = __ovr_level__initial)
-  __ovr_level__guess = pop!(__overrides, "level__guess", nothing)
   __ovr_dir = pop!(__overrides, "dir", nothing); isnothing(__ovr_dir) || push!(__eqs, dir ~ __ovr_dir)
   __ovr_dir__initial = pop!(__overrides, "dir__initial", nothing); isnothing(__ovr_dir__initial) || (__initial_conditions[dir] = __ovr_dir__initial)
-  __ovr_dir__guess = pop!(__overrides, "dir__guess", nothing)
   __ovr_advance = pop!(__overrides, "advance", nothing); isnothing(__ovr_advance) || push!(__eqs, advance ~ __ovr_advance)
   __ovr_advance__initial = pop!(__overrides, "advance__initial", nothing); isnothing(__ovr_advance__initial) || (__initial_conditions[advance] = __ovr_advance__initial)
-  __ovr_advance__guess = pop!(__overrides, "advance__guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -131,10 +127,6 @@ Clock-agnostic.
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
 
   ### Guesses
-  isnothing(__ovr_idx__guess) || (__guesses[idx] = __ovr_idx__guess)
-  isnothing(__ovr_level__guess) || (__guesses[level] = __ovr_level__guess)
-  isnothing(__ovr_dir__guess) || (__guesses[dir] = __ovr_dir__guess)
-  isnothing(__ovr_advance__guess) || (__guesses[advance] = __ovr_advance__guess)
 
   ### Initialization Equations
   push!(__initialization_eqs, idx(ShiftIndex() -1) ~ 0)
