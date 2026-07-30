@@ -31,7 +31,7 @@ using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
   # Viewer session file; a relative path resolves against `output_dir`
   var"live_plot_config"::String = "kst2config.kst"
   # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine
-  var"deploy_host"::String = ""
+  var"deploy_host"::String = "fredrikb@192.168.1.49"
   # Directory on `deploy_host` to copy the sources into
   var"deploy_dir"::String = "furuta_c"
   # Arm angle [deg] at start-up, added to every shoulder reading so the arm need not be at its home position

@@ -1,5 +1,5 @@
 analysis FurutaExportC
-  extends FurutaExportCBase(run = true, live_plot = true, live_plot_config = "kst2config.kst", deploy_host = "fredrib@192.168.1.49")
+  extends FurutaExportCBase(run = true, live_plot = true, live_plot_config = "kst2config.kst", deploy_host = "fredrikb@192.168.1.49")
   model = FurutaHardware()
 relations
 end

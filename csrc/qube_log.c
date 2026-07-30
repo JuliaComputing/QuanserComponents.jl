@@ -13,11 +13,12 @@ static long  s_rows = 0;
 static int   s_error = 0;
 static char  s_name[QUBE_LOG_PATH_MAX] = "";
 
-/* One stdio buffer for the whole run rather than the default few KiB: at 200 Hz
- * and eight columns a 64 KiB buffer holds several seconds, so disk writes happen
- * a few times a second instead of on most ticks. `qube_log_flush` is there for
- * when someone is watching the file live. */
-static char s_buf[65536];
+/* Line buffering, so a row reaches the file as soon as it is written. The obvious
+ * alternative -- one big buffer flushed rarely -- was measured to release the log in
+ * 4 KiB jumps (~55 rows, ~0.28 s at 200 Hz), and a bigger buffer is proportionally
+ * worse; anything tailing the file then updates in visible steps. A write syscall per
+ * tick costs a couple of microseconds against a 5 ms budget. `qube_log_flush` remains
+ * for callers that want to force the issue. */
 
 double qube_log_row(double u1, double u2, double u3, double u4,
                     double u5, double u6, double u7, double u8)
@@ -61,7 +62,7 @@ int qube_log_open(const char *filename, const char *header, int ncols)
         s_cols = 0;
         return -2;
     }
-    setvbuf(s_file, s_buf, _IOFBF, sizeof(s_buf));
+    setvbuf(s_file, NULL, _IOLBF, 0);
 
     strncpy(s_name, filename, sizeof(s_name) - 1);
     s_name[sizeof(s_name) - 1] = '\0';

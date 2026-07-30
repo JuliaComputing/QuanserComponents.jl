@@ -54,6 +54,12 @@ int main(void) {
      * duration — both in seconds, for spotting timing trouble — plus the raw encoder
      * counts, for diagnosing counter glitches (e.g. spurious 2^16 jumps). */
     FILE *logf = fopen("run_hardware.csv", "w");
+    /* Line-buffered, not the default block buffering. A regular file gets a 4 KiB stdio
+     * buffer, which at ~75 bytes per row is ~55 rows -- so the log would reach the disk
+     * (and anything tailing it) in 0.28 s jumps, which is exactly how choppy a live plot
+     * looks. One small write per tick costs a couple of microseconds against a 5 ms
+     * budget; the measured loop body is ~20 us, so there is room. */
+    if (logf) setvbuf(logf, NULL, _IOLBF, 0);
     if (logf) fprintf(logf, "time\tshoulder_angle\telbow_angle\tcontrol_input\tdt\texec\tcount_shoulder\tcount_elbow\n");
 
     /* Timing mirrors the Julia @periodically loop: run the body, then sleep the

@@ -472,6 +472,10 @@ function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
         @warn "live plot: session file not found, skipping" config = cfg
         return nothing
     end
+    # A viewer left over from an earlier run is the most confusing failure here: it holds
+    # the previous log open, never updates again, and is indistinguishable from the new
+    # window. Retire it rather than adding to the pile.
+    _close_stale_plotters(cmd, cfg)
     csv = joinpath(dir, "run_hardware.csv")
     t0 = time()
     while !isfile(csv) && time() - t0 < wait_for_log
@@ -479,12 +483,53 @@ function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
     end
     isfile(csv) ||
         @warn "live plot: $(basename(csv)) has not appeared, starting $cmd anyway" wait_for_log
+    _check_plot_fields(cfg, csv)
     try
         return run(Cmd(`$cmd $cfg`; dir); wait = false)
     catch e
         @warn "live plot: could not start `$cmd`" exception = e
         return nothing
     end
+end
+
+# A kst session names the columns it plots, and names them *as the data source reports
+# them* — for an ASCII source with a header, that is the header text. Get one wrong and kst
+# draws an empty plot in silence: the vector simply resolves to nothing, and because the
+# x vector is shared by every curve, one stale name empties the whole window. That is a
+# genuinely hard failure to read at the GUI, so say it here instead.
+#
+# Session files accumulate vectors as they are edited, and stale ones referring to columns
+# that no longer exist are normal and harmless, so a missing field is only worth reporting
+# when *nothing* matches — that is the case that means a blank window.
+# Terminate viewers already running on this session file. Matches on the config path too,
+# so unrelated instances of the same program are left alone.
+function _close_stale_plotters(cmd, cfg)
+    try
+        for line in eachsplit(read(`pgrep -af $(basename(cmd))`, String), '\n')
+            occursin(cfg, line) || continue
+            pid = tryparse(Int, first(split(line)))
+            (pid === nothing || pid == getpid()) && continue
+            @info "live plot: retiring a viewer left over from an earlier run" pid
+            run(`kill $pid`; wait = false)
+        end
+    catch
+        # pgrep missing, or nothing matched: nothing to clean up.
+    end
+    return
+end
+
+function _check_plot_fields(config, csv)
+    (isfile(config) && isfile(csv)) || return
+    header = split(strip(first(eachline(csv))), '\t')
+    fields = Set(m.captures[1] for m in eachmatch(r"field=\"([^\"]*)\"", read(config, String)))
+    delete!(fields, "INDEX")                    # kst's built-in sample index
+    isempty(fields) && return
+    matched = intersect(fields, Set(header))
+    isempty(matched) && @warn """
+        live plot: none of the columns $(basename(config)) plots exist in $(basename(csv)),
+        so the plot will come up empty. kst names ASCII fields from the header line, so the
+        session must use those names.""" session_fields = sort(collect(fields)) log_header = header
+    return
 end
 
 # Files `export_swingup_c` writes that the target needs in order to build and run.
@@ -544,12 +589,18 @@ function run_hardware_harness_remote(host, remote_dir; local_dir, stream_log = f
     run(`$ssh $host rm -f $remote_csv`)
     tail = nothing
     if stream_log
-        rm(csv; force = true)
+        # Truncate in place rather than `rm`. Unlinking would give the new run a fresh
+        # inode, and any viewer already watching the old one keeps reading the unlinked
+        # file forever -- a live plot that is frozen and looks exactly like a working one.
+        # `open(csv, "w")` below truncates, which is all that is wanted.
         # -F retries until the harness creates the file, so this can start first.
         tail = try
             open(csv, "w") do io
-                run(pipeline(`$ssh $host tail -F -n +1 $remote_csv`; stdout = io,
-                             stderr = devnull); wait = false)
+                # `stdbuf -oL`: `tail` block-buffers into a pipe by default, which would
+                # re-introduce the ~4 KiB granularity the harness avoids by line-buffering
+                # its own log. Falls back to plain `tail` where stdbuf is absent.
+                run(pipeline(`$ssh $host "command -v stdbuf >/dev/null && exec stdbuf -oL tail -F -n +1 $remote_csv || exec tail -F -n +1 $remote_csv"`;
+                             stdout = io, stderr = devnull); wait = false)
             end
         catch e
             @warn "could not start log streaming; the log will arrive after the run" exception = e
@@ -561,7 +612,16 @@ function run_hardware_harness_remote(host, remote_dir; local_dir, stream_log = f
     finally
         tail === nothing || kill(tail)
     end
-    run(`$scp $host:$remote_csv $csv`)
+    # Copy the finished log back *through* the existing file rather than over it: `scp`
+    # would create a new inode and freeze any viewer watching this path, right at the
+    # moment the interesting part of the run finished. When the log was streamed this is
+    # only a consistency check anyway -- the local copy is already complete.
+    tmp = csv * ".fetch"
+    run(`$scp $host:$remote_csv $tmp`)
+    open(csv, "w") do io
+        write(io, read(tmp))
+    end
+    rm(tmp; force = true)
     return csv
 end
 
