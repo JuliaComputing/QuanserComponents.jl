@@ -1,14 +1,18 @@
-/* Standalone control loop for the exported swing-up controller.
+/* Standalone control loop for an exported QUBE program.
  *
- * The controller does its own encoder reads and motor writes (through qube_hw.c, the
- * same implementation the Julia backend calls), so this is only timing and logging:
- * tick the clock every Ts and record what the controller reports.
+ * The program does its own encoder reads, motor writes and log rows (through qube_hw.c and
+ * qube_log.c, the same implementations the Julia backend calls), so this is only timing:
+ * open the device, open the log for the program to write into, tick the clock every Ts.
  *
- * Everything that depends on the compiled controller — the mangled node symbols, the
- * serialized parameter blocks, the sample time and the run duration — arrives through
- * run_hardware_config.h, which `QuanserComponents.emit_hardware_harness` generates next
- * to this file. That keeps this a normal C file: editable, clang-format-able, and
- * compilable in place rather than a Julia string. Build with `make`. */
+ * Nothing here knows which program it is running. The node's outputs are never read — the
+ * program logs what it wants logged, in the columns its own DataLogger was built with — so
+ * the same loop serves the swing-up controller, the friction experiment, or anything else
+ * built for this rig. What does depend on the program — the mangled node symbols, the
+ * serialized parameter blocks, the sample time, the run duration and the log's identity —
+ * arrives through run_hardware_config.h, which
+ * `QuanserComponents.emit_hardware_harness` generates next to this file. That keeps this a
+ * normal C file: editable, clang-format-able, and compilable in place rather than a Julia
+ * string. Build with `make`. */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +22,7 @@
 #include <stdint.h>
 
 #include "qube_hw.h"
+#include "qube_log.h"
 #include "top.h"
 #include "run_hardware_config.h"
 
@@ -36,35 +41,32 @@ int main(void) {
     /* Opening in HIL mode enables the amplifier, zeroes the motor and records the
      * current encoder counts as homing offsets. Let the pendulum hang straight down
      * (0 = down, pi = up); the arm may be anywhere, as long as QUBE_ARM0 says where.
-     * The controller's GoHome then drives the arm to centre. */
+     * A swing-up program's GoHome then drives the arm to centre. */
 #ifdef QUBE_CARD_OPTIONS
     qube_hw_set_card_options(QUBE_CARD_OPTIONS);   /* pin the command-to-torque path */
 #endif
     if (qube_hw_open(QUBE_HW_MODE_HIL, QUBE_ARM0) != 0) return 1;
     fprintf(stderr, "run_hardware: card options = %s\n", qube_hw_card_options());
 
+    /* The log the program writes its rows into. Opening it here rather than inside the
+     * program is not a split of responsibility: a file name cannot cross a synchronous
+     * node's interface (every signal there is a double), so the name travels as a
+     * build-time constant and arrives in this header. qube_log.c line-buffers, which is
+     * what makes a live plot of a run in progress smooth. */
+    if (qube_log_open(QUBE_LOG_FILE, QUBE_LOG_HEADER, QUBE_LOG_NCOLS) != 0) {
+        fprintf(stderr, "run_hardware: could not open %s for writing\n", QUBE_LOG_FILE);
+        qube_hw_close();
+        return 1;
+    }
+
     QUBE_MEM state;
     memset(&state, 0, sizeof(state));
     QUBE_RESET(&state);
 
-    /* Tab-separated log matching test/hardware_swingup.jl's `swingup.csv` layout
-     * (writedlm): first four columns are what `plotD` expects (load with
-     * `D = readdlm("run_hardware.csv", skipstart=1)'`). Two extra diagnostic columns:
-     * `dt` = achieved period since the previous step, `exec` = body (read+step+write)
-     * duration — both in seconds, for spotting timing trouble — plus the raw encoder
-     * counts, for diagnosing counter glitches (e.g. spurious 2^16 jumps). */
-    FILE *logf = fopen("run_hardware.csv", "w");
-    /* Line-buffered, not the default block buffering. A regular file gets a 4 KiB stdio
-     * buffer, which at ~75 bytes per row is ~55 rows -- so the log would reach the disk
-     * (and anything tailing it) in 0.28 s jumps, which is exactly how choppy a live plot
-     * looks. One small write per tick costs a couple of microseconds against a 5 ms
-     * budget; the measured loop body is ~20 us, so there is room. */
-    if (logf) setvbuf(logf, NULL, _IOLBF, 0);
-    if (logf) fprintf(logf, "time\tshoulder_angle\telbow_angle\tcontrol_input\tdt\texec\tcount_shoulder\tcount_elbow\n");
-
-    /* Timing mirrors the Julia @periodically loop: run the body, then sleep the
-     * remainder of Ts (relative sleep, no absolute-schedule catch-up — so one slow
-     * step just stretches that period instead of compressing the following ones). */
+    /* Timing mirrors the Julia loop: run the body, then sleep the remainder of Ts (relative
+     * sleep, no absolute-schedule catch-up — so one slow step just stretches that period
+     * instead of compressing the following ones). The dt/exec measured here are for the
+     * summary line only; the program logs its own, from inside the tick. */
     const long N = (long)(QUBE_TF / QUBE_TS);
     struct timespec t0, start, done;
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -74,22 +76,16 @@ int main(void) {
 
     for (long i = 0; i < N && !stop_flag; ++i) {
         clock_gettime(CLOCK_MONOTONIC, &start);
-        double t  = tsub(start, t0);      /* elapsed at step start [s] */
         double dt = tsub(start, prev);    /* achieved period since previous step [s] */
         prev = start;
 
-        /* One call: reads both encoders, runs the state machine, writes the motor
-         * voltage, and reports all three back. */
+        /* One call: reads both encoders, computes, writes the motor voltage and appends a
+         * row to the log. The returned output struct is deliberately unused. */
         QUBE_OUT out = QUBE_STEP(true, GAINS_PTR, AUTO_PTR, &state);
+        (void)out;
 
         clock_gettime(CLOCK_MONOTONIC, &done);
         double exec = tsub(done, start);  /* body duration [s] */
-
-        if (logf) fprintf(logf, "%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%ld\t%ld\n",
-                          t, out.QUBE_OUT_SHOULDER,
-                          out.QUBE_OUT_ELBOW, out.QUBE_OUT_U,
-                          dt, exec,
-                          qube_hw_last_count_shoulder(), qube_hw_last_count_elbow());
 
         if (i > 0) { sum_dt += dt; if (dt > max_dt) max_dt = dt; periods++; }
         if (exec > max_exec) max_exec = exec;
@@ -104,12 +100,13 @@ int main(void) {
     }
 
     fprintf(stderr, "run_hardware: Ts=%.4f s | mean dt=%.4f s, max dt=%.4f s, "
-                    "max exec=%.4f s over %ld periods\n",
+                    "max exec=%.4f s over %ld periods | %ld rows in %s\n",
             QUBE_TS, periods > 0 ? sum_dt / (double)periods : 0.0, max_dt, max_exec,
-            periods);
+            periods, qube_log_rows(), QUBE_LOG_FILE);
+    if (qube_log_error()) fprintf(stderr, "run_hardware: the log was closed by a write error\n");
 
     /* Zeroes the motor and releases the board. */
     qube_hw_close();
-    if (logf) fclose(logf);
+    qube_log_close();
     return 0;
 }
