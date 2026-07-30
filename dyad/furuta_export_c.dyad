@@ -1,5 +1,9 @@
 analysis FurutaExportC
   extends FurutaExportCBase(run = true, live_plot = true, live_plot_config = "kst2config.kst", deploy_host = "fredrikb@192.168.1.49")
-  model = FurutaHardware()
+  # `umax` parameterizes the model rather than being read out of the spec by the
+  # implementation: it is the stabilizer's saturation and the clamp `HardwareCommand`
+  # applies, bound to both inside `FurutaHardware`. `Ts` and `log_file` are structural, so
+  # they are not parameters of the built system and reach the model through its constructor.
+  model = FurutaHardware(final umax = umax)
 relations
 end

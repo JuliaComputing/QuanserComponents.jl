@@ -1,31 +1,14 @@
+"""
+Run the constant-velocity friction experiment on the QUBE and fit a friction model to what
+the program logged.
+
+Building and running the program is `QubeHardwareRunBase`' job; what belongs to this
+analysis is the velocity staircase, the velocity loop's two gains, and the thresholds that
+decide which samples are at a genuinely constant speed. `run = false` re-fits an existing
+log with new thresholds without touching the hardware.
+"""
 partial analysis FurutaFrictionBase
-  extends Analysis
-  model::Dyad.EmptyComponent = Dyad.EmptyComponent()
-  "Sample time [s]"
-  parameter Ts::Real = 0.005
-  """
-  File the program writes its log to. Passed to the `DataLogger` inside the model
-  *and* used to open the file, so the two cannot disagree
-  """
-  parameter log_file::String = "friction_experiment.csv"
-  "Run the experiment on the hardware; false only builds the program"
-  parameter run::Boolean = true
-  "Duration [s]; 0 runs exactly one full up-and-down sweep of the reference"
-  parameter Tf::Real = 0.0
-  """
-  Arm angle [deg] at start-up, added to every shoulder reading. Only the arm's
-  *velocity* is used here, so unlike the swing-up this experiment does not care where
-  the arm starts; the parameter exists so the logged angle means the same thing
-  """
-  parameter arm_deg::Real = 0.0
-  """
-  Card-specific options applied after opening the board. Deadband compensation
-  offsets the command in the direction it points, which lands on top of the Coulomb
-  term this experiment measures, so it is off by default
-  """
-  parameter card_options::String = "deadband_compensation=0.0"
-  "Motor saturation [V]"
-  parameter umax::Real = 10.0
+  extends QubeHardwareRunBase(card_options = "deadband_compensation=0.0", output_dir = "friction_c", deploy_dir = "friction_c", run = true)
   "Slowest speed in the sweep [rad/s]"
   parameter w_min::Real = 2.0
   "Fastest speed in the sweep [rad/s]"
@@ -46,10 +29,6 @@ partial analysis FurutaFrictionBase
   above `Ts`
   """
   parameter Ti::Real = 0.5
-  """
-  Backend to build the program on, \"julia\" or \"c\"
-  """
-  parameter backend::String = "julia"
   """
   Time [s] discarded after each change of the velocity reference. The fit assumes zero
   acceleration, so the transient at each step has to go
