@@ -157,9 +157,12 @@ import DyadCompilerPasses
     # ---- generated controller: compile once, run on both backends ----------
     @testset "compile and step ($backend)" for backend in (:julia, :c)
         ctrl = QuanserComponents.SwingupController(; Ts, backend)
+        # No log open: `log_row` is a no-op returning 0, so the program runs unchanged.
+        @test ctrl.log.columns == QuanserComponents.SWINGUP_LOG_COLUMNS
         # near hanging -> small command; near upright -> stabilizer engages
         applied = hold(0.0, 0.01)
         out = ctrl()
+        @test out.row == 0                               # no log open
         @test out.shoulder == 0.0 && out.elbow == 0.01   # what the node measured
         @test isfinite(out.u) && out.u == applied[]      # and what it wrote
         SynchToolkit.reset!(ctrl)
@@ -200,9 +203,13 @@ import DyadCompilerPasses
         end
         @test !occursin("(int64_t)0x", csrc)     # no baked-in pointer
 
-        # ... and the implementation of those symbols ships alongside it
-        @test isfile(joinpath(dir, "qube_hw.c"))
-        @test isfile(joinpath(dir, "qube_hw.h"))
+        # ... and the implementation of those symbols ships alongside it, logging included:
+        # the program writes its own rows, through the same csrc/qube_log.c the Julia
+        # backend calls.
+        @test occursin("extern double qube_log_row(", csrc)
+        for f in ("qube_hw.c", "qube_hw.h", "qube_log.c", "qube_log.h")
+            @test isfile(joinpath(dir, f))
+        end
 
         # the runnable control loop is emitted alongside the node sources. It is only
         # timing and logging now: no hardware calls of its own.
@@ -222,6 +229,16 @@ import DyadCompilerPasses
         @test occursin("#define QUBE_MEM   $(r.mangled)_mem", cfg)
         @test occursin("#define QUBE_OUT   $(r.mangled)_out", cfg)
         @test occursin("gains_words[]", cfg) && occursin("auto_words[]", cfg)
+        # The loop knows nothing about *which* program it runs: it never reads the node's
+        # output struct, and the log it opens is the one the model's `DataLogger` was built
+        # with. That is what lets the same checked-in harness serve the friction experiment
+        # too (see the friction C-export testset below).
+        @test !occursin("QUBE_OUT_", cfg) && !occursin("QUBE_OUT_", hsrc)
+        @test !occursin("fopen", hsrc)
+        @test occursin("qube_log_open(QUBE_LOG_FILE, QUBE_LOG_HEADER, QUBE_LOG_NCOLS)", hsrc)
+        @test occursin("#define QUBE_LOG_FILE   \"run_hardware.csv\"", cfg)
+        @test occursin("#define QUBE_LOG_NCOLS  8", cfg)
+        @test occursin("time\\tshoulder_angle\\telbow_angle", cfg)   # tab-escaped header
         # where the Quanser HIL SDK and a C compiler are present, the harness must build
         # (static-linked, so no hardware needs to be connected). This is what proves the
         # node's `extern qube_hw_*` declarations resolve against qube_hw.c.
@@ -239,12 +256,44 @@ import DyadCompilerPasses
     # still appears to work — but the overwrite disables precompilation of the whole
     # package. This has been silently reintroduced twice by an editor round-trip, hence the
     # guard.
-    @testset "FurutaExportCBase is partial" begin
+    @testset "the analysis bases stay partial" begin
         DI = QuanserComponents.DyadInterface
         @test length(methods(DI.run_analysis,
                              (QuanserComponents.FurutaExportCBaseSpec,))) == 1
-        @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
-                               "FurutaExportCBase_definition.jl"))
+        @test length(methods(DI.run_analysis,
+                             (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
+        # `QubeHardwareRunBase` is the root both analyses extend, so un-partialling it is the
+        # same hazard one level up: the compiler would emit a `QubeHardwareRunBaseSpec`
+        # struct, colliding with the dispatching function of that name in analysis_base.jl.
+        for base in ("FurutaExportCBase", "FurutaFrictionBase", "QubeHardwareRunBase")
+            @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
+                                   "$(base)_definition.jl"))
+        end
+    end
+
+    # One generated entry point, two analyses: the Dyad compiler resolves an analysis' spec
+    # type to the *root* of its `extends` chain, so both analyses' generated code constructs
+    # `QubeHardwareRunBaseSpec`. It has to land on the right base spec, and say so rather than
+    # guess when it cannot tell.
+    @testset "shared analysis base" begin
+        QC = QuanserComponents
+        @test QC.QubeHardwareRunBaseSpec(; Ts, Q1 = [1.0, 2, 3, 4], Q2 = 3.0) isa
+              QC.FurutaExportCBaseSpec
+        @test QC.QubeHardwareRunBaseSpec(; Ts, settle = 0.5) isa QC.FurutaFrictionBaseSpec
+        @test_throws ArgumentError QC.QubeHardwareRunBaseSpec(; Ts)            # ambiguous
+        @test_throws ArgumentError QC.QubeHardwareRunBaseSpec(; nonsense = 1)  # unknown
+        # Each analysis' shared-parameter defaults are its Dyad partial's, not the root's.
+        @test QC.FurutaExportCBaseSpec().export_c && !QC.FurutaFrictionBaseSpec().export_c
+        @test QC.FurutaFrictionBaseSpec().card_options == "deadband_compensation=0.0"
+        @test QC.FurutaExportCBaseSpec().Tf == 10.0
+        # ... and the shared field block really is shared, not copied per analysis.
+        shared = (:Ts, :run, :Tf, :umax, :arm_deg, :card_options, :backend, :export_c,
+                  :output_dir, :log_file, :deploy_host, :deploy_dir, :live_plot,
+                  :live_plot_cmd, :live_plot_config, :model, :overrides)
+        for f in shared
+            @test hasfield(QC.FurutaExportCBaseSpec, f)
+            @test hasfield(QC.FurutaFrictionBaseSpec, f)
+        end
     end
 
     # ---- FurutaExportC analysis (Dyad analysis wrapper) --------------------
@@ -256,17 +305,33 @@ import DyadCompilerPasses
         # which must not happen in the test suite.
         @time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = false)
         @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "top.h"))
-        @test !isempty(sol.mangled)
-        # `run_analysis` may skip the (slow) LQR design, in which case the controller
-        # keeps the model's tuned default gain and `sol.L` is `nothing`.
-        @test sol.L === nothing || (length(sol.L) == 4 && all(isfinite, sol.L))
+        @test sol.hwrun.output_dir == dir && !sol.hwrun.ran
+        @test !isempty(sol.hwrun.mangled)
+        # `run_analysis` may skip the (slow) LQR design, in which case the controller keeps
+        # the model's tuned default gain — which is what `sol.L` then reports.
+        @test length(sol.L) == 4 && all(isfinite, sol.L)
         # metadata advertises the file-listing artifact, which lists the generated files
         md = DI.AnalysisSolutionMetadata(sol)
         @test any(a -> a.name === :GeneratedFiles, md.artifacts)
         tbl = DI.artifacts(sol, :GeneratedFiles)
         @test Set(tbl.file) == Set(readdir(dir))
-        @test occursin("$(sol.mangled)_step", join(tbl.symbol))
+        @test occursin("$(sol.hwrun.mangled)_step", join(tbl.symbol))
+        @test_throws ArgumentError DI.artifacts(sol, :RunLog)      # nothing ran
         @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
+        # `umax` parameterizes the model (`model = FurutaHardware(final umax = umax)`) rather
+        # than being read off the spec, and comes back as the runtime-settable tunable.
+        sol5 = QuanserComponents.FurutaExportC(; output_dir = mktempdir(), Ts, run = false,
+                                                umax = 5.0)
+        gen5 = QuanserComponents.generate_swingup_controller(; Ts,
+                                    param_overrides = sol5.spec.overrides)
+        @test gen5.tuning_defaults[:umax] == 5.0
+        # With `export_c = false` the analysis would run in-process and export nothing.
+        sol_ip = QuanserComponents.FurutaExportC(; output_dir = mktempdir(), Ts, run = false,
+                                                  export_c = false)
+        @test sol_ip.hwrun.output_dir === nothing
+        @test isempty(DI.AnalysisSolutionMetadata(sol_ip).artifacts)
+        @test_throws ArgumentError QuanserComponents.FurutaExportC(; Ts, run = false,
+                                                                    backend = "fortran")
         # Q1/Q2 are the user-facing knob: changing them changes the designed gain. Only
         # meaningful when the analysis designed one — `design_lqr` costs ~2 min, so it is
         # not called here just to have something to compare against.
@@ -274,6 +339,67 @@ import DyadCompilerPasses
             L2 = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 50.0)
             @test !(L2 ≈ sol.L)
         end
+    end
+
+    # ---- the swing-up program logs itself too --------------------------------
+    # The whole run log is written by the `DataLogger` inside the program, in the
+    # `SWINGUP_LOG_COLUMNS` order: what was measured and applied, plus the loop diagnostics
+    # `HardwareDiagnostics` reads out of qube_hw.c. So every target logs the same file through
+    # the same code and the timing loop around the program writes nothing.
+    @testset "swing-up run log" begin
+        logfile = joinpath(mktempdir(), "run.csv")
+        ctrl = QuanserComponents.SwingupController(; Ts, backend = :julia, log_file = logfile)
+        @test ctrl.log.file == logfile
+        applied = hold(0.0, 0.01)
+        QuanserComponents.open_log!(ctrl.log)
+        SynchToolkit.reset!(ctrl)
+        out = nothing
+        for _ in 1:10
+            out = ctrl()
+        end
+        QuanserComponents.close_log!()
+        @test out.row == 10                        # one row per tick, from inside the tick
+
+        D = QuanserComponents.read_log(logfile)
+        @test collect(keys(D)) == Symbol.(QuanserComponents.SWINGUP_LOG_COLUMNS)
+        @test length(D.time) == 10
+        @test D.control_input[end] == applied[]    # what the program actually wrote
+        # `time` is wall clock from the first tick, and `dt` has no predecessor on it.
+        @test D.time[1] == 0.0 && issorted(D.time) && D.time[end] > 0
+        @test D.dt[1] == 0.0 && all(>(0), D.dt[2:end])
+        # `exec` is latched by the motor write, so a nonzero value in the *first* row is what
+        # proves the diagnostics are scheduled after it — the dependency token in
+        # `HardwareDiagnostics.dep` is doing its job. Read too early, this would be 0.
+        @test all(>(0), D.exec)
+        @test all(<(0.5 * Ts), D.exec)             # and it is a duration, not a timestamp
+        # Callback mode has no encoder hardware, hence no counts.
+        @test all(iszero, D.count_shoulder) && all(iszero, D.count_elbow)
+    end
+
+    # ---- the in-process timing loop ------------------------------------------
+    # `run_program!` is what a hardware run does when it is not exported to C: open the device
+    # and the log, tick every Ts, close both. It is shared by both programs, so this exercises
+    # it with the swing-up one against a first-order axis (which never swings up — the point
+    # here is the loop, not the controller).
+    @testset "run_program!" begin
+        logfile = joinpath(mktempdir(), "loop.csv")
+        ctrl = QuanserComponents.SwingupController(; Ts, backend = :julia, log_file = logfile)
+        w, phi = Ref(0.0), Ref(0.0)
+        QuanserComponents.bind_hardware!(
+            measure = () -> (phi[], 0.0),
+            control = u -> (w[] += Ts * u; phi[] += Ts * w[]; nothing))
+        r = QuanserComponents.run_program!(ctrl; Tf = 0.25, mode = :callback)
+        @test r.ticks == 50
+        @test r.rows == r.ticks                    # the program wrote one row per tick
+        @test r.log_file == logfile
+        @test 0.004 < r.timing.median_dt < 0.008   # the loop kept its period
+        # The program logs the period it achieved, so a log fetched from another machine
+        # carries the same timing the loop would have measured here.
+        D = QuanserComponents.read_log(logfile)
+        @test length(D.time) == 50
+        @test abs(QuanserComponents._median(D.dt[2:end]) - r.timing.median_dt) < 1e-3
+        @test QuanserComponents.log_timing(logfile).median_dt ≈
+              QuanserComponents._median(D.dt[2:end])
     end
 
     # ---- friction experiment: logging from inside the program ----------------
@@ -288,7 +414,7 @@ import DyadCompilerPasses
         # values are whatever the loop is currently tuned to.
         ctrl = QuanserComponents.FrictionController(; Ts, backend, log_file = logfile,
                                                      K = 0.05, Ti = 0.5)
-        @test ctrl.log_file == logfile          # the model carries the filename, not the driver
+        @test ctrl.log.file == logfile          # the model carries the filename, not the driver
 
         # A first-order axis to close the velocity loop around. Coulomb friction included,
         # so the recovered `kc` below has something to find.
@@ -300,9 +426,7 @@ import DyadCompilerPasses
 
         # One full sweep of the reference: 6 speeds in each direction.
         N = round(Int, QuanserComponents.friction_sweep_duration() / Ts)
-        QuanserComponents.open_log!(logfile;
-                                   header = QuanserComponents.FRICTION_LOG_HEADER,
-                                   ncols = QuanserComponents.FRICTION_LOG_NCOLS)
+        QuanserComponents.open_log!(ctrl.log)   # the program's own log settings
         SynchToolkit.reset!(ctrl)
         out = nothing
         for _ in 1:N
@@ -473,9 +597,10 @@ import DyadCompilerPasses
         # run=false: the analysis defaults to run=true (drive the hardware), which must not
         # happen in the test suite. It still compiles the program.
         sol = QuanserComponents.FurutaFrictionExperiment(; Ts, run = false,
-                                                          log_file = logfile)
+                                                          log_file = logfile,
+                                                          output_dir = dir)
         @test sol.log_file == logfile
-        @test !sol.ran
+        @test !sol.hwrun.ran
         @test sol.fit === nothing && sol.data === nothing
         @test isempty(DI.AnalysisSolutionMetadata(sol).artifacts)   # nothing to show yet
         @test_throws ArgumentError DI.artifacts(sol, :Trace)
@@ -494,9 +619,7 @@ import DyadCompilerPasses
             control = u -> (wr[] += Ts * (0.0065u - 1e-4 * wr[] -
                                           3e-4 * tanh(wr[] / 0.5)) / 1.2e-4;
                             phi[] += Ts * wr[]; nothing))
-        QuanserComponents.open_log!(logfile;
-                                   header = QuanserComponents.FRICTION_LOG_HEADER,
-                                   ncols = QuanserComponents.FRICTION_LOG_NCOLS)
+        QuanserComponents.open_log!(ctrl.log)
         SynchToolkit.reset!(ctrl)
         for _ in 1:round(Int, QuanserComponents.friction_sweep_duration() / Ts)
             ctrl()
@@ -508,6 +631,7 @@ import DyadCompilerPasses
         # currently tuned to, which a test must not depend on.
         sol2 = QuanserComponents.FurutaFrictionExperiment(; Ts, run = false,
                                                            log_file = logfile,
+                                                           output_dir = dir,
                                                            K = 0.05, Ti = 0.5)
         @test sol2.data !== nothing
         @test sol2.fit !== nothing
@@ -553,6 +677,52 @@ import DyadCompilerPasses
         @test occursin("identified friction", shown)
         @test occursin("friction_identified = withparams", shown)
         @test occursin(@sprintf("%.8g", sol2.fit.params.kc), shown)
+    end
+
+    # ---- the friction experiment as standalone C ----------------------------
+    # What consolidating the harness bought: the friction experiment can be exported, built and
+    # deployed exactly like the swing-up controller, because the timing loop no longer knows
+    # which program it carries. Nothing about the experiment needed changing for this.
+    @testset "friction experiment C export" begin
+        dir = mktempdir()
+        gen = QuanserComponents.generate_friction_controller(; Ts,
+                                    log_file = QuanserComponents.FRICTION_LOG_FILE)
+        r = QuanserComponents.export_program_c(gen, dir;
+                                    Tf = QuanserComponents.friction_sweep_duration())
+        @test isfile(joinpath(dir, "top.c")) && !isempty(r.mangled)
+        cfg = read(joinpath(dir, "run_hardware_config.h"), String)
+        # The log defines follow *this* program's DataLogger, not the swing-up's.
+        @test occursin("#define QUBE_LOG_FILE   \"$(QuanserComponents.FRICTION_LOG_FILE)\"", cfg)
+        @test occursin("#define QUBE_LOG_NCOLS  $(QuanserComponents.FRICTION_LOG_NCOLS)", cfg)
+        @test occursin("time\\tw_ref\\tshoulder_angle", cfg)
+        # ... while the loop itself is the same checked-in file, byte for byte.
+        @test read(joinpath(dir, "run_hardware.c"), String) ==
+              read(joinpath(pkgdir(QuanserComponents), "csrc", "run_hardware.c"), String)
+        # Every file the deploy step ships is present, so this could go to the Pi as it stands.
+        for f in QuanserComponents.HARNESS_FILES
+            @test isfile(joinpath(dir, f))
+        end
+        if isdir("/opt/quanser/hil_sdk") &&
+           (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
+            @test isfile(QuanserComponents.compile_hardware_harness(dir))
+        end
+    end
+
+    # Where a run's log goes, which differs by target: an exported program runs in its own
+    # directory on whatever machine it was deployed to, so it gets the bare name; an
+    # in-process run resolves a bare name against `output_dir` so the log lands beside
+    # everything else the analysis wrote.
+    @testset "log paths per target" begin
+        spec(; kw...) = QuanserComponents.FurutaFrictionBaseSpec(; kw...)
+        P = QuanserComponents.program_log_path
+        F = QuanserComponents.FRICTION_LOG_FILE
+        @test P(spec(; output_dir = "out", export_c = false), F) == joinpath("out", F)
+        @test P(spec(; output_dir = "out", export_c = true), F) == F
+        @test P(spec(; output_dir = "out", export_c = true, log_file = "/tmp/a/b.csv"), F) ==
+              "b.csv"
+        @test P(spec(; output_dir = "out", log_file = "/tmp/a/b.csv"), F) == "/tmp/a/b.csv"
+        @test P(spec(; output_dir = "out", log_file = "mine.csv"), F) ==
+              joinpath("out", "mine.csv")
     end
 
     # ---- closed loop: Dyad plant discretized with SeeToDee.Rk4 --------------

@@ -48,13 +48,15 @@ dir = joinpath(@__DIR__, "..", "furuta_c")
 @time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = true,
                                               live_plot = true)
 
-D = readdlm(joinpath(dir, "run_hardware.csv"), skipstart=1)'
+# The log was written by the program itself, from inside each tick, and fetched back here if
+# the run happened on the deploy host. `sol.hwrun.log` is where it landed.
+D = readdlm(sol.hwrun.log, skipstart=1)'
 plotD(D)
 # The viewer outlives the analysis so the trace stays up; close it with:
-# kill(sol.plotter)
+# kill(sol.hwrun.plotter)
 ##
 
 ##
 # Export only, without touching the hardware:
-# export_swingup_c(dir)
+# QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = false)
 ##
