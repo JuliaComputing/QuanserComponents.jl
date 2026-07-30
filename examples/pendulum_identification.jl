@@ -18,7 +18,7 @@
 # LeastSquaresOptim, ForwardDiff, Distributions) were added to test/Project.toml.
 # =============================================================================
 
-using QuanserComponents
+import QuanserComponents as QC
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t
 using MultibodyComponents
@@ -38,7 +38,7 @@ using LeastSquaresOptim
 using Plots
 
 # --- configuration ----------------------------------------------------------
-DATA_PATH = joinpath(pkgdir(QuanserComponents), "swingup.csv")
+DATA_PATH = joinpath(pkgdir(QC), "swingup.csv")
 NDATA     = 1000         # number of samples to use
 
 # QuanserInterface ML-optimized reference values (for comparison only)
@@ -66,7 +66,7 @@ uvv = SVector{1,Float64}.(uvec)
 # =============================================================================
 # World supplies the gravity field (compiling QubePendulum alone drops gravity).
 @named world        = MultibodyComponents.World(render = false)
-@named qubependulum = QuanserComponents.QubePendulum()
+@named qubependulum = QC.QubePendulum()
 @named idmodel      = ModelingToolkit.System(Equation[], t; systems = [world, qubependulum])
 
 # Compile the multibody model as a control system with `voltage` designated as

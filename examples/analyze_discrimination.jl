@@ -16,7 +16,7 @@
 # ENVIRONMENT:  julia --project=examples examples/analyze_discrimination.jl
 # =============================================================================
 
-using QuanserComponents
+import QuanserComponents as QC
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t
 using MultibodyComponents
@@ -36,8 +36,8 @@ using LeastSquaresOptim
 # --- configuration -----------------------------------------------------------
 SYNTHETIC = false
 REFIT     = get(ENV, "REFIT", "true") == "true"
-DATAFILE  = joinpath(pkgdir(QuanserComponents), "discrimination_experiment.csv")
-TRAJFILE  = joinpath(pkgdir(QuanserComponents), "input_design.csv")
+DATAFILE  = joinpath(pkgdir(QC), "discrimination_experiment.csv")
+TRAJFILE  = joinpath(pkgdir(QC), "input_design.csv")
 Ts_NOM    = 0.005
 const SIGMA_ENC = 2pi/2048
 
@@ -45,7 +45,7 @@ const SIGMA_ENC = 2pi/2048
 ## 1. Model, control function, parameter sets  (same recipe as input_design.jl)
 # =============================================================================
 @named world        = MultibodyComponents.World(render = false)
-@named qubependulum = QuanserComponents.QubePendulum()
+@named qubependulum = QC.QubePendulum()
 @named idmodel      = ModelingToolkit.System(Equation[], t; systems = [world, qubependulum])
 
 inputs = [qubependulum.voltage]
@@ -57,7 +57,7 @@ nx, nu, ny = length(x_sym), 1, 2
 
 prob0 = ModelingToolkit.ODEProblem(iosys, Dict(qubependulum.voltage => 0.0), (0.0, Ts_NOM))
 P0 = prob0.p
-IDP_FIELDS = fieldnames(QuanserComponents.IdParams)
+IDP_FIELDS = fieldnames(QC.IdParams)
 set_idp! = ModelingToolkit.setp(iosys, [getproperty(qubependulum, f) for f in IDP_FIELDS])
 
 function params_for(idp)
@@ -77,7 +77,7 @@ if SYNTHETIC
     Random.seed!(1)
     x = SVector{4,Float64}(0, 0, 0, 0)
     ymat = Matrix{Float64}(undef, length(uvec), 2)
-    p_true = params_for(QuanserComponents.identified)   # pretend the rig is "identified"
+    p_true = params_for(QC.identified)   # pretend the rig is "identified"
     for k in eachindex(uvec)
         ymat[k, 1] = x[1] + SIGMA_ENC*randn()
         ymat[k, 2] = x[2] + SIGMA_ENC*randn()
@@ -103,7 +103,7 @@ uvv = SVector{1,Float64}.(uvec)
 discrete_dynamics = SeeToDee.Rk4(f_oop, Ts)
 measurement(x, u, p, tt) = SA[x[1], x[2]]
 
-R2 = Matrix(SIGMA_ENC^2 * I(ny))
+R2 = SMatrix{2,2}(SIGMA_ENC^2 * I(ny))
 # Process noise as an unmodelled torque disturbance per joint, correlating each
 # joint's angle and velocity through the double integrator (see the R1 note in
 # examples/pendulum_identification.jl). State order [arm, pend, pend_vel, arm_vel].
@@ -112,10 +112,10 @@ R1[[1, 4], [1, 4]] .= LLPF.double_integrator_covariance_smooth(Ts, 1e0)
 R1[[2, 3], [2, 3]] .= LLPF.double_integrator_covariance_smooth(Ts, 1e-2)
 R1 += 1e-12 * I
 x0 = SVector{nx,Float64}(yvv[1][1], yvv[1][2], 0, 0)
-Pcov0 = Matrix(Diagonal([1e-4, 1e-4, 1e-1, 1e-1]))
+Pcov0 = SMatrix{4,4}(Diagonal(SA[1e-4, 1e-4, 1e-1, 1e-1]))
 
 make_ukf(p) = UnscentedKalmanFilter(discrete_dynamics, measurement, R1, R2,
-                                    MvNormal(Vector(x0), Pcov0); ny, nu, p)
+                                    MvNormal(x0, Pcov0); ny, nu, p)
 
 function evaluate(tag, idp)
     p  = params_for(idp)
@@ -128,8 +128,8 @@ function evaluate(tag, idp)
 end
 
 println("\n================ model comparison ================")
-ll_nom = evaluate("nominal",    QuanserComponents.nominal)
-ll_id  = evaluate("identified", QuanserComponents.identified)
+ll_nom = evaluate("nominal",    QC.nominal)
+ll_id  = evaluate("identified", QC.identified)
 Δll = ll_id - ll_nom
 @printf("log-likelihood ratio (identified - nominal): %+.1f\n", Δll)
 println(Δll > 0 ? "=> the IDENTIFIED parameters explain the data better" :
@@ -140,23 +140,21 @@ println("==================================================\n")
 ## 4. Optional refit from the nominal starting point
 # =============================================================================
 if REFIT
-    tunable_syms = [qubependulum.Jp, qubependulum.friction.kv,
-                    qubependulum.bp, qubependulum.kt, qubependulum.mr]
+    tunable_syms = [qubependulum.Jp, qubependulum.bp, qubependulum.kt, qubependulum.mr]
     set_tun! = ModelingToolkit.setp(iosys, tunable_syms)
     get_tun  = ModelingToolkit.getp(iosys, tunable_syms)
 
-    p_start   = params_for(QuanserComponents.nominal)
+    p_start   = params_for(QC.nominal)
     p_guess   = collect(get_tun(p_start))
-    p_ref     = collect(get_tun(params_for(QuanserComponents.identified)))
+    p_ref     = collect(get_tun(params_for(QC.identified)))
 
     function dyn_tunable(x, u, ptun, tt)
         pc = copy(p_start)
         set_tun!(pc, ptun)
         f_oop(x, u, pc, tt)
     end
-    ddyn_t = SeeToDee.Rk4(dyn_tunable, Ts)
-    ukf_t(p) = UnscentedKalmanFilter(ddyn_t, measurement, R1, R2,
-                                     MvNormal(Vector(x0), Pcov0); ny, nu, p)
+    ukf_t(p) = UnscentedKalmanFilter(SeeToDee.Rk4(dyn_tunable, Ts), measurement, R1, R2,
+                                     MvNormal(x0, Pcov0); ny, nu, p)
 
     function residuals!(res, plog)
         p = exp10.(plog)
@@ -174,7 +172,7 @@ if REFIT
     @info "refitting from the NOMINAL starting point"
     r = optimize!(LeastSquaresProblem(x = log10.(abs.(p_guess) .+ 1e-30), f! = residuals!,
                                       output_length = length(yvv)*ny, autodiff = :central),
-                  LevenbergMarquardt(), show_trace = true, show_every = 5, iterations = 30)
+                  LevenbergMarquardt(), show_trace = true, show_every = 2, iterations = 30)
     p_fit = exp10.(r.minimizer)
 
     println("\n================ refit from nominal ================")
