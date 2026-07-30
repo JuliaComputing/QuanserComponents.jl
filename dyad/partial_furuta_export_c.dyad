@@ -1,0 +1,33 @@
+partial analysis FurutaExportCBase
+  extends Analysis
+  model::Dyad.EmptyComponent = Dyad.EmptyComponent()
+  "Directory to write the generated C sources into (top.c/.h/.pc, synchjulia.h). Created if missing."
+  parameter output_dir::String = "furuta_c"
+  "Controller sample time [s]"
+  parameter Ts::Real = 0.005
+  "LQR state-penalty diagonal in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
+  parameter Q1::Real[4] = [1000.0, 10.0, 1.0, 1.0]
+  "LQR control-penalty weight"
+  parameter Q2::Real = 100.0
+  "Stabilizer saturation [V]"
+  parameter umax::Real = 10.0
+  "Compile and run the generated C control loop on the hardware after export"
+  parameter run::Boolean = false
+  "Duration [s] of the hardware run when `run = true`"
+  parameter Tf::Real = 10.0
+  "Launch a live plotter alongside the hardware run to watch it as it happens (needs `run = true`)"
+  parameter live_plot::Boolean = false
+  "Live-plot viewer executable"
+  parameter live_plot_cmd::String = "kst2"
+  "Viewer session file; a relative path resolves against `output_dir`"
+  parameter live_plot_config::String = "kst2config.kst"
+  """
+  Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine
+  """
+  parameter deploy_host::String = ""
+  "Directory on `deploy_host` to copy the sources into"
+  parameter deploy_dir::String = "furuta_c"
+  "Arm angle [deg] at start-up, added to every shoulder reading so the arm need not be at its home position"
+  parameter arm_deg::Real = 0.0
+relations
+end

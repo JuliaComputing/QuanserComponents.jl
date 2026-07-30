@@ -7,22 +7,20 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   QubePendulum(; name, idparams, friction_params, Rm, kt, km, r_cm_r, mr, r, Jr, br, mp, Lp, l, Jp, bp, base_size)
+   QubePendulum(; name, idparams, friction_params, Rm, kt, r_cm_r, mr, r, Jr, mp, Lp, l, Jp, bp, base_size)
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `idparams`         | Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)                         | --  |   nominal |
-| `friction_params`         | Shoulder-axis friction coefficients (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)                         | --  |   friction_identified |
+| `friction_params`         | Shoulder-axis speed-dependent torque -- friction *and* back-EMF, the whole of it. There is no separate viscous coefficient and no back-EMF in `motor`; see dyad/definitions.jl                         | --  |   friction_identified |
 | `Rm`         | Motor armature resistance                         | Ω  |   idparams.Rm |
 | `kt`         | Motor current-to-torque constant                         | N.m/A  |   idparams.kt |
-| `km`         | Motor back-EMF (speed) constant                         | N.m/A  |   idparams.km |
 | `r_cm_r`         |                          | m  |   0.085 / 2 |
 | `mr`         | Rotary arm (rod) mass (including rotary encoder)                         | kg  |   idparams.mr |
 | `r`         | Rotary arm (rod) length                         | m  |   idparams.r |
 | `Jr`         | Rotary arm (rod) moment of inertia about the shoulder pivot                         | kg.m2  |   0.095 * 0.0...85 / 2) ^ 2 |
-| `br`         | Rotary arm (rod) viscous damping coefficient                         | N.m.s/rad  |   idparams.br |
 | `mp`         | Pendulum mass                         | kg  |   idparams.mp |
 | `Lp`         | Pendulum length                         | m  |   idparams.Lp |
 | `l`         | Distance from elbow pivot to pendulum center of mass                         | m  |   idparams.l |
@@ -36,7 +34,7 @@ import Moshi as __Ext__Moshi
  * `shoulder_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `elbow_angle` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function QubePendulum(; name = nothing, idparams=nominal, friction_params=friction_identified, r_cm_r=0.085 / 2, Jr=0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, km=idparams.km, mr=idparams.mr, r=idparams.r, br=idparams.br, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
+@component function QubePendulum(; name = nothing, idparams=nominal, friction_params=friction_identified, r_cm_r=0.085 / 2, Jr=0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2, base_size=0.1, Rm=idparams.Rm, kt=idparams.kt, mr=idparams.mr, r=idparams.r, mp=idparams.mp, Lp=idparams.Lp, l=idparams.l, Jp=idparams.Jp, bp=idparams.bp, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -73,9 +71,6 @@ import Moshi as __Ext__Moshi
   __local__kt = kt
   append!(__params, @parameters (kt::Real), [description = "Motor current-to-torque constant"])
   __initial_conditions[kt] = __local__kt
-  __local__km = km
-  append!(__params, @parameters (km::Real), [description = "Motor back-EMF (speed) constant"])
-  __initial_conditions[km] = __local__km
   __local__r_cm_r = r_cm_r
   append!(__params, @parameters (r_cm_r::Real))
   __initial_conditions[r_cm_r] = __local__r_cm_r
@@ -88,9 +83,6 @@ import Moshi as __Ext__Moshi
   __local__Jr = Jr
   append!(__params, @parameters (Jr::Real), [description = "Rotary arm (rod) moment of inertia about the shoulder pivot"])
   __initial_conditions[Jr] = __local__Jr
-  __local__br = br
-  append!(__params, @parameters (br::Real), [description = "Rotary arm (rod) viscous damping coefficient"])
-  __initial_conditions[br] = __local__br
   __local__mp = mp
   append!(__params, @parameters (mp::Real), [description = "Pendulum mass", bounds = (0, Inf)])
   __initial_conditions[mp] = __local__mp
@@ -130,7 +122,6 @@ import Moshi as __Ext__Moshi
   push!(__systems, @named motor = QuanserComponents.DCMotor(; motor_overrides...))
   __bindings[motor.Rm] = Rm
   __bindings[motor.kt] = kt
-  __bindings[motor.km] = km
   # Now remove initial conditions in motor that correspond to the bindings just added
   __motor_ics = ModelingToolkit.get_initial_conditions(motor)
   __no_namespace_motor = ModelingToolkit.toggle_namespacing(motor, false)
@@ -138,8 +129,6 @@ import Moshi as __Ext__Moshi
   delete!(__motor_ics, __motor_Rm)
   __motor_kt = Symbolics.unwrap(__no_namespace_motor.kt)::Symbolics.SymbolicT
   delete!(__motor_ics, __motor_kt)
-  __motor_km = Symbolics.unwrap(__no_namespace_motor.km)::Symbolics.SymbolicT
-  delete!(__motor_ics, __motor_km)
   # Subcomponent shoulder_joint of type MultibodyComponents.Revolute
   shoulder_joint_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_joint")
   push!(__systems, @named shoulder_joint = MultibodyComponents.Revolute(; phi__initial=0.1, w__initial=0, rooted=MultibodyComponents.RootedFrame.FrameA(), n=[Float64(0), Float64(1), Float64(0)], color=[0.8, 0.8, 0.8, Float64(1)], radius=0.01, cylinder_length=0.03, shoulder_joint_overrides...))
@@ -197,15 +186,9 @@ import Moshi as __Ext__Moshi
   # Subcomponent shoulder_sensor of type RotationalComponents.Sensors.AngleSensor
   shoulder_sensor_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_sensor")
   push!(__systems, @named shoulder_sensor = RotationalComponents.Sensors.AngleSensor(; shoulder_sensor_overrides...))
-  # Subcomponent friction of type QuanserComponents.RotationalFriction
+  # Subcomponent friction of type QuanserComponents.RotationalFrictionAndBackEMF
   friction_overrides = __pop_subcomponent_overrides!(__overrides, "friction")
-  push!(__systems, @named friction = QuanserComponents.RotationalFriction(; params=friction_params, friction_overrides...))
-  __bindings[friction.kv] = br
-  # Now remove initial conditions in friction that correspond to the bindings just added
-  __friction_ics = ModelingToolkit.get_initial_conditions(friction)
-  __no_namespace_friction = ModelingToolkit.toggle_namespacing(friction, false)
-  __friction_kv = Symbolics.unwrap(__no_namespace_friction.kv)::Symbolics.SymbolicT
-  delete!(__friction_ics, __friction_kv)
+  push!(__systems, @named friction = QuanserComponents.RotationalFrictionAndBackEMF(; params=friction_params, friction_overrides...))
   # Subcomponent damper1 of type RotationalComponents.Components.Damper
   damper1_overrides = __pop_subcomponent_overrides!(__overrides, "damper1")
   push!(__systems, @named damper1 = RotationalComponents.Components.Damper(; damper1_overrides...))

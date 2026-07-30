@@ -140,7 +140,7 @@ println("==================================================\n")
 ## 4. Optional refit from the nominal starting point
 # =============================================================================
 if REFIT
-    tunable_syms = [qubependulum.Jp, qubependulum.br,
+    tunable_syms = [qubependulum.Jp, qubependulum.friction.kv,
                     qubependulum.bp, qubependulum.kt, qubependulum.mr]
     set_tun! = ModelingToolkit.setp(iosys, tunable_syms)
     get_tun  = ModelingToolkit.getp(iosys, tunable_syms)

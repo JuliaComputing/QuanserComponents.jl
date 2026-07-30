@@ -181,16 +181,24 @@ metadata {
 end
 
 """
-Friction torque on a rotational axis: Coulomb plus viscous plus a quadratic and a
-cubic term.
+Speed-dependent resisting torque on a rotational axis: Coulomb friction, back-EMF and
+the higher-order terms, as one law.
+
+The name is the point. A constant-velocity experiment measures the *command* a speed
+costs, and that single number cannot separate mechanical friction from the motor's
+back-EMF -- both are volts per rad/s. Splitting them means fitting one and subtracting a
+`km` obtained elsewhere, and when the two disagree the remainder comes out
+non-dissipative. So this block is the whole speed-dependent torque of the axis and
+`DCMotor` deliberately has no back-EMF term.
 
 ```math
 τ_f(ω) = k_c σ(ω) + k_v ω + k_2 σ(ω) ω^2 + k_3 ω^3
 ```
 
-with `σ(ω) = tanh(ω / w_tanh)`, or the hard `sign(ω)` when `smooth = false`. The
-sign-odd terms carry `σ` so that `τ_f(-ω) = -τ_f(ω)`: the torque always opposes the
-motion. Smoothing is the default because a hard `sign` at `ω = 0` is both
+with `σ(ω) = tanh(ω / w_tanh)`, or the hard `sign(ω)` when `smooth = false`. Every term
+is odd in `ω`, so `τ_f(-ω) = -τ_f(ω)`: the torque always opposes the motion. The two
+terms carrying `σ` are the friction-like ones; `k_v ω` is where back-EMF lands, being
+exactly proportional to speed. Smoothing is the default because a hard `sign` at `ω = 0` is both
 numerically awkward and a poor description of what the device does at a standstill;
 `w_tanh` is the width of the transition, in rad/s.
 
@@ -200,16 +208,22 @@ The name avoids colliding with the flange torque `tau` that
 [`RotationalFriction`](@ref) inherits from the rotational interface.
 
 The coefficients come from a [`FrictionParams`](@ref) set, so a whole fit can be
-selected in one line — `Friction(params = friction_identified)` — the same
+selected in one line — `FrictionAndBackEMF(params = friction_identified)` — the same
 arrangement `QubePendulum` uses for `IdParams`. Fit them from a constant-velocity
 experiment with `FurutaFrictionExperiment` and
 examples/friction_identification.jl.
 
-`k_v` is the same quantity as `QubePendulum`'s `br`, so a fit is directly usable
-there; what `br` cannot express is `k_c`, which is why the pendulum needs more
-voltage to start moving than to keep moving.
+`QubePendulum` has no separate viscous coefficient and no back-EMF beside this. Do not
+read the coefficients individually: `k_v` is friction *and* back-EMF together, and with
+`k_2`/`k_3` present none of them is separately meaningful — judge a set by `τ_f(ω)` over
+the range it was measured on. What the model buys over a plain damper is `k_c`, which is
+why the arm needs more voltage to start moving than to keep moving.
+
+A compensator built from this must skip `k_v`: cancelling it would cancel the motor's
+back-EMF, which is real damping worth keeping. `SwingupCatch` instantiates its
+feedforward with `kv = 0` for that reason.
 """
-component Friction
+component FrictionAndBackEMF
   "Angular velocity of the axis [rad/s]"
   w = Dyad.RealInput() {^w}
   "Friction torque opposing the motion [N·m]"
@@ -220,7 +234,7 @@ component Friction
   structural parameter smooth::Boolean = true
   "Coulomb (breakaway) torque"
   parameter kc::Dyad.Torque = params.kc
-  "Viscous coefficient, comparable with QubePendulum's `br`"
+  "First-order coefficient: friction and back-EMF together"
   parameter kv::Dyad.RotationalDampingConstant = params.kv
   "Quadratic coefficient"
   parameter k2::Real = params.k2
@@ -253,31 +267,30 @@ metadata {
 end
 
 """
-[`Friction`](@ref) as a rotational two-port, so it drops in exactly where a `Damper`
-would: connect it between a joint's `axis` and `support` and nothing else changes.
+[`FrictionAndBackEMF`](@ref) as a rotational two-port, so it drops in exactly where a
+`Damper` would: connect it between a joint's `axis` and `support` and nothing else changes.
 `Damper` contributes `tau = d * w_rel`; this contributes the whole friction law.
 
-It *contains* a `Friction` rather than extending it: extending would inherit that block's
-`w` and `tau_f` signal connectors, and a rotational two-port should present flanges and
-nothing else. So the law and the `FrictionParams` plumbing still have exactly one
-definition in the package, and the two bridging equations tie it to the flange variables
-supplied by the same rotational interface `Damper` uses.
+It *contains* a `FrictionAndBackEMF` rather than extending it: extending would inherit
+that block's `w` and `tau_f` signal connectors, and a rotational two-port should present
+flanges and nothing else. So the law and the `FrictionParams` plumbing still have exactly
+one definition in the package, and the two bridging equations tie it to the flange
+variables supplied by the same rotational interface `Damper` uses.
 
 The coefficients are re-declared here only to forward them with `final`, which keeps
-`RotationalFriction(params = friction_identified)` working and still lets an individual
-coefficient be overridden — `kv` being the one that matters, since whatever carries the
-viscous term must carry it exactly once.
+`RotationalFrictionAndBackEMF(params = friction_identified)` working and still lets an individual
+coefficient be overridden.
 """
-component RotationalFriction
+component RotationalFrictionAndBackEMF
   extends RotationalComponents.Interfaces.PartialCompliantWithRelativeStates
-  friction = QuanserComponents.Friction(params = params, smooth = smooth, final kc = kc, final kv = kv, final k2 = k2, final k3 = k3, final w_tanh = w_tanh) {^friction}
+  friction = QuanserComponents.FrictionAndBackEMF(params = params, smooth = smooth, final kc = kc, final kv = kv, final k2 = k2, final k3 = k3, final w_tanh = w_tanh) {^friction}
   "Coefficient set (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)"
   structural parameter params::Native = friction_nominal
   "Smooth the sign with tanh instead of using a hard sign"
   structural parameter smooth::Boolean = true
   "Coulomb (breakaway) torque"
   parameter kc::Dyad.Torque = params.kc
-  "Viscous coefficient"
+  "First-order coefficient"
   parameter kv::Dyad.RotationalDampingConstant = params.kv
   "Quadratic coefficient"
   parameter k2::Real = params.k2

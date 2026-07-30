@@ -7,22 +7,22 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   DCMotor(; name, Rm, kt, km)
+   DCMotor(; name, Rm, kt)
 
 Permanent-magnet DC motor driving a rotational axis, with the armature inductance
-neglected.
+neglected and **no back-EMF term**.
 
 ```math
-i = (v - k_m ω) / R_m, \\quad τ = k_t i
+i = v / R_m, \\quad τ = k_t i
 ```
 
-so the torque falls off with speed through the back-EMF term — the physical effect that a
-plain `voltage -> torque` gain has to fake by adding `k_t k_m / R_m` to a damper. Keeping
-it here instead means a friction element on the same axis models *only* friction, and the
-two no longer have to share a coefficient.
-
-`w` is the shaft speed relative to the support, so the back-EMF is right even when the
-housing moves.
+The back-EMF `k_t k_m ω / R_m` is deliberately absent. It is exactly proportional to
+speed, and so is the speed-dependent part of the friction, so a constant-velocity
+experiment cannot tell them apart: it measures volts per rad/s and that is the sum.
+Fitting friction and then subtracting a `km` from a datasheet only injects the
+disagreement between the two into the result — which is how the friction model ended up
+non-dissipative. `FrictionAndBackEMF` on the same axis carries both effects together,
+which is why there is no `km` here or in `IdParams`.
 
 ## Parameters:
 
@@ -30,7 +30,6 @@ housing moves.
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `Rm`         | Armature resistance                         | Ω  |   8.4 |
 | `kt`         | Current-to-torque constant                         | N.m/A  |   0.042 |
-| `km`         | Back-EMF (speed) constant                         | N.m/A  |   0.042 |
 
 ## Connectors
 
@@ -44,11 +43,10 @@ housing moves.
 | ------------ | ----------------------------------- | ------ |
 | `phi_support`         | Absolute angle of the support spline                         | rad  |
 | `phi`         | Angle of spline with respect to support                         | --  |
-| `w`         | Shaft speed relative to the support                         | rad/s  |
 | `i`         | Armature current                         | A  |
 | `tau`         | Torque delivered to the shaft                         | N.m  |
 """
-@component function DCMotor(; name = nothing, Rm=8.4, kt=0.042, km=0.042, kwargs...)
+@component function DCMotor(; name = nothing, Rm=8.4, kt=0.042, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -85,9 +83,6 @@ housing moves.
   __local__kt = kt
   append!(__params, @parameters (kt::Real), [description = "Current-to-torque constant"])
   __initial_conditions[kt] = __local__kt
-  __local__km = km
-  append!(__params, @parameters (km::Real), [description = "Back-EMF (speed) constant"])
-  __initial_conditions[km] = __local__km
 
   ### Final Parameters (assignments)
 
@@ -97,7 +92,6 @@ housing moves.
   ### Variables (declarations)
   append!(__vars, @variables (phi_support(t)::Real), [description = "Absolute angle of the support spline"])
   append!(__vars, @variables (phi(t)::Real), [description = "Angle of spline with respect to support"])
-  append!(__vars, @variables (w(t)::Real), [description = "Shaft speed relative to the support"])
   append!(__vars, @variables (i(t)::Real), [description = "Armature current"])
   append!(__vars, @variables (tau(t)::Real), [description = "Torque delivered to the shaft"])
 
@@ -108,9 +102,6 @@ housing moves.
   __ovr_phi = pop!(__overrides, "phi", nothing); isnothing(__ovr_phi) || push!(__eqs, phi ~ __ovr_phi)
   __ovr_phi__initial = pop!(__overrides, "phi__initial", nothing); isnothing(__ovr_phi__initial) || (__initial_conditions[phi] = __ovr_phi__initial)
   __ovr_phi__guess = pop!(__overrides, "phi__guess", nothing)
-  __ovr_w = pop!(__overrides, "w", nothing); isnothing(__ovr_w) || push!(__eqs, w ~ __ovr_w)
-  __ovr_w__initial = pop!(__overrides, "w__initial", nothing); isnothing(__ovr_w__initial) || (__initial_conditions[w] = __ovr_w__initial)
-  __ovr_w__guess = pop!(__overrides, "w__guess", nothing)
   __ovr_i = pop!(__overrides, "i", nothing); isnothing(__ovr_i) || push!(__eqs, i ~ __ovr_i)
   __ovr_i__initial = pop!(__overrides, "i__initial", nothing); isnothing(__ovr_i__initial) || (__initial_conditions[i] = __ovr_i__initial)
   __ovr_i__guess = pop!(__overrides, "i__guess", nothing)
@@ -131,7 +122,6 @@ housing moves.
   ### Guesses
   isnothing(__ovr_phi_support__guess) || (__guesses[phi_support] = __ovr_phi_support__guess)
   isnothing(__ovr_phi__guess) || (__guesses[phi] = __ovr_phi__guess)
-  isnothing(__ovr_w__guess) || (__guesses[w] = __ovr_w__guess)
   isnothing(__ovr_i__guess) || (__guesses[i] = __ovr_i__guess)
   isnothing(__ovr_tau__guess) || (__guesses[tau] = __ovr_tau__guess)
 
@@ -144,8 +134,7 @@ housing moves.
   push!(__eqs, support.phi ~ phi_support)
   push!(__eqs, support.tau ~ -spline.tau)
   push!(__eqs, phi ~ spline.phi - phi_support)
-  push!(__eqs, w ~ ModelingToolkit.D_nounits(phi))
-  push!(__eqs, i ~ (voltage - km * w) / Rm)
+  push!(__eqs, i ~ voltage / Rm)
   push!(__eqs, tau ~ kt * i)
   push!(__eqs, spline.tau ~ -tau)
 

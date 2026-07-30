@@ -10,6 +10,9 @@ using SynchToolkit
 using LinearAlgebra
 using Statistics: cor
 using Printf: @sprintf
+# The plot-artifact assertions build real `Plots.Plot`s, so a backend has to be loaded.
+# (The `using Plots` further down is inside a disabled block and does not count.)
+using Plots: Plots
 # using SynchJulia
 # SynchJulia.backend!(:julia)
 ##
@@ -53,24 +56,25 @@ using OrdinaryDiffEqLowOrderRK
 @time "solve" sol = solve(prob, BS3(), dt=0.005)
 @assert !all(isnan, sol[ssys.control_system.elbow_angle])
 
-import GLMakie
-using GLMakie: Makie, AmbientLight, SpotLight, PointLight, RGBf, Vec3f, Vec2f
 
 
 @test abs(mod2pi(sol(sol.t[end], idxs=ssys.qubependulum.elbow_joint.phi)) - pi) < 0.01
 
-# Spotlight rig — primary key light from above-front-right with a small cone,
-# soft blue rim from behind, low ambient for contrast.
-qube_lights = [
-    AmbientLight(RGBf(0.12, 0.12, 0.12)),
-    SpotLight(RGBf(2.2, 2.2, 2.2),
-              Vec3f(0.4, 0.6, 0.4),
-              Vec3f(0, 0, 0) - Vec3f(0.4, 0.6, 0.4),
-              Vec2f(deg2rad(15), deg2rad(35))),
-    PointLight(RGBf(0.45, 0.45, 0.6), Vec3f(-0.3, 0.4, -0.3)),
-]
-render(model, sol, 0.0; lights=qube_lights)[1]
-
+if false
+    import GLMakie
+    using GLMakie: Makie, AmbientLight, SpotLight, PointLight, RGBf, Vec3f, Vec2f
+    # Spotlight rig — primary key light from above-front-right with a small cone,
+    # soft blue rim from behind, low ambient for contrast.
+    qube_lights = [
+        AmbientLight(RGBf(0.12, 0.12, 0.12)),
+        SpotLight(RGBf(2.2, 2.2, 2.2),
+                Vec3f(0.4, 0.6, 0.4),
+                Vec3f(0, 0, 0) - Vec3f(0.4, 0.6, 0.4),
+                Vec2f(deg2rad(15), deg2rad(35))),
+        PointLight(RGBf(0.45, 0.45, 0.6), Vec3f(-0.3, 0.4, -0.3)),
+    ]
+    render(model, sol, 0.0; lights=qube_lights)[1]
+end
 ##
 if false # Don't typically plot when testing
     using Plots
@@ -351,13 +355,14 @@ import DyadCompilerPasses
         @test all(e -> occursin("~ 0.0", e), pad)
     end
 
-    # The friction model a fit feeds into. `kv` is the same quantity as the plant's `br`,
-    # and the whole point of the extra terms is the Coulomb one, which `br` cannot express.
+    # The friction model the plant now uses for all of its shoulder friction. The
+    # coefficients are not separately interpretable, so the properties asserted are
+    # properties of the curve.
     @testset "Friction model" begin
         S = ModelingToolkit.Symbolics
         p = QuanserComponents.FrictionParams(; kc = 2e-3, kv = 1e-4, k2 = 1e-5,
                                               k3 = 1e-6, w_tanh = 0.5)
-        f = QuanserComponents.Friction(; name = :f, params = p)
+        f = QuanserComponents.FrictionAndBackEMF(; name = :f, params = p)
         us, eqs = ModelingToolkit.unknowns(f), ModelingToolkit.equations(f)
         sym(n) = us[findfirst(u -> string(u) == n, us)]
         rhs(n) = eqs[findfirst(e -> string(e.lhs) == n, eqs)].rhs
@@ -376,9 +381,27 @@ import DyadCompilerPasses
         @test tau(2.0) > 0.9 * p.kc
         # ...and the higher-order terms add to it at speed.
         @test tau(30.0) > p.kc + p.kv * 30
-        # `friction_nominal` is pure viscous at the plant's `br`, so a fit only adds to it.
-        @test QuanserComponents.friction_nominal.kv == QuanserComponents.nominal.br
+        # `friction_nominal` is purely first-order, so it reproduces a plain damper.
         @test QuanserComponents.friction_nominal.kc == 0
+        @test QuanserComponents.friction_nominal.k2 == 0 == QuanserComponents.friction_nominal.k3
+        # The identified set must be dissipative over the range it was measured on. That is
+        # by construction now -- it is `kt/Rm * u(w)` with nothing subtracted, and the
+        # measured command rises with speed -- so this is the assertion that would catch a
+        # reintroduced back-EMF subtraction.
+        let q = QuanserComponents.friction_identified
+            fi = QuanserComponents.FrictionAndBackEMF(; name = :fi, params = q)
+            us2, eqs2 = ModelingToolkit.unknowns(fi), ModelingToolkit.equations(fi)
+            sym2(n) = us2[findfirst(u -> string(u) == n, us2)]
+            rhs2(n) = eqs2[findfirst(e -> string(e.lhs) == n, eqs2)].rhs
+            e2 = S.substitute(S.substitute(rhs2("tau_f(t)"),
+                                          Dict(sym2("sw(t)") => rhs2("sw(t)"))),
+                              Dict(ModelingToolkit.default_values(fi)))
+            tq = S.build_function(e2, sym2("w(t)"); expression = Val(false))
+            ws = range(1.0, 40.0, length = 200)          # the measured range
+            @test q.kv > 0
+            @test all(>(0), tq.(ws))                     # always opposes the motion
+            @test issorted(tq.(ws))                      # and grows with speed
+        end
         # `withparams` replaces only what it is given.
         q = QuanserComponents.withparams(p; kc = 5e-3)
         @test q.kc == 5e-3 && q.kv == p.kv && q.w_tanh == p.w_tanh
@@ -417,9 +440,9 @@ import DyadCompilerPasses
         @test fit.a ≈ a_true rtol=1e-6        # exact data, so the regression is exact
         @test fit.resid_rms < 1e-9
         @test fit.nkeep == count(d.keep) && fit.nsamples == n
-        # Torque space: kc/k2/k3 scale by kt/Rm, kv additionally folds out the back-EMF.
+        # Torque space is just the command-to-torque gain now; nothing is subtracted.
         @test fit.params.kc ≈ g * a_true[1]
-        @test fit.params.kv ≈ g * (a_true[2] - motor.km)
+        @test fit.params.kv ≈ g * a_true[2]      # no back-EMF subtraction
         @test fit.params.k2 ≈ g * a_true[3]
         @test fit.params.k3 ≈ g * a_true[4]
         # The report is what gets printed, and it must be paste-ready.

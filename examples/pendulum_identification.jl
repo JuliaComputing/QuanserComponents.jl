@@ -99,14 +99,16 @@ p0    = prob0.p
 tunable_syms = [
     # qubependulum.Jr,
     qubependulum.Jp,
-    qubependulum.br,
+    # `br` is gone: the shoulder friction now lives in the `friction` block, whose
+    # first-order coefficient replaces it. Fit that instead if wanted:
+    # qubependulum.friction.kv,
     qubependulum.bp,
     qubependulum.kt,
     qubependulum.mr,
     # qubependulum.r_cm_r,
     # qubependulum.mp,
     # qubependulum.km,
-]   # add .br, .bp, .kt, .Rm, ...
+]   # add .bp, .kt, .Rm, .friction.kv, ...
 set_tunable! = ModelingToolkit.setp(iosys, tunable_syms)
 get_tunable  = ModelingToolkit.getp(iosys, tunable_syms)
 p_nominal    = collect(get_tunable(p0))

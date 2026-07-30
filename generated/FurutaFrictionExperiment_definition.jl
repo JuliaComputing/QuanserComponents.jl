@@ -16,7 +16,7 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # *and* used to open the file, so the two cannot disagree
   var"log_file"::String = "friction_experiment.csv"
   # Run the experiment on the hardware; false only builds the program
-  var"run"::Bool = true
+  var"run"::Bool = false
   # Duration [s]; 0 runs exactly one full up-and-down sweep of the reference
   var"Tf"::Float64 = 0.0
   # Arm angle [deg] at start-up, added to every shoulder reading. Only the arm's
@@ -56,9 +56,9 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # should be at rest too; while it swings it is a torque disturbance
   var"elbow_tol"::Float64 = 1.5
   # Slowest |velocity| [rad/s] used in the fit; near standstill the sign term is undefined
-  var"w_min_fit"::Float64 = 0.5
+  var"w_min_fit"::Float64 = 0.4
   # Fastest |velocity| [rad/s] used in the fit
-  var"w_max_fit"::Float64 = 40.0
+  var"w_max_fit"::Float64 = w_max + 4
   # Width of the moving average applied to the acceleration before thresholding, in samples
   var"smooth_n"::Int = 20
   # Constant-velocity friction experiment on the physical QUBE, as a single synchronous

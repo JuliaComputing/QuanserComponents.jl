@@ -7,22 +7,21 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   RotationalFriction(; name, params, smooth, kc, kv, k2, k3, w_tanh)
+   RotationalFrictionAndBackEMF(; name, params, smooth, kc, kv, k2, k3, w_tanh)
 
-[`Friction`](@ref) as a rotational two-port, so it drops in exactly where a `Damper`
-would: connect it between a joint's `axis` and `support` and nothing else changes.
+[`FrictionAndBackEMF`](@ref) as a rotational two-port, so it drops in exactly where a
+`Damper` would: connect it between a joint's `axis` and `support` and nothing else changes.
 `Damper` contributes `tau = d * w_rel`; this contributes the whole friction law.
 
-It *contains* a `Friction` rather than extending it: extending would inherit that block's
-`w` and `tau_f` signal connectors, and a rotational two-port should present flanges and
-nothing else. So the law and the `FrictionParams` plumbing still have exactly one
-definition in the package, and the two bridging equations tie it to the flange variables
-supplied by the same rotational interface `Damper` uses.
+It *contains* a `FrictionAndBackEMF` rather than extending it: extending would inherit
+that block's `w` and `tau_f` signal connectors, and a rotational two-port should present
+flanges and nothing else. So the law and the `FrictionParams` plumbing still have exactly
+one definition in the package, and the two bridging equations tie it to the flange
+variables supplied by the same rotational interface `Damper` uses.
 
 The coefficients are re-declared here only to forward them with `final`, which keeps
-`RotationalFriction(params = friction_identified)` working and still lets an individual
-coefficient be overridden — `kv` being the one that matters, since whatever carries the
-viscous term must carry it exactly once.
+`RotationalFrictionAndBackEMF(params = friction_identified)` working and still lets an individual
+coefficient be overridden.
 
 ## Parameters:
 
@@ -31,7 +30,7 @@ viscous term must carry it exactly once.
 | `params`         | Coefficient set (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)                         | --  |   friction_nominal |
 | `smooth`         | Smooth the sign with tanh instead of using a hard sign                         | --  |   true |
 | `kc`         | Coulomb (breakaway) torque                         | N.m  |   params.kc |
-| `kv`         | Viscous coefficient                         | N.m.s/rad  |   params.kv |
+| `kv`         | First-order coefficient                         | N.m.s/rad  |   params.kv |
 | `k2`         | Quadratic coefficient                         | --  |   params.k2 |
 | `k3`         | Cubic coefficient                         | --  |   params.k3 |
 | `w_tanh`         | Width of the smoothed sign transition [rad/s] (only used if `smooth = true`)                         | rad/s  |   params.w_tanh |
@@ -50,12 +49,12 @@ viscous term must carry it exactly once.
 | `w_rel`         | Relative angular velocity between splines                         | rad/s  |
 | `a_rel`         | Relative angular acceleration between splines                         | rad/s2  |
 """
-@component function RotationalFriction(; name = nothing, params=friction_nominal, smooth=true, kc=params.kc, kv=params.kv, k2=params.k2, k3=params.k3, w_tanh=params.w_tanh, kwargs...)
+@component function RotationalFrictionAndBackEMF(; name = nothing, params=friction_nominal, smooth=true, kc=params.kc, kv=params.kv, k2=params.k2, k3=params.k3, w_tanh=params.w_tanh, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = RotationalFriction()
+    @named model = RotationalFrictionAndBackEMF()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -85,7 +84,7 @@ viscous term must carry it exactly once.
   append!(__params, @parameters (kc::Real), [description = "Coulomb (breakaway) torque"])
   __initial_conditions[kc] = __local__kc
   __local__kv = kv
-  append!(__params, @parameters (kv::Real), [description = "Viscous coefficient"])
+  append!(__params, @parameters (kv::Real), [description = "First-order coefficient"])
   __initial_conditions[kv] = __local__kv
   __local__k2 = k2
   append!(__params, @parameters (k2::Real), [description = "Quadratic coefficient"])
@@ -127,9 +126,9 @@ viscous term must carry it exactly once.
   ### Components
   push!(__systems, @named spline_a = __Dyad__Spline())
   push!(__systems, @named spline_b = __Dyad__Spline())
-  # Subcomponent friction of type QuanserComponents.Friction
+  # Subcomponent friction of type QuanserComponents.FrictionAndBackEMF
   friction_overrides = __pop_subcomponent_overrides!(__overrides, "friction")
-  push!(__systems, @named friction = QuanserComponents.Friction(; params=params, smooth=smooth, friction_overrides...))
+  push!(__systems, @named friction = QuanserComponents.FrictionAndBackEMF(; params=params, smooth=smooth, friction_overrides...))
   __bindings[friction.kc] = kc
   __bindings[friction.kv] = kv
   __bindings[friction.k2] = k2
@@ -175,4 +174,4 @@ viscous term must carry it exactly once.
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export RotationalFriction
+export RotationalFrictionAndBackEMF

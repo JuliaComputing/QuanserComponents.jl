@@ -7,18 +7,26 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   Friction(; name, params, smooth, kc, kv, k2, k3, w_tanh)
+   FrictionAndBackEMF(; name, params, smooth, kc, kv, k2, k3, w_tanh)
 
-Friction torque on a rotational axis: Coulomb plus viscous plus a quadratic and a
-cubic term.
+Speed-dependent resisting torque on a rotational axis: Coulomb friction, back-EMF and
+the higher-order terms, as one law.
+
+The name is the point. A constant-velocity experiment measures the *command* a speed
+costs, and that single number cannot separate mechanical friction from the motor's
+back-EMF -- both are volts per rad/s. Splitting them means fitting one and subtracting a
+`km` obtained elsewhere, and when the two disagree the remainder comes out
+non-dissipative. So this block is the whole speed-dependent torque of the axis and
+`DCMotor` deliberately has no back-EMF term.
 
 ```math
 τ_f(ω) = k_c σ(ω) + k_v ω + k_2 σ(ω) ω^2 + k_3 ω^3
 ```
 
-with `σ(ω) = tanh(ω / w_tanh)`, or the hard `sign(ω)` when `smooth = false`. The
-sign-odd terms carry `σ` so that `τ_f(-ω) = -τ_f(ω)`: the torque always opposes the
-motion. Smoothing is the default because a hard `sign` at `ω = 0` is both
+with `σ(ω) = tanh(ω / w_tanh)`, or the hard `sign(ω)` when `smooth = false`. Every term
+is odd in `ω`, so `τ_f(-ω) = -τ_f(ω)`: the torque always opposes the motion. The two
+terms carrying `σ` are the friction-like ones; `k_v ω` is where back-EMF lands, being
+exactly proportional to speed. Smoothing is the default because a hard `sign` at `ω = 0` is both
 numerically awkward and a poor description of what the device does at a standstill;
 `w_tanh` is the width of the transition, in rad/s.
 
@@ -28,14 +36,20 @@ The name avoids colliding with the flange torque `tau` that
 [`RotationalFriction`](@ref) inherits from the rotational interface.
 
 The coefficients come from a [`FrictionParams`](@ref) set, so a whole fit can be
-selected in one line — `Friction(params = friction_identified)` — the same
+selected in one line — `FrictionAndBackEMF(params = friction_identified)` — the same
 arrangement `QubePendulum` uses for `IdParams`. Fit them from a constant-velocity
 experiment with `FurutaFrictionExperiment` and
 examples/friction_identification.jl.
 
-`k_v` is the same quantity as `QubePendulum`'s `br`, so a fit is directly usable
-there; what `br` cannot express is `k_c`, which is why the pendulum needs more
-voltage to start moving than to keep moving.
+`QubePendulum` has no separate viscous coefficient and no back-EMF beside this. Do not
+read the coefficients individually: `k_v` is friction *and* back-EMF together, and with
+`k_2`/`k_3` present none of them is separately meaningful — judge a set by `τ_f(ω)` over
+the range it was measured on. What the model buys over a plain damper is `k_c`, which is
+why the arm needs more voltage to start moving than to keep moving.
+
+A compensator built from this must skip `k_v`: cancelling it would cancel the motor's
+back-EMF, which is real damping worth keeping. `SwingupCatch` instantiates its
+feedforward with `kv = 0` for that reason.
 
 ## Parameters:
 
@@ -44,7 +58,7 @@ voltage to start moving than to keep moving.
 | `params`         | Coefficient set (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)                         | --  |   friction_nominal |
 | `smooth`         | Smooth the sign with tanh instead of using a hard sign                         | --  |   true |
 | `kc`         | Coulomb (breakaway) torque                         | N.m  |   params.kc |
-| `kv`         | Viscous coefficient, comparable with QubePendulum's `br`                         | N.m.s/rad  |   params.kv |
+| `kv`         | First-order coefficient: friction and back-EMF together                         | N.m.s/rad  |   params.kv |
 | `k2`         | Quadratic coefficient                         | --  |   params.k2 |
 | `k3`         | Cubic coefficient                         | --  |   params.k3 |
 | `w_tanh`         | Width of the smoothed sign transition [rad/s] (only used if `smooth = true`)                         | rad/s  |   params.w_tanh |
@@ -60,12 +74,12 @@ voltage to start moving than to keep moving.
 | ------------ | ----------------------------------- | ------ |
 | `sw`         | Sign of the velocity, smoothed or not                         | --  |
 """
-@component function Friction(; name = nothing, params=friction_nominal, smooth=true, kc=params.kc, kv=params.kv, k2=params.k2, k3=params.k3, w_tanh=params.w_tanh, kwargs...)
+@component function FrictionAndBackEMF(; name = nothing, params=friction_nominal, smooth=true, kc=params.kc, kv=params.kv, k2=params.k2, k3=params.k3, w_tanh=params.w_tanh, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = Friction()
+    @named model = FrictionAndBackEMF()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -95,7 +109,7 @@ voltage to start moving than to keep moving.
   append!(__params, @parameters (kc::Real), [description = "Coulomb (breakaway) torque"])
   __initial_conditions[kc] = __local__kc
   __local__kv = kv
-  append!(__params, @parameters (kv::Real), [description = "Viscous coefficient, comparable with QubePendulum's `br`"])
+  append!(__params, @parameters (kv::Real), [description = "First-order coefficient: friction and back-EMF together"])
   __initial_conditions[kv] = __local__kv
   __local__k2 = k2
   append!(__params, @parameters (k2::Real), [description = "Quadratic coefficient"])
@@ -150,4 +164,4 @@ voltage to start moving than to keep moving.
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export Friction
+export FrictionAndBackEMF

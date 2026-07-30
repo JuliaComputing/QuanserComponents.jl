@@ -124,19 +124,19 @@ end
 
 """
 Permanent-magnet DC motor driving a rotational axis, with the armature inductance
-neglected.
+neglected and **no back-EMF term**.
 
 ```math
-i = (v - k_m ω) / R_m, \\quad τ = k_t i
+i = v / R_m, \\quad τ = k_t i
 ```
 
-so the torque falls off with speed through the back-EMF term — the physical effect that a
-plain `voltage -> torque` gain has to fake by adding `k_t k_m / R_m` to a damper. Keeping
-it here instead means a friction element on the same axis models *only* friction, and the
-two no longer have to share a coefficient.
-
-`w` is the shaft speed relative to the support, so the back-EMF is right even when the
-housing moves.
+The back-EMF `k_t k_m ω / R_m` is deliberately absent. It is exactly proportional to
+speed, and so is the speed-dependent part of the friction, so a constant-velocity
+experiment cannot tell them apart: it measures volts per rad/s and that is the sum.
+Fitting friction and then subtracting a `km` from a datasheet only injects the
+disagreement between the two into the result — which is how the friction model ended up
+non-dissipative. `FrictionAndBackEMF` on the same axis carries both effects together,
+which is why there is no `km` here or in `IdParams`.
 """
 component DCMotor
   extends RotationalComponents.Interfaces.PartialTorque
@@ -146,17 +146,12 @@ component DCMotor
   parameter Rm::Dyad.Resistance = 8.4
   "Current-to-torque constant"
   parameter kt::Dyad.ElectricalTorqueConstant = 0.042
-  "Back-EMF (speed) constant"
-  parameter km::Dyad.ElectricalTorqueConstant = 0.042
-  "Shaft speed relative to the support"
-  variable w::Dyad.AngularVelocity
   "Armature current"
   variable i::Dyad.Current
   "Torque delivered to the shaft"
   variable tau::Dyad.Torque
 relations
-  w = der(phi)
-  i = (voltage - km * w) / Rm
+  i = voltage / Rm
   tau = kt * i
   spline.tau = -tau
 metadata {
@@ -170,7 +165,7 @@ metadata {
 end
 
 component QubePendulum
-  motor = QuanserComponents.DCMotor(final Rm = Rm, final kt = kt, final km = km) {^motor}
+  motor = QuanserComponents.DCMotor(final Rm = Rm, final kt = kt) {^motor}
   voltage = Dyad.RealInput() {^voltage}
   shoulder_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [0, 1, 0], color = [0.8, 0.8, 0.8, 1], radius = 0.01, cylinder_length = 0.03) {^shoulder_joint}
   elbow_joint = MultibodyComponents.Revolute(phi(initial = 0.1), w(initial = 0), rooted = RootedFrame.FrameA(), n = [-1, 0, 0]) {^elbow_joint}
@@ -180,7 +175,7 @@ component QubePendulum
   shoulder_sensor = RotationalComponents.Sensors.AngleSensor() {^shoulder_sensor}
   shoulder_angle = Dyad.RealOutput() {^shoulder_angle}
   elbow_angle = Dyad.RealOutput() {^elbow_angle}
-  friction = QuanserComponents.RotationalFriction(params = friction_params, final kv = br) {^friction}
+  friction = QuanserComponents.RotationalFrictionAndBackEMF(params = friction_params) {^friction}
   damper1 = RotationalComponents.Components.Damper(final d = bp) {^damper1}
   fixed = MultibodyComponents.Fixed() {^fixed}
   base_box = MultibodyComponents.ShapefileVisualizer(color = [0.1, 0.1, 0.1, 1], shapefile = joinpath("assets", "qube", "qube_block.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi / 2, 0, -pi / 2), [0, -0.072, 0])) {^base_box}
@@ -191,14 +186,15 @@ component QubePendulum
   motor_part_mesh = MultibodyComponents.ShapefileVisualizer(color = [0.5, 0.5, 0.5, 1], shapefile = joinpath("assets", "qube", "qube_motor_part.stl"), shape_transform = MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.015, -0.016, 0])) {^motor_part_mesh}
   "Physical parameter set (see dyad/definitions.jl: `nominal`, `identified`). Switch the whole set in one line, e.g. QubePendulum(idparams = identified)"
   structural parameter idparams::Native = nominal
-  "Shoulder-axis friction coefficients (see dyad/definitions.jl: `friction_nominal`, `friction_identified`)"
+  """
+  Shoulder-axis speed-dependent torque -- friction *and* back-EMF, the whole of it. There
+  is no separate viscous coefficient and no back-EMF in `motor`; see dyad/definitions.jl
+  """
   structural parameter friction_params::Native = friction_identified
   "Motor armature resistance"
   parameter Rm::Dyad.Resistance = idparams.Rm
   "Motor current-to-torque constant"
   parameter kt::Dyad.ElectricalTorqueConstant = idparams.kt
-  "Motor back-EMF (speed) constant"
-  parameter km::Dyad.ElectricalTorqueConstant = idparams.km
   parameter r_cm_r::Dyad.Length = 0.085 / 2
   "Rotary arm (rod) mass (including rotary encoder)"
   parameter mr::Dyad.Mass = idparams.mr
@@ -206,8 +202,6 @@ component QubePendulum
   parameter r::Dyad.Length = idparams.r
   "Rotary arm (rod) moment of inertia about the shoulder pivot"
   parameter Jr::Dyad.Inertia = 0.095 * 0.085 ^ 2 / 3 - 0.095 * (0.085 / 2) ^ 2
-  "Rotary arm (rod) viscous damping coefficient"
-  parameter br::Dyad.RotationalDampingConstant = idparams.br
   "Pendulum mass"
   parameter mp::Dyad.Mass = idparams.mp
   "Pendulum length"
@@ -958,13 +952,21 @@ component SwingupCatch
   neartop = QuanserComponents.NearTop() {^neartop}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
   switch1 = BlockComponents.Logical.Switch() {^switch1}
-  friction_ff = QuanserComponents.Friction(params = friction_params) {^friction_ff}
+  friction_ff = QuanserComponents.FrictionAndBackEMF(params = friction_params) {^friction_ff}
   friction_gain = BlockComponents.Math.Gain(final k = friction_comp * volt_per_torque) {^friction_gain}
   friction_add = BlockComponents.Math.Add() {^friction_add}
   "Friction coefficients used for the feedforward (see dyad/definitions.jl)"
   structural parameter friction_params::Native = friction_identified
-  "Fraction of the modelled friction to compensate; 0 disables the feedforward"
-  parameter friction_comp::Real = 1.0
+  """
+  Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
+  is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright
+  hold on the simulated plant, settling into a limit cycle rather than diverging outright.
+  Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is
+  not monotone in either knob, so this needs a structural decision rather than a gain --
+  compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious
+  candidate, since it is the *stabilizer* that the feedforward upsets
+  """
+  parameter friction_comp::Real = 0.0
   "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"
   parameter volt_per_torque::Real = identified.Rm / identified.kt
 relations

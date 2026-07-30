@@ -45,8 +45,13 @@ and an LQR problem is solved with state penalty `Q1` and control penalty `Q2`.
 `Q1` is the diagonal of the state cost in the order `[shoulder_angle, elbow_angle,
 shoulder_velocity, elbow_velocity]`; `Q2` is the scalar control cost. The returned `L`
 is the 4-element gain expected by `LQRstabilizer.L`.
+
+The friction terms the controller compensates are deactivated for the linearization; the
+first-order term is kept, because the feedforward leaves it alone (it carries the motor's
+back-EMF). Pass `friction = true` to design against everything instead.
 """
-function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
+function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0,
+                     friction::Bool = false)
     @named model = FurutaSwingup()
     ssys = ModelingToolkit.toggle_namespacing(model, false)
     op = Dict(
@@ -58,6 +63,19 @@ function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
         ssys.elbow_sampler.u    => 0.0,
         ssys.shoulder_sampler.u => 0.0,
     )
+    # Zero, in the operating point, exactly the friction terms the controller's feedforward
+    # cancels (`SwingupCatch.friction_ff`, built with `kv = 0`) — designing against a
+    # disturbance that is already being removed would be designing for the wrong plant.
+    #
+    # `kv` is deliberately kept: it is friction *and* back-EMF together, the feedforward
+    # leaves it alone, so the stabilizer really does face it. `w_tanh` is kept too — it is a
+    # divisor. What this removes matters more than it sounds: the smoothed Coulomb term
+    # contributes `kc / w_tanh` of damping at zero velocity, several times everything else
+    # on the axis, so leaving it in dominates the linearization about the upright.
+    friction || for p in (ssys.qubependulum.friction.kc, ssys.qubependulum.friction.k2,
+                          ssys.qubependulum.friction.k3)
+        op[p] = 0.0
+    end
     # Outputs define the order of the `Q1` diagonal below.
     outputs = [
         ssys.qubependulum.shoulder_angle,

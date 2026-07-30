@@ -24,14 +24,16 @@
 #     u(ω) = a₁ sign(ω) + a₂ ω + a₃ sign(ω) ω² + a₄ ω³
 #
 # in *motor-command* space, because that is what is measured and it is well scaled.
-# `FrictionParams` is in torque space, so converting needs the motor constants and has to
-# fold out the back-EMF term:
+# `FrictionParams` is in torque space, so converting is just the command-to-torque gain:
 #
-#     τ_f(ω) = kt/Rm ⋅ (u − km ω)
+#     τ_f(ω) = kt/Rm ⋅ u(ω)
 #
-# a₂ therefore loses `km` before scaling. That leaves exactly the quantity `QubePendulum`'s
-# damper calls `br + kt km / Rm`, which is why the reported `kv` is directly comparable with
-# `IdParams.br`.
+# with **no** back-EMF subtracted. That is deliberate: back-EMF and speed-dependent
+# friction both appear as volts per rad/s, so this experiment cannot separate them, and
+# subtracting a `km` from elsewhere merely injects the disagreement between the two into
+# the answer. The coefficients are the axis' whole speed-dependent torque
+# (`FrictionAndBackEMF`), which also makes the result dissipative by construction: `u(ω)`
+# rises with speed, so `τ_f(ω)` does too.
 
 using Printf: @printf, @sprintf
 using RecipesBase: RecipesBase, plot, @recipe, @series
@@ -53,7 +55,7 @@ What the friction fit produced.
   - `resid_rms`: residual RMS of the regression, in volts, against `command_range` — the
     ratio is the honest measure of how well a static friction curve describes the data.
   - `nkeep` of `nsamples`: how much of the log survived the constant-velocity selection.
-  - `motor`: the `IdParams` whose `kt`, `Rm`, `km` did the conversion to torque.
+  - `motor`: the `IdParams` whose `kt` and `Rm` gave the command-to-torque gain.
 """
 struct FrictionFit
     params::FrictionParams
@@ -218,7 +220,7 @@ _signsquare(x) = sign(x) * x^2
 
 Fit the friction model to the samples `data.keep` selected, by least squares in
 motor-command space, and convert the result to the torque space `FrictionParams` uses with
-`motor`'s `kt`, `Rm` and `km` (see this file's header for the algebra).
+`motor`'s `kt` and `Rm` (see this file's header for the algebra).
 
 Returns `nothing`, with a warning, when too little of the log survived selection to fit
 four coefficients meaningfully — losing the trace to an exception would be worse.
@@ -251,7 +253,7 @@ function fit_friction(data; motor::IdParams = identified)
     resid = u .- _command_model(w, a)
     g = motor.kt / motor.Rm            # command [V] -> torque [N·m]
     params = FrictionParams(; kc = g * a[1],
-                              kv = g * (a[2] - motor.km),   # back-EMF folded out
+                              kv = g * a[2],        # friction and back-EMF together
                               k2 = g * a[3],
                               k3 = g * a[4],
                               w_tanh = friction_nominal.w_tanh)  # not identifiable here
@@ -291,8 +293,7 @@ function friction_report(fit::FrictionFit)
             fit.nkeep, fit.nsamples, fit.resid_rms, fit.command_range)
     @printf(io, "breakaway command   a1 = %+.4f V\n", fit.a[1])
     @printf(io, "Coulomb             kc = %+.4e N·m\n", fit.params.kc)
-    @printf(io, "viscous             kv = %+.4e N·m·s/rad   (IdParams.br = %.4e)\n",
-            fit.params.kv, fit.motor.br)
+    @printf(io, "first order         kv = %+.4e N·m·s/rad\n", fit.params.kv)
     @printf(io, "quadratic           k2 = %+.4e\n", fit.params.k2)
     @printf(io, "cubic               k3 = %+.4e\n", fit.params.k3)
     println(io, "=====================================================")
@@ -302,7 +303,7 @@ function friction_report(fit::FrictionFit)
         @printf(io, "    %-7s = %.8g,\n", f, getfield(fit.params, f))
     end
     println(io, ")")
-    println(io, "# then use it with e.g. Friction(params = friction_identified)")
+    println(io, "# then use it with e.g. FrictionAndBackEMF(params = friction_identified)")
     return String(take!(io))
 end
 
@@ -378,7 +379,7 @@ function DyadInterface.artifacts(sol::FurutaFrictionSolution, name::Symbol)
     elseif name === :FrictionParameters
         _require(sol.fit !== nothing, "No fit available")
         f = sol.fit
-        return (; quantity = ["Coulomb", "viscous", "quadratic", "cubic"],
+        return (; quantity = ["Coulomb", "first order", "quadratic", "cubic"],
                   command = f.a,
                   torque = [f.params.kc, f.params.kv, f.params.k2, f.params.k3],
                   unit = ["N·m", "N·m·s/rad", "N·m·s²/rad²", "N·m·s³/rad³"])
@@ -428,7 +429,13 @@ end
 #
 # `RecipesBase` rather than Plots: this stays a light dependency and the recipe resolves
 # against whichever backend the caller has loaded (Plotly, in Dyad Builder).
-@recipe function f(sol::FurutaFrictionSolution; friction_panels = :all)
+@recipe function f(sol::FurutaFrictionSolution)
+    # Read the attribute out of `plotattributes` rather than declaring it as a recipe
+    # keyword: `@recipe` compiles a keyword into a call to `RecipesBase.is_key_supported`,
+    # which is declared with *no methods* and only gains them from a plotting backend, so a
+    # declared keyword makes the recipe depend on which backend happens to be loaded.
+    # `pop!` also keeps the attribute from reaching the backend as an unknown one.
+    friction_panels = pop!(plotattributes, :friction_panels, :all)
     friction_panels in (:all, :experiment, :fit) ||
         throw(ArgumentError("friction_panels must be :all, :experiment or :fit, got \
                              $(repr(friction_panels))"))

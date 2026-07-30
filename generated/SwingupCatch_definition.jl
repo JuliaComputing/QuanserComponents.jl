@@ -14,7 +14,7 @@ import Moshi as __Ext__Moshi
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `friction_params`         | Friction coefficients used for the feedforward (see dyad/definitions.jl)                         | --  |   friction_identified |
-| `friction_comp`         | Fraction of the modelled friction to compensate; 0 disables the feedforward                         | --  |   1.0 |
+| `friction_comp`         | Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright hold on the simulated plant, settling into a limit cycle rather than diverging outright. Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is not monotone in either knob, so this needs a structural decision rather than a gain -- compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious candidate, since it is the *stabilizer* that the feedforward upsets                         | --  |   0.0 |
 | `volt_per_torque`         | Command needed per unit of motor torque, Rm/kt [V/(N*m)]                         | --  |   identified....entified.kt |
 
 ## Connectors
@@ -23,7 +23,7 @@ import Moshi as __Ext__Moshi
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SwingupCatch(; name = nothing, friction_params=friction_identified, friction_comp=Float64(1.0), volt_per_torque=identified.Rm / identified.kt, kwargs...)
+@component function SwingupCatch(; name = nothing, friction_params=friction_identified, friction_comp=Float64(0.0), volt_per_torque=identified.Rm / identified.kt, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -55,7 +55,13 @@ import Moshi as __Ext__Moshi
 
   ### Symbolic Parameters
   __local__friction_comp = friction_comp
-  append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate; 0 disables the feedforward"])
+  append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
+  append!(__params, @parameters (friction_comp::Real), [description = is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright
+  append!(__params, @parameters (friction_comp::Real), [description = hold on the simulated plant, settling into a limit cycle rather than diverging outright.
+  append!(__params, @parameters (friction_comp::Real), [description = Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is
+  append!(__params, @parameters (friction_comp::Real), [description = not monotone in either knob, so this needs a structural decision rather than a gain --
+  append!(__params, @parameters (friction_comp::Real), [description = compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious
+  append!(__params, @parameters (friction_comp::Real), [description = candidate, since it is the *stabilizer* that the feedforward upsets"])
   __initial_conditions[friction_comp] = __local__friction_comp
   __local__volt_per_torque = volt_per_torque
   append!(__params, @parameters (volt_per_torque::Real), [description = "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"])
@@ -100,9 +106,9 @@ import Moshi as __Ext__Moshi
   # Subcomponent switch1 of type BlockComponents.Logical.Switch
   switch1_overrides = __pop_subcomponent_overrides!(__overrides, "switch1")
   push!(__systems, @named switch1 = BlockComponents.Logical.Switch(; switch1_overrides...))
-  # Subcomponent friction_ff of type QuanserComponents.Friction
+  # Subcomponent friction_ff of type QuanserComponents.FrictionAndBackEMF
   friction_ff_overrides = __pop_subcomponent_overrides!(__overrides, "friction_ff")
-  push!(__systems, @named friction_ff = QuanserComponents.Friction(; params=friction_params, friction_ff_overrides...))
+  push!(__systems, @named friction_ff = QuanserComponents.FrictionAndBackEMF(; params=friction_params, friction_ff_overrides...))
   # Subcomponent friction_gain of type BlockComponents.Math.Gain
   friction_gain_overrides = __pop_subcomponent_overrides!(__overrides, "friction_gain")
   push!(__systems, @named friction_gain = BlockComponents.Math.Gain(; friction_gain_overrides...))
