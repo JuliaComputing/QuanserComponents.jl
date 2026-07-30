@@ -42,10 +42,10 @@ const nominal = IdParams()
 # Replace the values below with your latest fit (the `p_id` printed by
 # examples/pendulum_identification.jl for the corresponding `tunable_syms`).
 const identified = withparams(nominal;
-    Jp      = 2.5047706e-05,
-    bp      = 4.8190339e-06,
-    kt      = 0.055684206,
-    mr      = 0.026100653,
+    Jp      = 2.5444125e-05,
+    bp      = 1.4305747e-05,
+    kt      = 0.054468594,
+    mr      = 0.02399848,
 )
 
 # ===========================================================================
