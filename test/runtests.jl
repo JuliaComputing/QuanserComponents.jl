@@ -725,6 +725,43 @@ import DyadCompilerPasses
               joinpath("out", "mine.csv")
     end
 
+    # ---- the live plot must not open the previous run's log ------------------
+    # Measured, not assumed: a kst launched while the previous run's log is still in place
+    # binds to that content, and a truncate-and-refill underneath it never reaches the
+    # window -- it keeps *reading* the file the whole time, so read activity proves nothing.
+    # `launch_live_plot` therefore starts the viewer through a wrapper that waits for a log
+    # that is non-empty *and* newer than the wrapper. This checks that rule with a fake
+    # viewer, so it needs no plotting program.
+    @testset "live plot waits for this run's log" begin
+        dir = mktempdir()
+        started = joinpath(dir, "started")
+        viewer = joinpath(dir, "fake_viewer")
+        write(viewer, "#!/bin/sh\ndate +%s.%N > $started\nsleep 30\n")
+        chmod(viewer, 0o755)
+        cfg = joinpath(dir, "session.kst")
+        write(cfg, "<kst><datavector field=\"time\"/></kst>")
+        csv = joinpath(dir, "run.csv")
+        # The previous run's log, sitting where this run's will go.
+        write(csv, "time\tvalue\n1.0\t2.0\n")
+        sleep(0.05)
+
+        p = QuanserComponents.launch_live_plot(dir; cmd = viewer, config = cfg,
+                                               log = "run.csv", wait_for_log = 20.0)
+        @test p !== nothing
+        try
+            sleep(1.0)
+            @test !isfile(started)          # stale log: the viewer must still be waiting
+            # This run writes its log; the wrapper may now let the viewer go.
+            write(csv, "time\tvalue\n")
+            t_write = time()
+            ok = timedwait(() -> isfile(started), 10.0)
+            @test ok === :ok
+            @test parse(Float64, read(started, String)) >= t_write - 0.5
+        finally
+            kill(p)
+        end
+    end
+
     # ---- closed loop: Dyad plant discretized with SeeToDee.Rk4 --------------
     # The plant must use the same parameter set as the one the controller is tuned for,
     # i.e. the one `FurutaSwingup` instantiates. `QubePendulum()` would default to

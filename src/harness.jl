@@ -199,7 +199,7 @@ end
 ## Live plotting
 # ---------------------------------------------------------------------------
 """
-    launch_live_plot(dir; cmd="kst2", config="kst2config.kst", log=SWINGUP_LOG_FILE, wait_for_log=5.0) -> Process | Nothing
+    launch_live_plot(dir; cmd="kst2", config="kst2config.kst", log=SWINGUP_LOG_FILE, wait_for_log=30.0) -> Process | Nothing
 
 Start a live plotter on the log a run is writing, for watching it as it happens. Returns the
 running process, or `nothing` if it could not be started.
@@ -210,16 +210,32 @@ the program appends to. The viewer is launched with its working directory set to
 session file referring to the log by relative path works wherever `dir` is.
 
 Call this *after* starting the run but *before* waiting on it — the plotter has to come up
-alongside the run, not after it. It waits up to `wait_for_log` seconds for the log file to
-appear first, since a viewer pointed at a missing file typically gives up rather than
-retrying.
+alongside the run, not after it.
+
+**The viewer is not started immediately.** It goes up through a shell wrapper that waits for
+the log to be non-empty *and* newer than the moment the wrapper started, i.e. for this run's
+data rather than the previous run's file sitting in the same place. That indirection is the
+whole point, and it is not defensive programming — it was measured:
+
+  * A kst launched while the previous run's log is still there binds to that content, and
+    when the file is then truncated and refilled underneath it, the window keeps showing the
+    old run. It goes on *reading* the file the whole time (hundreds of KB, so read activity
+    proves nothing), it simply never shows the new content — a frozen plot that looks exactly
+    like a working one, of a run that did happen.
+  * The same session launched on an empty or header-only file tracks the refill perfectly.
+
+Waiting in the shell rather than here matters for the in-process target: that loop does not
+yield, so anything waiting on the Julia side would still be waiting when the run is over.
+After `wait_for_log` seconds the viewer starts regardless, so a run that never writes still
+gets a window rather than silence.
 
 This never throws: a missing viewer, a missing session file or a failed launch is reported as
 a warning and returns `nothing`, because losing the plot is not a reason to abandon a
-hardware run. The process outlives this call and is not reaped — `kill` it when done.
+hardware run. The process outlives this call and is not reaped — `kill` it when done (the
+wrapper `exec`s the viewer, so the returned process *is* the viewer).
 """
 function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
-                          log = SWINGUP_LOG_FILE, wait_for_log = 5.0)
+                          log = SWINGUP_LOG_FILE, wait_for_log = 30.0)
     dir = abspath(dir)
     cfg = isabspath(config) ? config : joinpath(dir, config)
     if Sys.which(cmd) === nothing
@@ -235,15 +251,21 @@ function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
     # Retire it rather than adding to the pile.
     _close_stale_plotters(cmd, cfg)
     csv = isabspath(log) ? log : joinpath(dir, log)
-    t0 = time()
-    while !isfile(csv) && time() - t0 < wait_for_log
-        sleep(0.05)
-    end
-    isfile(csv) ||
-        @warn "live plot: $(basename(csv)) has not appeared, starting $cmd anyway" wait_for_log
     _check_plot_fields(cfg, csv)
+    q = Base.shell_escape
+    script = """
+        stamp=\$(mktemp)
+        n=0
+        while [ \$n -lt $(round(Int, 10 * wait_for_log)) ]; do
+            if [ -s $(q(csv)) ] && [ $(q(csv)) -nt "\$stamp" ]; then break; fi
+            sleep 0.1
+            n=\$((n + 1))
+        done
+        rm -f "\$stamp"
+        exec $(q(cmd)) $(q(cfg))
+        """
     try
-        return run(Cmd(`$cmd $cfg`; dir); wait = false)
+        return run(Cmd(`sh -c $script`; dir); wait = false)
     catch e
         @warn "live plot: could not start `$cmd`" exception = e
         return nothing
@@ -288,22 +310,6 @@ function _check_plot_fields(config, csv)
         so the plot will come up empty. kst names ASCII fields from the header line, so the
         session must use those names.""" session_fields = sort(collect(fields)) log_header = header
     return
-end
-
-# Give a viewer something to open before the loop starts writing. `open_log!` truncates in
-# place, keeping the inode, so the viewer follows the real run afterwards — whereas a viewer
-# started on a missing file gives up, and one started on a file that is later *replaced*
-# follows the unlinked one forever.
-function _touch_log(log::ProgramLog)
-    try
-        mkpath(dirname(abspath(log.file)))
-        open(log.file, "w") do io
-            println(io, header(log))
-        end
-    catch e
-        @warn "could not pre-create the log for the live plot" file = log.file exception = e
-    end
-    return log.file
 end
 
 # ---------------------------------------------------------------------------
@@ -493,13 +499,10 @@ function run_on_target(gen, names::Tuple{Vararg{Symbol}}; run::Bool = false,
     run || return HardwareRun(false, :none, nothing, 0, 0, no_timing, nothing, String[],
                               "", nothing)
     ctrl = make_runtime(gen, names; backend, gains)
-    # The loop below does not yield, so the viewer has to be up before it starts. It needs a
-    # file to open, hence the header-only stand-in that `open_log!` then truncates in place.
-    plotter = nothing
-    if live_plot
-        _touch_log(gen.log)
-        plotter = start_plot(dirname(abspath(gen.log.file)); log = abspath(gen.log.file))
-    end
+    # The loop below does not yield, so the viewer is launched first; it waits for the log on
+    # its own (see `launch_live_plot`) rather than on this thread, which would never get back
+    # to it until the run was over.
+    plotter = start_plot(dirname(abspath(gen.log.file)); log = abspath(gen.log.file))
     r = run_program!(ctrl; Tf, arm_deg, card_options, mode)
     return HardwareRun(true, :inprocess, r.log_file, r.rows, r.ticks, r.timing, nothing,
                        String[], "", plotter)
