@@ -959,12 +959,7 @@ component SwingupCatch
   structural parameter friction_params::Native = friction_identified
   """
   Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
-  is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright
-  hold on the simulated plant, settling into a limit cycle rather than diverging outright.
-  Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is
-  not monotone in either knob, so this needs a structural decision rather than a gain --
-  compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious
-  candidate, since it is the *stabilizer* that the feedforward upsets
+  is wired up but inactive.
   """
   parameter friction_comp::Real = 0.0
   "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"
