@@ -119,8 +119,10 @@ Compile one of the rig's programs to a SynchJulia node.
   - `param_overrides` is an analysis' `spec.overrides`; `overrides...` are Dyad
     `__`-separated model paths, e.g. `control_system__runtime__swingup_catch__gain__k`.
 
-Returns `(; topmod, tuning_defaults, log, Ts)`. The node's argument order is
-`(tick::Bool, gains::TuningGains, auto::AutoPars)`.
+Returns `(; compiled, tuning_struct, auto_struct, tuning_defaults, log, Ts)`, where
+`compiled` is SynchToolkit's `CompiledNode` and the two `ParametersStruct`s are kept because
+they double as the constructors for the structs they were compiled into. The node's argument
+order is `(tick::Bool, gains::TuningGains, auto::AutoPars)`.
 """
 function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
                          outputs, log::ProgramLog, param_overrides = nothing,
@@ -139,19 +141,17 @@ function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
     tuning_syms = OrderedDict{Any, Symbol}(
         ModelingToolkit.unwrap(f(nsys)) => field for (f, field) in tunables)
     tuning_defaults = resolve_tunables(sys, tuning_syms)
-    inputs = [
-        InputClock(ModelingToolkit.Clock(Ts)),
-        ParametersStruct(; arg_name = :gains, struct_name = :TuningGains,
-                           parameters = tuning_syms, generated = false),
-        ParametersStruct(; arg_name = :auto, struct_name = :AutoPars),
-    ]
+    tuning_struct = ParametersStruct(; arg_name = :gains, struct_name = :TuningGains,
+                                      parameters = tuning_syms, generated = false)
+    auto_struct = ParametersStruct(; arg_name = :auto, struct_name = :AutoPars)
+    inputs = [InputClock(ModelingToolkit.Clock(Ts)), tuning_struct, auto_struct]
     # Neither `name` nor `clock` may be passed to `ClockedOutput`: `name` desynchronises the
     # declared and assigned Lustre names, and `clock` hits a missing branch in
     # SynchToolkit's `build_output`. So the outputs are indexed positionally.
     outs = [ClockedOutput(o) for o in outputs(nsys)]
     @info "Running stkcompile"
-    topmod = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
-    return (; topmod, tuning_defaults, log, Ts = Float64(Ts))
+    compiled = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
+    return (; compiled, tuning_struct, auto_struct, tuning_defaults, log, Ts = Float64(Ts))
 end
 
 # ---------------------------------------------------------------------------
@@ -197,18 +197,17 @@ end
 
 log_file(c::ProgramRuntime) = c.log.file
 
-# Consume the compiled runtime module: construct the `TuningGains`/`AutoPars` parameter
-# objects (with `gains` overriding the model's resolved values field by field), optionally
-# build a `SynchExecutable` on `backend`, and optionally export the C sources into
-# `export_dir`. These objects are what the runtime hands to the node's `step` (as opaque
-# pointers in the C backend); their in-memory field bytes are exactly what the exported C
-# reads at its baked-in `fieldoffset`s.
+# Construct the `TuningGains`/`AutoPars` parameter objects (with `gains` overriding the
+# model's resolved values field by field), optionally build a `SynchExecutable` on `backend`,
+# and optionally export the C sources into `export_dir`. These objects are what the runtime
+# hands to the node's `step` (as opaque pointers in the C backend); their in-memory field
+# bytes are exactly what the exported C reads at its baked-in `fieldoffset`s.
 #
-# `stkcompile` evaluates the runtime module in a newer world than this frame, so per
-# SynchToolkit's consumption contract the boundary is crossed exactly once, here: the single
-# `@invokelatest` around `consume` raises the world for all module member reads and
-# constructor calls, and everything returned (values, types, the executable) is world-safe
-# to use from any frame afterwards.
+# `stkcompile` evaluates a runtime module in a newer world than this frame, but nothing here
+# has to know that: a `ParametersStruct` is callable with the `CompiledNode` and
+# `SynchExecutable`/`node` take one, and each does its own `invoke_in_world` inside
+# (SynchToolkit#159). Hence no `@invokelatest` and no single-crossing contract to honour --
+# that used to be this function's whole shape.
 function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing,
                      export_dir = nothing)
     vals = OrderedDict{Symbol, Any}(gen.tuning_defaults)
@@ -219,15 +218,13 @@ function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing
                                  ($(join(keys(vals), ", ")))"))
         vals[field] = vals[field] isa AbstractVector ? collect(float.(v)) : float(v)
     end
-    function consume(m)
-        g = m.TuningGains(; vals...)
-        # Pass the static struct: AutoPars defaults may be expressions of its fields.
-        auto = m.AutoPars(g)
-        exe = backend === nothing ? nothing : m.executable(backend)
-        export_dir === nothing || SynchCompiler.export_c(export_dir, m.top)
-        return (; gains = g, auto, exe, SG = m.TuningGains, AP = m.AutoPars)
-    end
-    return Base.@invokelatest consume(gen.topmod)
+    cn = gen.compiled
+    g = gen.tuning_struct(cn; vals...)
+    # Pass the static struct: AutoPars defaults may be expressions of its fields.
+    auto = gen.auto_struct(cn, g)
+    exe = backend === nothing ? nothing : SynchJulia.SynchExecutable(cn; backend)
+    export_dir === nothing || SynchCompiler.export_c(export_dir, SynchToolkit.node(cn))
+    return (; gains = g, auto, exe, SG = typeof(g), AP = typeof(auto))
 end
 
 # Build a ready-to-tick runtime from an already-compiled program (avoids recompiling).

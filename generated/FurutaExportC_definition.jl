@@ -22,7 +22,9 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # its home position first
   var"arm_deg"::Float64 = 0.0
   # Card-specific options applied after opening the board, e.g.
-  # \"deadband_compensation=0.0\". Empty leaves the driver on its own defaults
+  # \"deadband_compensation=0.65\". Empty leaves qube_hw.c on its own default, which is
+  # what every run should normally use: the command-to-torque path has to be the same one
+  # the identified parameters were fitted against
   var"card_options"::String = ""
   # Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
   # `export_c` is true, which always builds C
@@ -36,8 +38,8 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # Exported and deployed runs use the bare file name inside their own directory, since an
   # absolute path from this machine means nothing on the target
   var"log_file"::String = ""
-  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Needs
-  # `export_c`, since it is C sources that get copied over
+  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  # `export_c`, since C sources are what gets copied over
   var"deploy_host"::String = "fredrikb@192.168.1.49"
   # Directory on `deploy_host` to copy the sources into
   var"deploy_dir"::String = "furuta_c"
@@ -75,7 +77,7 @@ end
 function DyadInterface.run_analysis(spec::FurutaExportCSpec)
   overrides = Dict{SymbolicT, SymbolicT}()
   no_namespace_model = toggle_namespacing(spec.model, false)
-  push!(overrides, no_namespace_model.umax => spec.var"umax")
+  
   base_spec = QubeHardwareRunBaseSpec(;
     name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, Q1=spec.Q1, Q2=spec.Q2, model=spec.model
   )

@@ -120,7 +120,7 @@ Compile the swing-up controller to a SynchJulia node: build `FurutaHardware` -- 
 `SwingupWithHoming` state machine wired between `HardwareMeasurement` and `HardwareCommand`,
 with a `DataLogger`, on a `PeriodicClock` at sample time `Ts` -- and `stkcompile` it.
 
-Returns what [`compile_program`](@ref) returns: `(; topmod, tuning_defaults, log, Ts)`. The
+Returns what [`compile_program`](@ref) returns: `(; compiled, tuning_defaults, log, Ts, ...)`. The
 node argument order is `(tick::Bool, gains::TuningGains, auto::AutoPars)` and the outputs are
 `(row, shoulder_angle, elbow_angle, u_applied)`: the node reads the encoders and writes the
 motor itself, so the angles are results rather than inputs. The LQR gains `L` and the motor
@@ -178,12 +178,12 @@ end
 Compile the swing-up controller and export it as standalone C into `dir` — see
 [`export_program_c`](@ref), which does the work and documents what lands there.
 
-Returns `(; dir, topmod, mangled, files, gains, auto)`.
+Returns `(; dir, compiled, mangled, files, gains, auto)`.
 """
 function export_swingup_c(dir; Ts = 0.005, log_file = SWINGUP_LOG_FILE, L = nothing,
                           umax = nothing, Tf = 10.0, arm_deg = 0.0, card_options = nothing,
                           kwargs...)
     gen = generate_swingup_controller(; Ts, log_file, L, umax, kwargs...)
     r = export_program_c(gen, dir; Tf, arm_deg, card_options, gains = gen.gains)
-    return (; r..., gen.topmod)
+    return (; r..., gen.compiled)
 end

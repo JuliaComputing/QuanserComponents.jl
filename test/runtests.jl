@@ -284,7 +284,11 @@ import DyadCompilerPasses
         @test_throws ArgumentError QC.QubeHardwareRunBaseSpec(; nonsense = 1)  # unknown
         # Each analysis' shared-parameter defaults are its Dyad partial's, not the root's.
         @test QC.FurutaExportCBaseSpec().export_c && !QC.FurutaFrictionBaseSpec().export_c
-        @test QC.FurutaFrictionBaseSpec().card_options == "deadband_compensation=0.0"
+        # Neither analysis pins the card options: the friction sweep has to run on the same
+        # command-to-torque path the controller does, or the friction it identifies is not the
+        # friction the controller faces (see csrc/qube_hw.h).
+        @test QC.FurutaFrictionBaseSpec().card_options == ""
+        @test QC.FurutaExportCBaseSpec().card_options == ""
         @test QC.FurutaExportCBaseSpec().Tf == 10.0
         # ... and the shared field block really is shared, not copied per analysis.
         shared = (:Ts, :run, :Tf, :umax, :arm_deg, :card_options, :backend, :export_c,
@@ -318,16 +322,22 @@ import DyadCompilerPasses
         @test occursin("$(sol.hwrun.mangled)_step", join(tbl.symbol))
         @test_throws ArgumentError DI.artifacts(sol, :RunLog)      # nothing ran
         @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
-        # `umax` parameterizes the model (`model = FurutaHardware(final umax = umax)`) rather
-        # than being read off the spec, and comes back as the runtime-settable tunable.
-        sol5 = QuanserComponents.FurutaExportC(; output_dir = mktempdir(), Ts, run = false,
-                                                umax = 5.0)
-        gen5 = QuanserComponents.generate_swingup_controller(; Ts,
-                                    param_overrides = sol5.spec.overrides)
-        @test gen5.tuning_defaults[:umax] == 5.0
+        # `umax` parameterizes the model rather than being read off the spec: an override on the
+        # model's own parameter is what becomes the runtime-settable tunable. Stated through
+        # the override map directly, which is what the compiler builds from a
+        # `model = FurutaHardware(final umax = umax)` line — the line itself lives in a .dyad
+        # file the Dyad GUI rewrites, and it has come back with the binding dropped twice.
+        let m = QuanserComponents.FurutaHardware(; name = :m),
+            nm = ModelingToolkit.toggle_namespacing(m, false),
+            SymT = ModelingToolkit.SymbolicT
+            ov = Dict{SymT, SymT}(ModelingToolkit.unwrap(nm.umax) =>
+                                  ModelingToolkit.unwrap(Num(5.0)))
+            gen5 = QuanserComponents.generate_swingup_controller(; Ts, param_overrides = ov)
+            @test gen5.tuning_defaults[:umax] == 5.0
+        end
         # With `export_c = false` the analysis would run in-process and export nothing.
         sol_ip = QuanserComponents.FurutaExportC(; output_dir = mktempdir(), Ts, run = false,
-                                                  export_c = false)
+                                                  export_c = false, deploy_host = "")
         @test sol_ip.hwrun.output_dir === nothing
         @test isempty(DI.AnalysisSolutionMetadata(sol_ip).artifacts)
         @test_throws ArgumentError QuanserComponents.FurutaExportC(; Ts, run = false,

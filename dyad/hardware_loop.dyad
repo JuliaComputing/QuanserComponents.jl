@@ -183,17 +183,17 @@ component FurutaHardware
   """
   parameter umax::Dyad.Voltage = 10.0
 relations
-  connect(measurement.shoulder_angle, control_system.shoulder_angle, periodicclock.y, logger.u[2])
-  connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3])
+  connect(measurement.shoulder_angle, control_system.shoulder_angle, logger.u[2], periodicclock.y) {^id7}
+  connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3]) {^id8}
   connect(control_system.u, command.u)
   # The applied voltage is the diagnostics' dependency token as well as a logged column:
   # `exec` is latched by the write, so the reads have to be scheduled after it.
-  connect(command.u_applied, diagnostics.dep, logger.u[4])
-  connect(diagnostics.elapsed, logger.u[1])
-  connect(diagnostics.dt, logger.u[5])
-  connect(diagnostics.exec, logger.u[6])
-  connect(diagnostics.count_shoulder, logger.u[7])
-  connect(diagnostics.count_elbow, logger.u[8])
+  connect(command.u_applied, diagnostics.dep, logger.u[4]) {^id9}
+  connect(diagnostics.elapsed, logger.u[1]) {^id10}
+  connect(diagnostics.dt, logger.u[5]) {^id11}
+  connect(diagnostics.exec, logger.u[6]) {^id12}
+  connect(diagnostics.count_shoulder, logger.u[7]) {^id13}
+  connect(diagnostics.count_elbow, logger.u[8]) {^id14}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaHardware.svg"}},
   "_links": {
@@ -210,11 +210,66 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 440, "x2": 540, "y1": 140, "y2": 240}}}
     },
     "logger": {
-      "Dyad": {"placement": {"diagram": {"x1": 600, "x2": 700, "y1": 140, "y2": 240}}}
+      "Dyad": {"placement": {"diagram": {"x1": 790, "x2": 890, "y1": 140, "y2": 240}}}
     },
-    "periodicclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 160, "x2": 260, "y1": 10, "y2": 110}}}
-    }
+    "periodicclock": {"Dyad": {"placement": {"diagram": {"x1": 120, "x2": 20, "y1": 10, "y2": 110}}}},
+    "id7": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {"S": 2, "M": [{"x": 140, "y": 158}], "E": -1},
+          {"S": -1, "M": [{"x": 745, "y": 60}, {"x": 745, "y": 190}], "E": 3},
+          {"S": 4, "M": [], "E": -1}
+        ],
+        "junctions": [{"x": 140, "y": 60}],
+        "path": {}
+      }
+    },
+    "id8": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {
+            "S": 2,
+            "M": [
+              {"x": 140, "y": 213},
+              {"x": 140, "y": 320},
+              {"x": 745, "y": 320},
+              {"x": 745, "y": 190}
+            ],
+            "E": 3
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id9": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {
+            "S": 2,
+            "M": [
+              {"x": 420, "y": 190},
+              {"x": 420, "y": 290},
+              {"x": 750, "y": 290},
+              {"x": 750, "y": 190}
+            ],
+            "E": 3
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id10": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 155}], "E": 2}], "path": {}}},
+    "id11": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 172.5}], "E": 2}], "path": {}}
+    },
+    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id13": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 207.5}], "E": 2}], "path": {}}
+    },
+    "id14": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 225}], "E": 2}], "path": {}}}
   }
 }
 end

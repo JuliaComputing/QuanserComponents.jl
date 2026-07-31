@@ -127,7 +127,7 @@ automatically by the runners in src/program.jl.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(measurement.shoulder_angle, control_system.shoulder_angle, periodicclock.y, logger.u[2]))
+  push!(__eqs, connect(measurement.shoulder_angle, control_system.shoulder_angle, logger.u[2], periodicclock.y))
   push!(__eqs, connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3]))
   push!(__eqs, connect(control_system.u, command.u))
   push!(__eqs, connect(command.u_applied, diagnostics.dep, logger.u[4]))
