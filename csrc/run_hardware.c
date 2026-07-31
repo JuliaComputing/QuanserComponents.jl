@@ -23,6 +23,7 @@
 
 #include "qube_hw.h"
 #include "qube_log.h"
+#include "qube_traj.h"
 #include "top.h"
 #include "run_hardware_config.h"
 
@@ -58,6 +59,20 @@ int main(void) {
         qube_hw_close();
         return 1;
     }
+
+    /* An input sequence to replay, for the programs that have one. Same arrangement as the
+     * log: the name cannot cross the node's interface, so it arrives as a build-time constant
+     * in this header and the loop hands it to qube_traj.c. */
+#ifdef QUBE_TRAJ_FILE
+    if (qube_traj_open(QUBE_TRAJ_FILE, QUBE_TRAJ_COLUMN) != 0) {
+        fprintf(stderr, "run_hardware: could not read the trajectory %s\n", QUBE_TRAJ_FILE);
+        qube_log_close();
+        qube_hw_close();
+        return 1;
+    }
+    fprintf(stderr, "run_hardware: replaying %ld samples from %s\n",
+            qube_traj_length(), QUBE_TRAJ_FILE);
+#endif
 
     QUBE_MEM state;
     memset(&state, 0, sizeof(state));
@@ -108,5 +123,10 @@ int main(void) {
     /* Zeroes the motor and releases the board. */
     qube_hw_close();
     qube_log_close();
+#ifdef QUBE_TRAJ_FILE
+    if (qube_traj_error())
+        fprintf(stderr, "run_hardware: the run outlived the trajectory (0 V was commanded)\n");
+    qube_traj_close();
+#endif
     return 0;
 }

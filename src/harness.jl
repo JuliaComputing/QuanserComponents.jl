@@ -35,7 +35,13 @@ end
 # Files an export writes that the target needs in order to build and run.
 const HARNESS_FILES = ("run_hardware.c", "run_hardware_config.h", "Makefile",
                        "top.c", "top.h", "synchjulia.h", "qube_hw.c", "qube_hw.h",
-                       "qube_log.c", "qube_log.h")
+                       "qube_log.c", "qube_log.h", "qube_traj.c", "qube_traj.h")
+
+# What a deploy has to copy beyond `HARNESS_FILES`: a program that replays a trajectory needs
+# the samples on the target too. `export_program_c` puts the file in `dir`, so this is just its
+# name.
+extra_harness_files(dir) = filter(f -> isfile(joinpath(dir, f)),
+                                  [basename(IDENTIFICATION_TRAJ_FILE)])
 
 """
     export_program_c(gen, dir; Tf, arm_deg=0.0, card_options=nothing, gains=(;))
@@ -61,10 +67,20 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
     mkpath(dir)
     r = instantiate(gen; gains, export_dir = dir)
     mangled = SynchCompiler.mangle("top", Bool, r.SG, r.AP)
-    for f in ("qube_hw.c", "qube_hw.h", "qube_log.c", "qube_log.h")
+    for f in ("qube_hw.c", "qube_hw.h", "qube_log.c", "qube_log.h",
+              "qube_traj.c", "qube_traj.h")
         cp(joinpath(dirname(QUBE_HW_SRC), f), joinpath(dir, f); force = true)
     end
-    emit_hardware_harness(dir; gen.Ts, Tf, arm_deg, card_options, mangled, gen.log,
+    # A replayed trajectory travels with the sources: the program opens it by name in its own
+    # working directory, wherever that ends up being.
+    traj = gen.traj
+    if traj !== nothing
+        isfile(traj.file) ||
+            error("export_program_c: the trajectory $(traj.file) does not exist")
+        cp(traj.file, joinpath(dir, basename(traj.file)); force = true)
+        traj = ProgramTrajectory(basename(traj.file), traj.column)
+    end
+    emit_hardware_harness(dir; gen.Ts, Tf, arm_deg, card_options, mangled, gen.log, traj,
                           r.gains, r.auto)
     # `export_c` copies `synchjulia.h` out of the package depot, which is read-only, and
     # preserves its mode. Everything here is a build output, so leave nothing unwritable:
@@ -102,6 +118,7 @@ Note what is *not* here any more: the loop does not read the node's output struc
 it needs no knowledge of the program's outputs and serves any program built for this rig.
 """
 function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLog,
+                               traj::Union{Nothing, ProgramTrajectory} = nothing,
                                arm_deg = 0.0, card_options = nothing)
     words(obj) = join(("0x" * string(w; base = 16, pad = 16) * "ULL" for w in _param_words(obj)), ", ")
     config = """
@@ -135,6 +152,13 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLo
     #define QUBE_LOG_HEADER "$(replace(header(log), "\t" => "\\t"))"
     #define QUBE_LOG_NCOLS  $(ncols(log))
 
+    $(traj === nothing ? "/* this program replays no trajectory */" :
+      """/* The input sequence the program replays, read by qube_traj.c. Same file name and
+     * column the model's TrajectorySource was built with, and the file itself is copied in
+     * next to these sources. */
+    #define QUBE_TRAJ_FILE   \"$(traj.file)\"
+    #define QUBE_TRAJ_COLUMN $(traj.column)""")
+
     /* Parameter blocks that the generated `_step` reads as opaque pointers: the raw bytes
      * of the Julia TuningGains (the runtime-settable parameters) and AutoPars (all other
      * model constants), serialized so the byte offsets match top.c exactly. */
@@ -155,7 +179,8 @@ end
 """
     compile_hardware_harness(dir; quanser_dir="/opt/quanser/hil_sdk") -> exe_path
 
-Compile the emitted `run_hardware.c` + `top.c` + `qube_hw.c` + `qube_log.c` in `dir` into a
+Compile the emitted `run_hardware.c` + `top.c` + the C the node calls into (`qube_hw.c`,
+`qube_log.c`, `qube_traj.c`) in `dir` into a
 `run_hardware` executable, linking the Quanser HIL SDK. Uses the system C compiler (`cc`,
 falling back to `gcc`). Linking uses the static SDK libraries, so this does not require the
 hardware to be connected — it doubles as a build check for the generated sources, including
@@ -173,7 +198,8 @@ function compile_hardware_harness(dir; quanser_dir = QUANSER_HIL_DIR)
     exe = abspath(joinpath(dir, "run_hardware"))
     args = [cc, "-I$dir", sdk.cflags..., "-O2", "-Wall", "-DQUBE_HW_HAVE_HIL",
             joinpath(dir, "run_hardware.c"), joinpath(dir, "top.c"),
-            joinpath(dir, "qube_hw.c"), joinpath(dir, "qube_log.c"), "-o", exe,
+            joinpath(dir, "qube_hw.c"), joinpath(dir, "qube_log.c"),
+            joinpath(dir, "qube_traj.c"), "-o", exe,
             sdk.ldflags..., QUANSER_LIBS...]
     run(Cmd(args))
     return exe
@@ -341,10 +367,11 @@ function deploy_hardware_harness(dir; host, remote_dir = "furuta_c",
     # Clear the destinations too. An earlier deploy may have left `synchjulia.h` mode 444 (it
     # originates in the read-only package depot), and `scp` cannot reopen such a file for
     # writing — it fails mid-transfer with "Permission denied".
-    remote_files = join(("$remote_dir/$f" for f in HARNESS_FILES), " ")
+    files = [HARNESS_FILES..., extra_harness_files(dir)...]
+    remote_files = join(("$remote_dir/$f" for f in files), " ")
     run(`$ssh $host "mkdir -p $remote_dir && rm -f $remote_files"`)
     @info "Copying files (scp)"
-    run(`$scp $([joinpath(dir, f) for f in HARNESS_FILES]) $host:$remote_dir/`)
+    run(`$scp $([joinpath(dir, f) for f in files]) $host:$remote_dir/`)
     @info "make on remote host"
     run(`$ssh $host "cd $remote_dir && make"`)
     return remote_dir

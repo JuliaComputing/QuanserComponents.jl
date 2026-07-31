@@ -1,0 +1,30 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- File, folded corner: the recorded sequence. The mirror of DataLogger, which sends
+     signals the other way. -->
+<path d="M140 150 L420 150 L520 250 L520 850 L140 850 Z" stroke="#131316" stroke-width="16" fill="none" stroke-linejoin="round"/>
+<path d="M420 150 L420 250 L520 250" stroke="#131316" stroke-width="16" fill="none" stroke-linejoin="round"/>
+<!-- Rows of samples in the file -->
+<line x1="210" y1="380" x2="450" y2="380" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<line x1="210" y1="480" x2="450" y2="480" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<line x1="210" y1="580" x2="450" y2="580" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<line x1="210" y1="680" x2="360" y2="680" stroke="#A1A1AA" stroke-width="14" stroke-linecap="round"/>
+<!-- Leaving as a sampled signal: stems on a baseline, one per tick -->
+<line x1="580" y1="640" x2="900" y2="640" stroke="#A1A1AA" stroke-width="10" stroke-linecap="round"/>
+<line x1="620" y1="640" x2="620" y2="520" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<line x1="690" y1="640" x2="690" y2="380" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<line x1="760" y1="640" x2="760" y2="450" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<line x1="830" y1="640" x2="830" y2="300" stroke="#131316" stroke-width="14" stroke-linecap="round"/>
+<circle cx="620" cy="520" r="20" fill="#131316"/>
+<circle cx="690" cy="380" r="20" fill="#131316"/>
+<circle cx="760" cy="450" r="20" fill="#131316"/>
+<circle cx="830" cy="300" r="20" fill="#131316"/>
+<!-- ...one sample per tick, moving right -->
+<path d="M880 760 L940 760 M940 760 L900 735 M940 760 L900 785" stroke="#131316" stroke-width="14" fill="none" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

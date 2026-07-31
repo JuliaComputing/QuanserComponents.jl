@@ -137,6 +137,25 @@ const FRICTION_LOG_HEADER = join(FRICTION_LOG_COLUMNS, "\t")
 const FRICTION_LOG_NCOLS = length(FRICTION_LOG_COLUMNS)
 
 # ---------------------------------------------------------------------------
+## Identification-experiment layout
+# ---------------------------------------------------------------------------
+# The open-loop replay `FurutaIdentification` performs to collect identification data. The first
+# four columns are exactly the layout examples/pendulum_identification.jl and
+# examples/analyze_discrimination.jl read
+# (positionally, so nothing after column 4 disturbs them), which is what makes a run
+# drop-in for those scripts. `u_des` is the designed sample before the safety supervisor saw
+# it, and `tripped` the supervisor's latch, so the log says for itself where the supervisor
+# intervened rather than leaving it to be inferred; then the loop diagnostics.
+const IDENTIFICATION_LOG_COLUMNS = ["time", "shoulder_angle", "elbow_angle", "control_input",
+                                    "u_des", "tripped", "dt", "exec"]
+const IDENTIFICATION_LOG_HEADER = join(IDENTIFICATION_LOG_COLUMNS, "\t")
+const IDENTIFICATION_LOG_NCOLS = length(IDENTIFICATION_LOG_COLUMNS)
+const IDENTIFICATION_LOG_FILE = "identification_experiment.csv"
+# What examples/input_design.jl writes: `time` then the designed voltage `u`.
+const IDENTIFICATION_TRAJ_FILE = "input_design.csv"
+const IDENTIFICATION_TRAJ_COLUMN = 2
+
+# ---------------------------------------------------------------------------
 ## Swing-up run log layout
 # ---------------------------------------------------------------------------
 # Same arrangement for `FurutaHardware`: the `DataLogger` inside the program writes these

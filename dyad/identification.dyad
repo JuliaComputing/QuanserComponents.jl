@@ -1,0 +1,291 @@
+"""
+Replays a recorded input sequence, one sample per tick, from inside the synchronous
+program.
+
+The sample comes from `traj_value`, a call out to C (`csrc/qube_traj.c`, via
+`src/traj_source.jl`), so the same component replays the file on the Julia backend, the
+`:c` backend and exported standalone C alike — the mirror of what `DataLogger` does for
+the rows leaving the program. `filename` and `column` are **structural** parameters,
+i.e. build-time Julia values that never enter the equations: a file name cannot cross a
+synchronous node's interface, so the driver opens the file (`open_traj!`) with the
+values the model was built with.
+
+`k` is the program's own tick counter, and it is what indexes the trajectory. Counting
+ticks rather than measuring time is deliberate: the sequence was designed for a fixed
+sample rate, so sample *k* belongs to tick *k* whatever the loop's jitter did, and a
+missed deadline shifts the whole replay rather than skipping a sample.
+
+Past the end of the file `u` is 0, so a run longer than the trajectory coasts instead
+of holding the last value. With no trajectory open the component is inert and outputs
+0, which is what lets a model containing one be built and stepped without any file.
+
+Clock-agnostic.
+"""
+component TrajectorySource@[input clk extends Discrete]
+  "Sample for this tick, 0 past the end of the trajectory"
+  u = Dyad.RealOutput@[clk]() {^u}
+  "Tick counter, 1 on the first tick; the index into the trajectory"
+  k = Dyad.RealOutput@[clk]() {^k}
+  "File the samples are read from, opened by the driver with this name"
+  structural parameter filename::String = ""
+  "Column of the file to read, 1-based"
+  structural parameter column::Integer = 2
+relations
+  initial k@(clk-1) = 0
+  k@clk = k@(clk-1) + 1
+  u@clk = traj_value(k)
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/TrajectorySource.svg"}},
+  "_links": {
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 300, "y2": 400}}}
+    },
+    "k": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 600, "y2": 700}}}
+    }
+  }
+}
+end
+
+"""
+Lets a commanded voltage through while the arm stays where it should, and takes over
+when it does not.
+
+An open-loop replay has nothing holding the arm: the designed sequence keeps it inside
+its range under the models it was designed for, and this exists for the case where the
+device disagrees with all of them. Three layers, in order:
+
+  * beyond `warn`, the command is replaced by `-pullback * arm`, steering the arm back
+    towards centre instead of continuing the replay;
+  * beyond `abort`, the supervisor **latches** and the command is 0 for the rest of the
+    run. Latched rather than momentary because an arm that has reached the abort angle
+    has already shown that the replay is not safe on this device;
+  * everything is clamped to `±umax`, including the pull-back.
+
+The latch is why this is a component and not an expression: it needs the previous tick's
+state. Note what it replaces — the driver used to `break` out of its loop on the abort
+condition, which left the last commanded voltage on the motor until the loop's cleanup
+ran. Here the program itself writes 0 and keeps ticking, so the log records the whole
+run including what the arm did afterwards.
+
+`tripped` is 1 once the latch has fired, 0 before, so it can be logged.
+
+Clock-agnostic.
+"""
+component SafetySupervisor@[input clk extends Discrete]
+  "Commanded voltage, e.g. from a trajectory replay"
+  u_des = Dyad.RealInput@[clk]() {^u_des}
+  "Measured arm angle [rad], 0 centred"
+  arm = Dyad.RealInput@[clk]() {^arm}
+  "Voltage to write"
+  u = Dyad.RealOutput@[clk]() {^u}
+  "1 once the abort latch has fired, 0 before"
+  tripped = Dyad.RealOutput@[clk]() {^tripped}
+  "Hard clamp on anything written [V]"
+  parameter umax::Dyad.Voltage = 3.0
+  "Arm angle beyond which the command is replaced by a pull-back [rad]"
+  parameter warn::Dyad.Angle = 1.6580627893946132
+  "Arm angle beyond which the supervisor latches and commands 0 [rad]"
+  parameter abort::Dyad.Angle = 2.0943951023931953
+  "Pull-back gain past `warn` [V/rad]"
+  parameter pullback::Real = 2.0
+relations
+  initial tripped@(clk-1) = 0
+  tripped@clk = ifelse(abs(arm) > abort, 1.0, tripped@(clk-1))
+  u@clk = ifelse(tripped > 0.5, 0.0, clamp(ifelse(abs(arm) > warn, -pullback * arm, u_des), -umax, umax))
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/SafetySupervisor.svg"}},
+  "_links": {
+    "u_des": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 300, "y2": 400}}}
+    },
+    "arm": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 600, "y2": 700}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 300, "y2": 400}}}
+    },
+    "tripped": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 600, "y2": 700}}}
+    }
+  }
+}
+end
+
+"""
+Open-loop replay of a designed input sequence on the physical QUBE, as a single
+synchronous program.
+
+The point is plain system identification: drive the device with a known input and record
+what it did, so the model's parameters can be fitted to the pair —
+examples/pendulum_identification.jl does the fitting. The input is a designed sequence
+rather than a step or a chirp because examples/input_design.jl optimizes it for how much
+it says about the parameters, subject to keeping the arm inside its range; nothing here
+depends on how the file was produced, though, and any recorded sequence replays the same
+way. Everything is inside the program — `TrajectorySource` reads the sample, `SafetySupervisor` decides what
+is safe to write, `HardwareMeasurement` reads the encoders, `HardwareCommand` writes the
+motor, `DataLogger` writes the row — so the driver supplies nothing but a clock tick, and
+the same program runs in-process or as exported C on the machine the QUBE is attached to.
+
+The log's first four columns are `time, shoulder_angle, elbow_angle, control_input`, which
+is what examples/pendulum_identification.jl reads positionally (and
+examples/analyze_discrimination.jl, which asks whether a run separates two candidate
+parameter sets); `u_des`, the supervisor's latch and the loop diagnostics follow, so the log
+says for itself where the supervisor intervened.
+
+There is no feedback here beyond the supervisor: the arm has no restoring force, and a
+replay that goes wrong goes wrong quickly. Keep `umax` low (3 V by default, against the
+amplifier's 10) and stay near the machine.
+"""
+component FurutaIdentification
+  measurement = HardwareMeasurement() {^measurement}
+  trajectory = TrajectorySource(filename = traj_file, column = traj_column) {^trajectory}
+  supervisor = SafetySupervisor(final umax = umax, final warn = warn, final abort = abort, final pullback = pullback) {^supervisor}
+  command = HardwareCommand(final umax = umax) {^command}
+  diagnostics = HardwareDiagnostics() {^diagnostics}
+  logger = DataLogger(n = IDENTIFICATION_LOG_NCOLS, filename = log_file, header = IDENTIFICATION_LOG_HEADER) {^logger}
+  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+  "Sample time [s]; must match the rate the trajectory was designed for"
+  structural parameter Ts::Real = 0.005
+  "File the designed input sequence is read from; the driver opens it with this name"
+  structural parameter traj_file::String = IDENTIFICATION_TRAJ_FILE
+  "Column of `traj_file` holding the voltage, 1-based"
+  structural parameter traj_column::Integer = 2
+  "File the log is written to; the driver opens it with this name"
+  structural parameter log_file::String = IDENTIFICATION_LOG_FILE
+  """
+  Hard clamp on anything written [V]. Deliberately well below the amplifier's range: this
+  is an open-loop replay, so nothing here corrects an unexpected response
+  """
+  parameter umax::Dyad.Voltage = 3.0
+  "Arm angle beyond which the command is replaced by a pull-back [rad]"
+  parameter warn::Dyad.Angle = 1.6580627893946132
+  "Arm angle beyond which the supervisor latches and commands 0 [rad]"
+  parameter abort::Dyad.Angle = 2.0943951023931953
+  "Pull-back gain past `warn` [V/rad]"
+  parameter pullback::Real = 2.0
+relations
+  connect(supervisor.u_des, logger.u[5], trajectory.u) {^id8}
+  connect(measurement.elbow_angle, logger.u[3]) {^id9}
+  connect(supervisor.u, command.u) {^id10}
+  # The applied voltage is the diagnostics' dependency token as well as a logged column:
+  # `exec` is latched by the write, so the reads have to be scheduled after it.
+  connect(command.u_applied, diagnostics.dep, logger.u[4]) {^id11}
+  connect(diagnostics.elapsed, logger.u[1])
+  connect(supervisor.tripped, logger.u[6]) {^id12}
+  connect(diagnostics.dt, logger.u[7])
+  connect(diagnostics.exec, logger.u[8])
+  connect(periodicclock.y, logger.u[2]) {^id13}
+  connect(measurement.shoulder_angle, supervisor.arm, periodicclock.y) {^id14}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaIdentification.svg"}},
+  "_links": {
+    "measurement": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 400, "y2": 500}}}
+    },
+    "trajectory": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 120, "y2": 220}}}
+    },
+    "supervisor": {
+      "Dyad": {"placement": {"diagram": {"x1": 220, "x2": 320, "y1": 240, "y2": 340}}}
+    },
+    "command": {
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 240, "y2": 340}}}
+    },
+    "diagnostics": {
+      "Dyad": {"placement": {"diagram": {"x1": 560, "x2": 660, "y1": 240, "y2": 340}}}
+    },
+    "logger": {
+      "Dyad": {"placement": {"diagram": {"x1": 740, "x2": 840, "y1": 240, "y2": 340}}}
+    },
+    "periodicclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 740, "x2": 840, "y1": 490, "y2": 590}}}
+    },
+    "id8": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 190, "y": 275}], "E": -1},
+          {
+            "S": -1,
+            "M": [{"x": 190, "y": 200}, {"x": 695, "y": 200}, {"x": 695, "y": 290}],
+            "E": 2
+          },
+          {"S": 3, "M": [{"x": 157.5, "y": 155}, {"x": 157.5, "y": 200}], "E": -1}
+        ],
+        "junctions": [{"x": 190, "y": 200}],
+        "path": {}
+      }
+    },
+    "id9": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 695, "y": 477}, {"x": 695, "y": 290}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id10": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 348.3333333333333, "y": 275}, {"x": 348.3333333333333, "y": 290}],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id11": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {
+            "S": 2,
+            "M": [
+              {"x": 530, "y": 290},
+              {"x": 530, "y": 390},
+              {"x": 695, "y": 390},
+              {"x": 695, "y": 290}
+            ],
+            "E": 3
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id12": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [
+              {"x": 350, "y": 305},
+              {"x": 350, "y": 410},
+              {"x": 695, "y": 410},
+              {"x": 695, "y": 290}
+            ],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id13": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 710, "y": 540}, {"x": 710, "y": 290}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id14": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": -1},
+          {"S": -1, "M": [{"x": 190, "y": 422}, {"x": 190, "y": 305}], "E": 2},
+          {"S": 3, "M": [{"x": 190, "y": 540}], "E": -1}
+        ],
+        "junctions": [{"x": 190, "y": 422}],
+        "path": {}
+      }
+    }
+  }
+}
+end

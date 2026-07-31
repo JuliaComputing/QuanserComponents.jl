@@ -9,6 +9,7 @@ using MultibodyComponents
 using SynchToolkit
 using LinearAlgebra
 using Statistics: cor
+using DelimitedFiles: readdlm
 using Printf: @sprintf
 # The plot-artifact assertions build real `Plots.Plot`s, so a backend has to be loaded.
 # (The `using Plots` further down is inside a disabled block and does not count.)
@@ -114,7 +115,7 @@ sol[ssys.qubependulum.lower_arm.m]
 # Design the upright-stabilizing LQR feedback gain. `design_lqr` linearizes the plant
 # about the upright equilibrium (control loop opened at the u_plant/shoulder_y/elbow_y
 # analysis points), discretizes, and solves the LQR problem. Encapsulated in
-# QuanserComponents so this script and the `FurutaExportC` codegen analysis share one
+# QuanserComponents so this script and the `FurutaSwingupExperiment` codegen analysis share one
 # implementation. `Q1` is the state-penalty diagonal in the order
 # [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]; `Q2` is the control
 # penalty.
@@ -249,9 +250,9 @@ import DyadCompilerPasses
         end
     end
 
-    # `FurutaExportCBase` must stay `partial` in dyad/furuta_export_c.dyad. Without it the
-    # compiler emits generated/FurutaExportCBase_definition.jl, which redefines
-    # `FurutaExportCBaseSpec` and adds a second, self-recursive `run_analysis` for it. The
+    # `FurutaSwingupBase` must stay `partial` in dyad/swingup_experiment.dyad. Without it the
+    # compiler emits generated/FurutaSwingupBase_definition.jl, which redefines
+    # `FurutaSwingupBaseSpec` and adds a second, self-recursive `run_analysis` for it. The
     # hand-written implementation is included later so it wins at runtime and everything
     # still appears to work — but the overwrite disables precompilation of the whole
     # package. This has been silently reintroduced twice by an editor round-trip, hence the
@@ -259,13 +260,16 @@ import DyadCompilerPasses
     @testset "the analysis bases stay partial" begin
         DI = QuanserComponents.DyadInterface
         @test length(methods(DI.run_analysis,
-                             (QuanserComponents.FurutaExportCBaseSpec,))) == 1
+                             (QuanserComponents.FurutaSwingupBaseSpec,))) == 1
         @test length(methods(DI.run_analysis,
                              (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
         # `QubeHardwareRunBase` is the root both analyses extend, so un-partialling it is the
         # same hazard one level up: the compiler would emit a `QubeHardwareRunBaseSpec`
         # struct, colliding with the dispatching function of that name in analysis_base.jl.
-        for base in ("FurutaExportCBase", "FurutaFrictionBase", "QubeHardwareRunBase")
+        @test length(methods(DI.run_analysis,
+                             (QuanserComponents.FurutaIdentificationBaseSpec,))) == 1
+        for base in ("FurutaSwingupBase", "FurutaFrictionBase", "FurutaIdentificationBase",
+                     "QubeHardwareRunBase")
             @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
                                    "$(base)_definition.jl"))
         end
@@ -278,36 +282,38 @@ import DyadCompilerPasses
     @testset "shared analysis base" begin
         QC = QuanserComponents
         @test QC.QubeHardwareRunBaseSpec(; Ts, Q1 = [1.0, 2, 3, 4], Q2 = 3.0) isa
-              QC.FurutaExportCBaseSpec
+              QC.FurutaSwingupBaseSpec
         @test QC.QubeHardwareRunBaseSpec(; Ts, settle = 0.5) isa QC.FurutaFrictionBaseSpec
+        @test QC.QubeHardwareRunBaseSpec(; Ts, traj_file = "x.csv") isa
+              QC.FurutaIdentificationBaseSpec
         @test_throws ArgumentError QC.QubeHardwareRunBaseSpec(; Ts)            # ambiguous
         @test_throws ArgumentError QC.QubeHardwareRunBaseSpec(; nonsense = 1)  # unknown
         # Each analysis' shared-parameter defaults are its Dyad partial's, not the root's.
-        @test QC.FurutaExportCBaseSpec().export_c && !QC.FurutaFrictionBaseSpec().export_c
+        @test QC.FurutaSwingupBaseSpec().export_c && !QC.FurutaFrictionBaseSpec().export_c
         # Neither analysis pins the card options: the friction sweep has to run on the same
         # command-to-torque path the controller does, or the friction it identifies is not the
         # friction the controller faces (see csrc/qube_hw.h).
         @test QC.FurutaFrictionBaseSpec().card_options == ""
-        @test QC.FurutaExportCBaseSpec().card_options == ""
-        @test QC.FurutaExportCBaseSpec().Tf == 10.0
+        @test QC.FurutaSwingupBaseSpec().card_options == ""
+        @test QC.FurutaSwingupBaseSpec().Tf == 10.0
         # ... and the shared field block really is shared, not copied per analysis.
         shared = (:Ts, :run, :Tf, :umax, :arm_deg, :card_options, :backend, :export_c,
                   :output_dir, :log_file, :deploy_host, :deploy_dir, :live_plot,
                   :live_plot_cmd, :live_plot_config, :model, :overrides)
-        for f in shared
-            @test hasfield(QC.FurutaExportCBaseSpec, f)
-            @test hasfield(QC.FurutaFrictionBaseSpec, f)
+        for f in shared, T in (QC.FurutaSwingupBaseSpec, QC.FurutaFrictionBaseSpec,
+                               QC.FurutaIdentificationBaseSpec)
+            @test hasfield(T, f)
         end
     end
 
-    # ---- FurutaExportC analysis (Dyad analysis wrapper) --------------------
+    # ---- FurutaSwingupExperiment analysis (Dyad analysis wrapper) --------------------
     # Designs the LQR gain from the penalty weights Q1/Q2, then exports the C.
-    @testset "FurutaExportC analysis" begin
+    @testset "FurutaSwingupExperiment analysis" begin
         DI = QuanserComponents.DyadInterface
         dir = mktempdir()
         # run=false: the analysis defaults to run=true (compile + drive the hardware),
         # which must not happen in the test suite.
-        @time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = false)
+        @time sol = QuanserComponents.FurutaSwingupExperiment(; output_dir = dir, Ts, run = false)
         @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "top.h"))
         @test sol.hwrun.output_dir == dir && !sol.hwrun.ran
         @test !isempty(sol.hwrun.mangled)
@@ -336,11 +342,11 @@ import DyadCompilerPasses
             @test gen5.tuning_defaults[:umax] == 5.0
         end
         # With `export_c = false` the analysis would run in-process and export nothing.
-        sol_ip = QuanserComponents.FurutaExportC(; output_dir = mktempdir(), Ts, run = false,
+        sol_ip = QuanserComponents.FurutaSwingupExperiment(; output_dir = mktempdir(), Ts, run = false,
                                                   export_c = false, deploy_host = "")
         @test sol_ip.hwrun.output_dir === nothing
         @test isempty(DI.AnalysisSolutionMetadata(sol_ip).artifacts)
-        @test_throws ArgumentError QuanserComponents.FurutaExportC(; Ts, run = false,
+        @test_throws ArgumentError QuanserComponents.FurutaSwingupExperiment(; Ts, run = false,
                                                                     backend = "fortran")
         # Q1/Q2 are the user-facing knob: changing them changes the designed gain. Only
         # meaningful when the analysis designed one — `design_lqr` costs ~2 min, so it is
@@ -596,7 +602,7 @@ import DyadCompilerPasses
     @testset "FurutaFrictionExperiment analysis" begin
         DI = QuanserComponents.DyadInterface
         RB = QuanserComponents.RecipesBase
-        # Same guard as FurutaExportCBase: `partial` must survive `dyad format`.
+        # Same guard as FurutaSwingupBase: `partial` must survive `dyad format`.
         @test length(methods(DI.run_analysis,
                              (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
         @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
@@ -758,6 +764,123 @@ import DyadCompilerPasses
         @test P(spec(; output_dir = "out", log_file = "/tmp/a/b.csv"), F) == "/tmp/a/b.csv"
         @test P(spec(; output_dir = "out", log_file = "mine.csv"), F) ==
               joinpath("out", "mine.csv")
+    end
+
+    # ---- the identification replay: an input file feeding the program --------
+    # The mirror of the log: `TrajectorySource` reads one designed sample per tick from inside
+    # the program (csrc/qube_traj.c), so the replay is the program's own doing on every target
+    # rather than something a driver feeds it. What has to hold is that the samples arrive in
+    # order, one per tick, and identically on both backends.
+    @testset "identification replay ($backend)" for backend in (:julia, :c)
+        trajfile = joinpath(pkgdir(QuanserComponents), "input_design.csv")
+        logfile = joinpath(mktempdir(), "replay.csv")
+        ctrl = QuanserComponents.IdentificationController(; Ts, backend, traj_file = trajfile,
+                                                          log_file = logfile, umax = 3.0)
+        @test ctrl.traj.file == trajfile     # the model carries it, not the driver
+        @test ctrl.log.columns == QuanserComponents.IDENTIFICATION_LOG_COLUMNS
+        # A free arm: the command accelerates it and nothing restores it, which is what makes
+        # this experiment need a supervisor at all.
+        w, phi = Ref(0.0), Ref(0.0)
+        QuanserComponents.bind_hardware!(
+            measure = () -> (phi[], 0.0),
+            control = u -> (w[] += Ts * 20u; phi[] += Ts * w[]; nothing))
+        @test QuanserComponents.open_traj!(ctrl.traj) == 12000
+        QuanserComponents.open_log!(ctrl.log)
+        SynchToolkit.reset!(ctrl)
+        out = nothing
+        for i in 1:200
+            out = ctrl()
+            @test out.k == i                 # the tick counter is the trajectory index
+        end
+        QuanserComponents.close_log!()
+
+        D = QuanserComponents.read_log(logfile)
+        useq = Float64.(readdlm(trajfile)[2:end, 2])
+        @test D.u_des[1:200] ≈ useq[1:200]   # sample for sample, in order
+        @test all(iszero, D.tripped)
+        @test all(abs.(D.control_input) .<= 3.0)
+    end
+
+    # The supervisor is the reason an open-loop replay is safe to run at all, and the latch is
+    # what the old driver-side `break` could not do: keep commanding 0 afterwards.
+    @testset "safety supervisor" begin
+        trajfile = joinpath(pkgdir(QuanserComponents), "input_design.csv")
+        ctrl = QuanserComponents.IdentificationController(; Ts, backend = :julia,
+                            traj_file = trajfile, log_file = joinpath(mktempdir(), "t.csv"),
+                            umax = 3.0)
+        arm = Ref(deg2rad(130.0))            # past abort (120)
+        applied = Float64[]
+        QuanserComponents.bind_hardware!(measure = () -> (arm[], 0.0),
+                                        control = u -> push!(applied, u))
+        QuanserComponents.open_traj!(ctrl.traj)
+        QuanserComponents.open_log!(ctrl.log)
+        SynchToolkit.reset!(ctrl)
+        o1 = ctrl()
+        @test o1.tripped == 1.0 && o1.u == 0.0
+        arm[] = 0.0                          # back in bounds: the latch must hold
+        o2 = ctrl()
+        @test o2.tripped == 1.0 && o2.u == 0.0
+        QuanserComponents.close_log!()
+        @test all(iszero, applied)
+
+        # Between warn and abort the command is a pull-back towards centre, not the design.
+        ctrl2 = QuanserComponents.IdentificationController(; Ts, backend = :julia,
+                            traj_file = trajfile, log_file = joinpath(mktempdir(), "w.csv"),
+                            umax = 3.0)
+        QuanserComponents.bind_hardware!(measure = () -> (deg2rad(100.0), 0.0),
+                                        control = u -> nothing)
+        QuanserComponents.open_traj!(ctrl2.traj)
+        QuanserComponents.open_log!(ctrl2.log)
+        SynchToolkit.reset!(ctrl2)
+        o = ctrl2()
+        @test o.tripped == 0.0
+        @test o.u ≈ clamp(-2.0 * deg2rad(100.0), -3.0, 3.0)
+        QuanserComponents.close_log!()
+    end
+
+    # A run longer than its trajectory coasts rather than holding the last sample, and says so
+    # afterwards -- the alternative would be a program that keeps driving on stale data.
+    @testset "past the end of the trajectory" begin
+        dir = mktempdir()
+        short = joinpath(dir, "short.csv")
+        write(short, "time\tu\n0.0\t1.0\n0.005\t2.0\n")
+        ctrl = QuanserComponents.IdentificationController(; Ts, backend = :julia,
+                            traj_file = short, log_file = joinpath(dir, "l.csv"))
+        QuanserComponents.bind_hardware!(measure = () -> (0.0, 0.0), control = u -> nothing)
+        @test QuanserComponents.open_traj!(ctrl.traj) == 2
+        QuanserComponents.open_log!(ctrl.log)
+        SynchToolkit.reset!(ctrl)
+        @test ctrl().u_des == 1.0
+        @test ctrl().u_des == 2.0
+        @test ctrl().u_des == 0.0
+        @test QuanserComponents.traj_state().error
+        QuanserComponents.close_log!()
+    end
+
+    @testset "FurutaIdentificationExperiment analysis" begin
+        DI = QuanserComponents.DyadInterface
+        dir = mktempdir()
+        trajfile = joinpath(pkgdir(QuanserComponents), "input_design.csv")
+        sol = QuanserComponents.FurutaIdentificationExperiment(; Ts, run = false,
+                            output_dir = dir, traj_file = trajfile, deploy_host = "")
+        # The duration comes off the file rather than being stated twice.
+        @test sol.nsamples == 12000
+        @test !sol.hwrun.ran && !sol.tripped
+        @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "qube_traj.c"))
+        # The samples travel with the sources, and the harness is told to open them: that is
+        # what lets a replay run on the machine the QUBE is attached to.
+        @test isfile(joinpath(dir, basename(trajfile)))
+        cfg = read(joinpath(dir, "run_hardware_config.h"), String)
+        @test occursin("#define QUBE_TRAJ_FILE   \"$(basename(trajfile))\"", cfg)
+        @test occursin("#define QUBE_TRAJ_COLUMN 2", cfg)
+        @test occursin("#define QUBE_LOG_NCOLS  8", cfg)
+        @test Set(nameof.(DI.AnalysisSolutionMetadata(sol).artifacts)) == Set([:GeneratedFiles])
+        @test_throws ArgumentError DI.artifacts(sol, :Trace)
+        if isdir("/opt/quanser/hil_sdk") &&
+           (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
+            @test isfile(QuanserComponents.compile_hardware_harness(dir))
+        end
+        @test occursin("trajectory:", sprint(show, MIME"text/plain"(), sol))
     end
 
     # ---- the live plot must not open the previous run's log ------------------

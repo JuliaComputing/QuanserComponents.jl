@@ -15,19 +15,23 @@ include("analysis_base.jl")
 # loaded: the components in dyad/ are written in terms of them.
 include("hardware_io.jl")
 include("data_log.jl")
+include("traj_source.jl")
 
 include("../generated/module.jl")
 
 # Building a synchronous program for the rig and running it, in three layers: what every
-# program shares (program.jl), how one gets onto hardware (harness.jl), and the two programs
-# themselves (codegen.jl for the swing-up controller, friction.jl for the friction experiment).
+# program shares (program.jl), how one gets onto hardware (harness.jl), and the programs
+# themselves (codegen.jl for the swing-up controller, friction.jl for the friction experiment,
+# identification.jl for the open-loop replay).
 include("program.jl")
 include("harness.jl")
 include("codegen.jl")
 include("friction.jl")
+include("identification.jl")
 
 # The analyses on top of them.
 include("swingup_analysis.jl")
 include("friction_analysis.jl")
+include("identification_analysis.jl")
 
 end # module QuanserComponents

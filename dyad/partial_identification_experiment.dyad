@@ -1,0 +1,40 @@
+# The partial base lives in its own file, apart from the concrete analysis that extends it.
+# That is not organisation for its own sake: editing a concrete analysis' parameters in the
+# Dyad GUI rewrites the file it sits in, and that write-back drops the `partial` qualifier
+# from any partial analysis in the same file (JuliaComputing/dyad-lang#1762). The base then
+# gets a generated definition of its own, which redefines the spec and adds a second,
+# self-recursive `run_analysis` -- everything still appears to work, because the hand-written
+# implementation is included later and wins, but precompilation of the whole package is
+# silently disabled. Keeping the two apart means a GUI edit to the concrete analysis cannot
+# reach the partial. The "analysis bases stay partial" testset in test/runtests.jl is the
+# backstop.
+"""
+Replay a designed input sequence open-loop on the QUBE, to collect data for identifying or
+calibrating the model's parameters.
+
+Building and running the program is `QubeHardwareRunBase`' job; what belongs to this analysis
+is the trajectory to replay and the safety limits the supervisor enforces while replaying it.
+Design the sequence with examples/input_design.jl, fit the parameters to what comes back with
+examples/pendulum_identification.jl; `run = false` builds the program and exports it without
+touching the hardware.
+
+`Tf` defaults to 0, which means "as long as the trajectory": the duration is read off the file
+rather than stated twice.
+"""
+partial analysis FurutaIdentificationBase
+  extends QubeHardwareRunBase(export_c = true, output_dir = "identification_c", deploy_dir = "identification_c", umax = 3.0)
+  """
+  File holding the designed input sequence, as examples/input_design.jl writes it. Copied
+  next to the exported C so a deployed run replays the same samples
+  """
+  parameter traj_file::String = "input_design.csv"
+  "Column of `traj_file` holding the voltage, 1-based"
+  parameter traj_column::Integer = 2
+  "Arm angle [deg] beyond which the command is replaced by a pull-back"
+  parameter warn_deg::Real = 95.0
+  "Arm angle [deg] beyond which the supervisor latches and commands 0"
+  parameter abort_deg::Real = 120.0
+  "Pull-back gain past `warn_deg` [V/rad]"
+  parameter pullback::Real = 2.0
+relations
+end

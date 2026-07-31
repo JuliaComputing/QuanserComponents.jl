@@ -102,6 +102,31 @@ ncols(l::ProgramLog) = length(l.columns)
 
 open_log!(l::ProgramLog) = open_log!(l.file; header = header(l), ncols = ncols(l))
 
+"""
+    ProgramTrajectory(file, column)
+
+A recorded input sequence a program replays, and which column of the file holds it.
+
+The input-side counterpart of [`ProgramLog`](@ref), and carried for the same reason: the
+`TrajectorySource` component reads the samples, the driver opens the file
+([`open_traj!`](@ref)), and the exported C harness opens it with the same two values baked
+into its config header. A program that replays nothing has `nothing` here.
+"""
+struct ProgramTrajectory
+    file::String
+    column::Int
+end
+
+open_traj!(t::ProgramTrajectory) = open_traj!(t.file; column = t.column)
+open_traj!(::Nothing) = 0
+
+# Ticks the trajectory is worth, i.e. how long a replay of it lasts. Read off the file rather
+# than stated a second time in the analysis.
+function traj_duration(t::ProgramTrajectory, Ts)
+    n = open_traj!(t)
+    return n * Ts
+end
+
 # ---------------------------------------------------------------------------
 ## Compiling
 # ---------------------------------------------------------------------------
@@ -125,12 +150,14 @@ they double as the constructors for the structs they were compiled into. The nod
 order is `(tick::Bool, gains::TuningGains, auto::AutoPars)`.
 """
 function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
-                         outputs, log::ProgramLog, param_overrides = nothing,
-                         overrides...)
-    # Both C libraries the program calls into have to exist before the `:c` backend links
-    # them (the Julia backend only needs them at call time).
+                         outputs, log::ProgramLog,
+                         traj::Union{Nothing, ProgramTrajectory} = nothing,
+                         param_overrides = nothing, overrides...)
+    # Every C library the program calls into has to exist before the `:c` backend links them
+    # (the Julia backend only needs them at call time).
     ensure_qube_hw()
     ensure_qube_log()
+    traj === nothing || ensure_qube_traj()
     kw = Dict{Symbol, Any}(overrides)
     merge!(kw, _model_kwargs(param_overrides))
     sys = ctor(; name, Ts, log_file = log.file, kw...)
@@ -151,7 +178,8 @@ function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
     outs = [ClockedOutput(o) for o in outputs(nsys)]
     @info "Running stkcompile"
     compiled = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
-    return (; compiled, tuning_struct, auto_struct, tuning_defaults, log, Ts = Float64(Ts))
+    return (; compiled, tuning_struct, auto_struct, tuning_defaults, log, traj,
+              Ts = Float64(Ts))
 end
 
 # ---------------------------------------------------------------------------
@@ -175,11 +203,12 @@ struct ProgramRuntime{names, E, G, A}
     gains::G
     auto::A
     log::ProgramLog
+    traj::Union{Nothing, ProgramTrajectory}
     Ts::Float64
 end
 
-ProgramRuntime{names}(exe::E, gains::G, auto::A, log, Ts) where {names, E, G, A} =
-    ProgramRuntime{names, E, G, A}(exe, gains, auto, log, Float64(Ts))
+ProgramRuntime{names}(exe::E, gains::G, auto::A, log, traj, Ts) where {names, E, G, A} =
+    ProgramRuntime{names, E, G, A}(exe, gains, auto, log, traj, Float64(Ts))
 
 # A held executable keeps stepping the code it was built with (SynchJulia >= 0.4), so
 # `step!`/`reset!` are world-safe from any frame -- no `invokelatest` in the hot path.
@@ -231,7 +260,7 @@ end
 function make_runtime(gen, names::Tuple{Vararg{Symbol}}; backend::Symbol = :julia,
                       gains = (;))
     r = instantiate(gen; gains, backend)
-    return ProgramRuntime{names}(r.exe, r.gains, r.auto, gen.log, gen.Ts)
+    return ProgramRuntime{names}(r.exe, r.gains, r.auto, gen.log, gen.traj, gen.Ts)
 end
 
 # ---------------------------------------------------------------------------
@@ -261,6 +290,7 @@ function run_program!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
     n = 0
     SynchToolkit.reset!(ctrl)
     open_log!(ctrl.log)
+    open_traj!(ctrl.traj)          # no-op when the program replays nothing
     open_hardware!(mode; arm_deg, card_options)
     try
         GC.gc()

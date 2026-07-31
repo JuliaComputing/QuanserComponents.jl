@@ -1,0 +1,15 @@
+<svg width="1000" height="1000" viewBox="0 0 1000 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<rect width="1000" height="1000" fill="white"/>
+<rect x="4" y="4" width="992" height="992" stroke="#A1A1AA" stroke-width="8"/>
+<!-- Shield: the command passes through only while it is safe to -->
+<path d="M500 130 L790 235 L790 545 Q790 760 500 880 Q210 760 210 545 L210 235 Z" stroke="#131316" stroke-width="18" fill="none" stroke-linejoin="round"/>
+<!-- A command let through, then clipped at a bound: the limits inside the shield -->
+<line x1="290" y1="420" x2="710" y2="420" stroke="#A1A1AA" stroke-width="10" stroke-dasharray="34 26" stroke-linecap="round"/>
+<line x1="290" y1="620" x2="710" y2="620" stroke="#A1A1AA" stroke-width="10" stroke-dasharray="34 26" stroke-linecap="round"/>
+<path d="M290 620 L380 620 L440 420 L560 420 L620 620 L710 620" stroke="#131316" stroke-width="18" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0"><rect width="1000" height="1000" fill="white"/></clipPath>
+</defs>
+</svg>

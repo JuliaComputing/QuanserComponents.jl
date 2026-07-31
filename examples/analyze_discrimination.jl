@@ -1,6 +1,6 @@
 # =============================================================================
 # Decide which parameter set describes the hardware, using data from the
-# discriminating experiment (test/hardware_discrimination.jl).
+# identification experiment (test/hardware_identification.jl).
 #
 # Builds a UKF for each candidate parameter set, runs both over the recorded
 # input/output, and reports the log-likelihood ratio. A large positive ratio
@@ -36,7 +36,7 @@ using LeastSquaresOptim
 # --- configuration -----------------------------------------------------------
 SYNTHETIC = false
 REFIT     = get(ENV, "REFIT", "true") == "true"
-DATAFILE  = joinpath(pkgdir(QC), "discrimination_experiment.csv")
+DATAFILE  = joinpath(pkgdir(QC), "identification_experiment.csv")
 TRAJFILE  = joinpath(pkgdir(QC), "input_design.csv")
 Ts_NOM    = 0.005
 const SIGMA_ENC = 2pi/2048

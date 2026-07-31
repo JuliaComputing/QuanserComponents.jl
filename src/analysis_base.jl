@@ -1,6 +1,7 @@
 # Spec bases for the analyses that build a synchronous program and run it on the QUBE.
 #
-# Both `FurutaSwingupExperiment` and `FurutaFrictionExperiment` extend the partial analysis
+# Every analysis here -- `FurutaSwingupExperiment`, `FurutaFrictionExperiment`,
+# `FurutaIdentificationExperiment` -- extends the partial analysis
 # `QubeHardwareRunBase` (dyad/qube_hardware_run.dyad) for the parameters that describe
 # building and running a program, and add their own on top. This file mirrors that
 # arrangement on the Julia side: `@qube_run_spec` splices the shared field block into each
@@ -8,8 +9,8 @@
 # the Dyad partial rather than once per analysis.
 #
 # Included before the generated module, which needs the spec types and the abstract
-# supertype to exist. The implementations live in swingup_analysis.jl and
-# friction_analysis.jl, included after the codegen helpers.
+# supertype to exist. The implementations live in swingup_analysis.jl, friction_analysis.jl
+# and identification_analysis.jl, included after the codegen helpers.
 #
 # ## Why the root partial owns the entry point
 #
@@ -102,8 +103,21 @@ end
     smooth_n::Int = 20
 end
 
+@qube_run_spec FurutaIdentificationBaseSpec :FurutaIdentificationBase begin
+    export_c::Bool = true
+    umax::Float64 = 3.0
+    output_dir::String = "identification_c"
+    deploy_dir::String = "identification_c"
+    traj_file::String = "input_design.csv"
+    traj_column::Int = 2
+    warn_deg::Float64 = 95.0
+    abort_deg::Float64 = 120.0
+    pullback::Float64 = 2.0
+end
+
 # Base specs an analysis' generated entry point may be asking for, most specific first.
-const QUBE_RUN_SPECS = (FurutaSwingupBaseSpec, FurutaFrictionBaseSpec)
+const QUBE_RUN_SPECS = (FurutaSwingupBaseSpec, FurutaFrictionBaseSpec,
+                        FurutaIdentificationBaseSpec)
 
 """
     QubeHardwareRunBaseSpec(; parameters...)

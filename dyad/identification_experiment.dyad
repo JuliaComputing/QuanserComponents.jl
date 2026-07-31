@@ -1,0 +1,9 @@
+analysis FurutaIdentificationExperiment
+  extends FurutaIdentificationBase(run = true, deploy_host = "fredrikb@192.168.1.49")
+  # `umax`, the safety limits and the pull-back gain parameterize the model rather than being
+  # read back out of the spec by the implementation. `Ts`, `traj_file` and `log_file` are
+  # structural, so they are not parameters of the built system and reach the model through its
+  # constructor; the angles are converted from degrees there too.
+  model = FurutaIdentification(final umax = umax, final pullback = pullback)
+relations
+end
