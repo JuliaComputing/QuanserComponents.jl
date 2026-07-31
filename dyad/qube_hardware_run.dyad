@@ -1,0 +1,78 @@
+"""
+Parameters shared by every analysis that builds a synchronous program and runs it on the
+QUBE: how to build it, whether and where to run it, and what to watch it with.
+
+Both analyses in this library extend this one. They differ in the program they build and in
+what they do with the log afterwards — running it is the same job, and the four targets
+below are available to both:
+
+| `export_c` | `deploy_host` | what happens                                                |
+|------------|---------------|-------------------------------------------------------------|
+| false      | empty         | the program is built in-process on `backend` and ticked from Julia |
+| true       | empty         | standalone C is written to `output_dir`, compiled and run there   |
+| either     | set           | the C sources are copied to that host, built and run there, and the log is streamed and fetched back |
+
+A named `deploy_host` therefore implies `export_c`: an in-process run happens in the Julia
+process, so it cannot happen on another machine, and C sources are the only thing there is to
+send. Setting the host is enough.
+
+`run = false` stops before any of that, which is how a program is built and checked, or an
+earlier log re-analyzed, without a device attached.
+
+The log is always written by the program itself (a `DataLogger` inside it), so the same
+columns come out of every target and nothing in the loop around it writes data.
+"""
+partial analysis QubeHardwareRunBase
+  extends Analysis
+  model::Dyad.EmptyComponent = Dyad.EmptyComponent()
+  "Sample time [s]"
+  parameter Ts::Real = 0.005
+  "Run the program on the hardware; false only builds it"
+  parameter run::Boolean = false
+  "Duration [s] of the run; 0 means the program's own natural length"
+  parameter Tf::Real = 0.0
+  "Motor saturation [V]"
+  parameter umax::Real = 10.0
+  """
+  Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at
+  its home position first
+  """
+  parameter arm_deg::Real = 0.0
+  """
+  Card-specific options applied after opening the board, e.g.
+  \"deadband_compensation=0.65\". Empty leaves qube_hw.c on its own default, which is
+  what every run should normally use: the command-to-torque path has to be the same one
+  the identified parameters were fitted against
+  """
+  parameter card_options::String = ""
+  """
+  Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
+  `export_c` is true, which always builds C
+  """
+  parameter backend::String = "julia"
+  "Export the program as standalone C into `output_dir`, and run that instead of in-process"
+  parameter export_c::Boolean = false
+  "Directory the generated C sources and the log are written to"
+  parameter output_dir::String = "furuta_c"
+  """
+  File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
+  to open the file, so the two cannot disagree. Empty keeps the program's own default name.
+  Exported and deployed runs use the bare file name inside their own directory, since an
+  absolute path from this machine means nothing on the target
+  """
+  parameter log_file::String = ""
+  """
+  Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  `export_c`, since C sources are what gets copied over
+  """
+  parameter deploy_host::String = ""
+  "Directory on `deploy_host` to copy the sources into"
+  parameter deploy_dir::String = "furuta_c"
+  "Launch a live plotter alongside the run to watch it as it happens (needs `run = true`)"
+  parameter live_plot::Boolean = false
+  "Live-plot viewer executable"
+  parameter live_plot_cmd::String = "kst2"
+  "Viewer session file; a relative path resolves against `output_dir`"
+  parameter live_plot_config::String = "kst2config.kst"
+relations
+end

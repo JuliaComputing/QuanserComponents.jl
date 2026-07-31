@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   SwingupCatch(; name, friction_params, friction_comp, volt_per_torque)
+   SwingupCatch(; name, friction_params, friction_comp, volt_per_torque, umax)
 
 ## Parameters:
 
@@ -16,6 +16,7 @@ import Moshi as __Ext__Moshi
 | `friction_params`         | Friction coefficients used for the feedforward (see dyad/definitions.jl)                         | --  |   friction_identified |
 | `friction_comp`         | Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright hold on the simulated plant, settling into a limit cycle rather than diverging outright. Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is not monotone in either knob, so this needs a structural decision rather than a gain -- compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious candidate, since it is the *stabilizer* that the feedforward upsets                         | --  |   0.0 |
 | `volt_per_torque`         | Command needed per unit of motor torque, Rm/kt [V/(N*m)]                         | --  |   identified....entified.kt |
+| `umax`         | Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and a parameter here so a model built around this one can bind it to the motor saturation it also clamps the command to (`FurutaHardware` does). The swing-up phase has its own, smaller limit in `energyswingup.umax`                         | V  |   10.0 |
 
 ## Connectors
 
@@ -23,7 +24,7 @@ import Moshi as __Ext__Moshi
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SwingupCatch(; name = nothing, friction_params=friction_identified, friction_comp=Float64(0.0), volt_per_torque=identified.Rm / identified.kt, kwargs...)
+@component function SwingupCatch(; name = nothing, friction_params=friction_identified, friction_comp=Float64(0.0), volt_per_torque=identified.Rm / identified.kt, umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -66,6 +67,12 @@ import Moshi as __Ext__Moshi
   __local__volt_per_torque = volt_per_torque
   append!(__params, @parameters (volt_per_torque::Real), [description = "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"])
   __initial_conditions[volt_per_torque] = __local__volt_per_torque
+  __local__umax = umax
+  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and
+  append!(__params, @parameters (umax::Real), [description = a parameter here so a model built around this one can bind it to the motor saturation it
+  append!(__params, @parameters (umax::Real), [description = also clamps the command to (`FurutaHardware` does). The swing-up phase has its own,
+  append!(__params, @parameters (umax::Real), [description = smaller limit in `energyswingup.umax`"])
+  __initial_conditions[umax] = __local__umax
 
   ### Final Parameters (assignments)
 
@@ -97,6 +104,12 @@ import Moshi as __Ext__Moshi
   # Subcomponent lqrstabilizer of type QuanserComponents.LQRstabilizer
   lqrstabilizer_overrides = __pop_subcomponent_overrides!(__overrides, "lqrstabilizer")
   push!(__systems, @named lqrstabilizer = QuanserComponents.LQRstabilizer(; lqrstabilizer_overrides...))
+  __bindings[lqrstabilizer.umax] = umax
+  # Now remove initial conditions in lqrstabilizer that correspond to the bindings just added
+  __lqrstabilizer_ics = ModelingToolkit.get_initial_conditions(lqrstabilizer)
+  __no_namespace_lqrstabilizer = ModelingToolkit.toggle_namespacing(lqrstabilizer, false)
+  __lqrstabilizer_umax = Symbolics.unwrap(__no_namespace_lqrstabilizer.umax)::Symbolics.SymbolicT
+  delete!(__lqrstabilizer_ics, __lqrstabilizer_umax)
   # Subcomponent neartop of type QuanserComponents.NearTop
   neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
   push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))

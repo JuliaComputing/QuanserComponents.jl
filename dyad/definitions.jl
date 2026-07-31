@@ -101,6 +101,11 @@ withparams(p::FrictionParams; changes...) =
 # higher-order terms.
 const friction_nominal = FrictionParams()
 
+# NOTE: this is the fit from a run with the driver's deadband compensation at its default.
+# The set fitted with compensation *off* (kc = 3.7e-3, i.e. 0.57 V of breakaway) was tried and
+# reverted: it describes a plant no controller run uses, and the swing-up holds 1.9 deg off
+# vertical on it instead of 0.2 deg. Replace the numbers below with a fresh fit on the restored
+# configuration.
 # The identified set, from a constant-velocity run on the QUBE (2026-07-30, 40 s sweep,
 # 1..40 rad/s in both directions; 4875 of 8000 samples survived the constant-velocity
 # selection, residual RMS 0.0105 V over a 4.01 V command range).
@@ -130,4 +135,22 @@ const FRICTION_LOG_COLUMNS = ["time", "w_ref", "shoulder_angle", "shoulder_veloc
                               "control_input", "elbow_angle"]
 const FRICTION_LOG_HEADER = join(FRICTION_LOG_COLUMNS, "\t")
 const FRICTION_LOG_NCOLS = length(FRICTION_LOG_COLUMNS)
+
+# ---------------------------------------------------------------------------
+## Swing-up run log layout
+# ---------------------------------------------------------------------------
+# Same arrangement for `FurutaHardware`: the `DataLogger` inside the program writes these
+# columns, whichever target the program was built for, and the driver opens the file with
+# them. The first four are what `plotD` expects (`readdlm(path, skipstart = 1)'`), then the
+# loop diagnostics `dt`/`exec` and the raw encoder counts — the layout the C harness used to
+# write from outside the program, kept identical so existing logs, plot sessions and readers
+# are unaffected. Eight columns is also `log_row`'s arity, so this log is full.
+const SWINGUP_LOG_COLUMNS = ["time", "shoulder_angle", "elbow_angle", "control_input",
+                             "dt", "exec", "count_shoulder", "count_elbow"]
+const SWINGUP_LOG_HEADER = join(SWINGUP_LOG_COLUMNS, "\t")
+const SWINGUP_LOG_NCOLS = length(SWINGUP_LOG_COLUMNS)
+# Relative on purpose: the exported C runs in its own directory on whatever machine it was
+# deployed to, and an absolute path from this machine would be wrong there. The in-process
+# runners resolve it against the analysis' `output_dir`.
+const SWINGUP_LOG_FILE = "run_hardware.csv"
 const FRICTION_LOG_FILE = "friction_experiment.csv"

@@ -36,7 +36,16 @@ extern "C" {
  * default when nothing is set, which makes the effective gain depend on the SDK
  * build rather than on anything we control -- so set it explicitly and get the
  * same behaviour on every host. 0.65 V is the value the QUBE-Servo 3 driver
- * documents as its default. */
+ * documents as its default.
+ *
+ * Not zero, which was measured: with compensation off, the amplifier's own deadband
+ * (~0.57 V, from a constant-velocity sweep's breakaway command) swallows the whole
+ * command range the upright stabilizer works in. Holding at the top needs ~0.1 V with
+ * compensation on and the pendulum sits 0.2 deg off vertical; with it off the loop has
+ * to push to ~0.59 V before anything happens and settles for 1.9 deg. Nothing in the
+ * controller compensates a deadband: the friction feedforward is odd in speed, and a
+ * deadband is odd in command -- the two coincide only in a constant-velocity sweep,
+ * never at the top, where the speed crosses zero while the command must act. */
 #define QUBE_HW_DEFAULT_CARD_OPTIONS "deadband_compensation=0.65"
 
 /* Fills both angles in radians: shoulder 0 at home, elbow 0 hanging down. */
@@ -58,6 +67,28 @@ double qube_hw_elbow(double dep);
 
 /* Clamps `u` to [-umax, umax], applies it, and returns what was applied. */
 double qube_hw_write(double u, double umax);
+
+/* Loop diagnostics of the current tick, so the program can log them itself instead of
+ * the surrounding loop keeping a second file. All take an ignored dependency token, for
+ * the same scheduling reason as the accessors above.
+ *
+ *   time  seconds since the first read after `qube_hw_open` (so the first tick is 0)
+ *   dt    seconds between this read and the previous one, i.e. the achieved period
+ *   exec  seconds from this tick's read to this tick's write
+ *
+ * `exec` covers the read, the control computation and the write -- everything the node
+ * does between the two I/O calls, which is all of it bar the logging call itself. It is
+ * therefore slightly smaller than the loop body a surrounding timing loop would measure.
+ * `dt` needs a previous tick and is 0 on the first one.
+ *
+ * The counts are the raw encoder counts of the most recent read, as doubles because
+ * every signal inside the program is one; exact up to 2^53, so no count is ever
+ * misrepresented. */
+double qube_hw_time(double dep);
+double qube_hw_dt(double dep);
+double qube_hw_exec(double dep);
+double qube_hw_count_shoulder(double dep);
+double qube_hw_count_elbow(double dep);
 
 /* ---- called by the driver, around the control loop ----------------------- */
 
@@ -99,6 +130,10 @@ void qube_hw_set_callbacks(qube_hw_measure_fn measure, qube_hw_write_fn write);
 long qube_hw_n_measure(void);
 long qube_hw_n_write(void);
 void qube_hw_reset_counters(void);
+
+/* Restart the `time`/`dt`/`exec` measurement, so `time` is 0 at the next read. Call
+ * between runs that share an open device. */
+void qube_hw_reset_timing(void);
 
 /* Most recent cached values, for logging from the driver. */
 double qube_hw_last_shoulder(void);

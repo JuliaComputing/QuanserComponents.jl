@@ -7,7 +7,7 @@
 import Moshi as __Ext__Moshi
 
 @doc Markdown.doc"""
-   SwingupWithHoming(; name, arm_limit, oob_increment, oob_threshold)
+   SwingupWithHoming(; name, arm_limit, oob_increment, oob_threshold, umax)
 
 Top-level controller with a two-state machine: it first runs `GoHome` to home the
 arm, then switches to the `RuntimeController` (swing-up + stabilization + error
@@ -21,6 +21,7 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
 | `arm_limit`         | Arm angle beyond which the out-of-bounds counter accumulates                         | --  |   1.9198621771937625 |
 | `oob_increment`         | Amount added to the out-of-bounds counter each out-of-bounds step                         | --  |   20.0 |
 | `oob_threshold`         | Out-of-bounds counter value that triggers re-homing                         | --  |   1000.0 |
+| `umax`         | Saturation of the stabilizing controller's output [V], forwarded down to `runtime.swingup_catch.lqrstabilizer`. A model wrapping this one binds it to the motor saturation, which is why it exists at every level of the chain                         | V  |   10.0 |
 
 ## Connectors
 
@@ -28,7 +29,7 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SwingupWithHoming(; name = nothing, arm_limit=1.9198621771937625, oob_increment=Float64(20.0), oob_threshold=Float64(1000.0), kwargs...)
+@component function SwingupWithHoming(; name = nothing, arm_limit=1.9198621771937625, oob_increment=Float64(20.0), oob_threshold=Float64(1000.0), umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -68,6 +69,11 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   __local__oob_threshold = oob_threshold
   append!(__params, @parameters (oob_threshold::Real), [description = "Out-of-bounds counter value that triggers re-homing"])
   __initial_conditions[oob_threshold] = __local__oob_threshold
+  __local__umax = umax
+  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V], forwarded down to
+  append!(__params, @parameters (umax::Real), [description = `runtime.swingup_catch.lqrstabilizer`. A model wrapping this one binds it to the motor
+  append!(__params, @parameters (umax::Real), [description = saturation, which is why it exists at every level of the chain"])
+  __initial_conditions[umax] = __local__umax
 
   ### Final Parameters (assignments)
 
@@ -90,6 +96,12 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   # Subcomponent runtime of type QuanserComponents.RuntimeController
   runtime_overrides = __pop_subcomponent_overrides!(__overrides, "runtime")
   push!(__systems, @named runtime = QuanserComponents.RuntimeController(; runtime_overrides...))
+  __bindings[runtime.umax] = umax
+  # Now remove initial conditions in runtime that correspond to the bindings just added
+  __runtime_ics = ModelingToolkit.get_initial_conditions(runtime)
+  __no_namespace_runtime = ModelingToolkit.toggle_namespacing(runtime, false)
+  __runtime_umax = Symbolics.unwrap(__no_namespace_runtime.umax)::Symbolics.SymbolicT
+  delete!(__runtime_ics, __runtime_umax)
   # Subcomponent abs_arm of type BlockComponents.Math.Abs
   abs_arm_overrides = __pop_subcomponent_overrides!(__overrides, "abs_arm")
   push!(__systems, @named abs_arm = BlockComponents.Math.Abs(; abs_arm_overrides...))

@@ -170,7 +170,7 @@ metadata {
   "_links": {
     "u": {
       "Dyad": {
-        "placement": {"diagram": {"x1": -100, "x2": 0, "y1": 60, "y2": 940, "show": 8}}
+        "placement": {"diagram": {"show": 8, "x1": -100, "x2": 0, "y1": 60, "y2": 940, "show": 8}}
       }
     },
     "row": {
@@ -333,13 +333,22 @@ fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
 
 Two things about the experiment that matter more than the model does:
 
-  * **Turn deadband compensation off.** The driver can add a fixed offset in the
-    direction of the command, which lands directly on top of the Coulomb term this
-    experiment exists to measure — enough to make the fitted `kc` come out
-    negative. `FurutaFrictionExperiment` defaults `card_options` to
-    `"deadband_compensation=0.0"` for exactly this reason. The `kc` that comes out
-    then covers the amplifier's own deadband as well as mechanical Coulomb
-    friction; this experiment cannot separate the two.
+  * **Leave deadband compensation as the controller has it.** The driver adds a fixed
+    offset in the direction of the command, which lands directly on top of the Coulomb
+    term this experiment measures, so `kc` comes out as the *residual* after that
+    compensation rather than as mechanical Coulomb friction — small, and occasionally
+    small enough to go negative if the driver over-compensates.
+
+    That is the right number anyway, and switching the compensation off to get a
+    "purer" one is a trap this experiment fell into once: with compensation off, `kc`
+    grows to cover the amplifier deadband (~0.57 V of command), and the fitted set then
+    describes a plant no controller run uses. Nothing in the loop compensates a
+    deadband — the feedforward here is odd in speed, a deadband is odd in command, and
+    the two coincide only in a constant-velocity sweep, never at the top where the speed
+    crosses zero while the command must act. Measured on the rig: holding upright takes
+    ~0.1 V and 0.2 deg of error with compensation on, ~0.59 V and 1.9 deg with it off.
+    So run the sweep on the same command-to-torque path the controller uses, which is
+    what `card_options = ""` (the default) does.
   * **The pendulum is a disturbance here.** At a genuinely constant arm speed it
     contributes no torque about the shoulder axis, but it takes a long time to get
     there — `bp` is tiny — so it rings through most of each step. The inertia-disc

@@ -77,6 +77,75 @@ metadata {
 end
 
 """
+Reports what the control loop itself did this tick: elapsed time, achieved period,
+read-to-write duration and the raw encoder counts.
+
+These are wall-clock measurements taken inside `csrc/qube_hw.c` (via the operators in
+`src/hardware_io.jl`), so they are available on every target the program compiles for. The
+point is that the program can log its own timing instead of a surrounding loop having to
+write a second file next to the program's — the whole run ends up in one place, whether the
+loop is the Julia driver or the exported C harness.
+
+`dep` is a dependency token, like the one inside `HardwareMeasurement`: connect it to a
+signal that is only available *after* the motor write, i.e. the applied voltage. `exec` is
+latched by the write, so reading it earlier in the tick would report the previous tick's
+value. `time` and `dt` are latched by the read and are correct anywhere after it.
+
+`exec` measures read to write, which is everything the node does bar the logging call
+itself, so it runs slightly short of the loop-body time an outside timing loop measures.
+`dt` is 0 on the first tick, having no predecessor.
+
+The elapsed-time port is `elapsed` and not `time` because `time` is Dyad's continuous-time
+variable: an output of that name makes the component's clocked equation a continuous one and
+the model fails to compile with `invalid-clock-usage`. The log column is still called `time`.
+
+Clock-agnostic.
+"""
+component HardwareDiagnostics@[input clk extends Discrete]
+  "Dependency token: connect to a signal produced after the motor write"
+  dep = Dyad.RealInput@[clk]() {^dep}
+  "Seconds since the first read after the device was opened; 0 on the first tick"
+  elapsed = Dyad.RealOutput@[clk]() {^elapsed}
+  "Achieved period: seconds since the previous tick's read; 0 on the first tick"
+  dt = Dyad.RealOutput@[clk]() {^dt}
+  "Seconds from this tick's read to this tick's write"
+  exec = Dyad.RealOutput@[clk]() {^exec}
+  "Raw shoulder encoder count of the most recent read"
+  count_shoulder = Dyad.RealOutput@[clk]() {^count_shoulder}
+  "Raw elbow encoder count of the most recent read"
+  count_elbow = Dyad.RealOutput@[clk]() {^count_elbow}
+relations
+  elapsed@clk = hw_time(dep)
+  dt@clk = hw_dt(dep)
+  exec@clk = hw_exec(dep)
+  count_shoulder@clk = hw_count_shoulder(dep)
+  count_elbow@clk = hw_count_elbow(dep)
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/HardwareDiagnostics.svg"}},
+  "_links": {
+    "dep": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "elapsed": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 100, "y2": 200}}}
+    },
+    "dt": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 275, "y2": 375}}}
+    },
+    "exec": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
+    "count_shoulder": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 625, "y2": 725}}}
+    },
+    "count_elbow": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 800, "y2": 900}}}
+    }
+  }
+}
+end
+
+"""
 The swing-up controller closed around the physical QUBE, with the hardware I/O
 inside the synchronous program.
 
@@ -86,18 +155,45 @@ inside the synchronous program.
 themselves. Compiling this model therefore yields a synchronous program that
 needs nothing from its caller but a clock tick -- see
 `generate_swingup_controller` and `SwingupController` in `src/codegen.jl`.
+
+The run log is written from inside the program too, by the `DataLogger`, in the
+`SWINGUP_LOG_COLUMNS` order: what was measured and applied, plus the loop
+diagnostics `HardwareDiagnostics` reports. So every target logs the same file
+through the same code — the C harness around the exported program is timing and
+nothing else, and a Julia driver adds no logging of its own either. The driver
+opens the file, since a filename cannot cross a synchronous node's interface;
+`log_file` is the name it must use, and `open_log!` is called with it
+automatically by the runners in src/program.jl.
 """
 component FurutaHardware
   measurement = HardwareMeasurement() {^measurement}
-  control_system = SwingupWithHoming() {^control_system}
-  command = HardwareCommand() {^command}
+  control_system = SwingupWithHoming(final umax = umax) {^control_system}
+  command = HardwareCommand(final umax = umax) {^command}
+  diagnostics = HardwareDiagnostics() {^diagnostics}
+  logger = DataLogger(n = SWINGUP_LOG_NCOLS, filename = log_file, header = SWINGUP_LOG_HEADER) {^logger}
   periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
   "Controller sample time"
   structural parameter Ts::Real = 0.005
+  "File the log is written to; the driver opens it with this name"
+  structural parameter log_file::String = SWINGUP_LOG_FILE
+  """
+  Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand`
+  clamps to it as well, so no command outside the amplifier's range can be produced or
+  written. Runtime-settable, being one of the compiled program's `TuningGains`
+  """
+  parameter umax::Dyad.Voltage = 10.0
 relations
-  connect(measurement.shoulder_angle, control_system.shoulder_angle, periodicclock.y) {^id5}
-  connect(measurement.elbow_angle, control_system.elbow_angle) {^id6}
-  connect(control_system.u, command.u) {^id7}
+  connect(measurement.shoulder_angle, control_system.shoulder_angle, logger.u[2], periodicclock.y) {^id7}
+  connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3]) {^id8}
+  connect(control_system.u, command.u)
+  # The applied voltage is the diagnostics' dependency token as well as a logged column:
+  # `exec` is latched by the write, so the reads have to be scheduled after it.
+  connect(command.u_applied, diagnostics.dep, logger.u[4]) {^id9}
+  connect(diagnostics.elapsed, logger.u[1]) {^id10}
+  connect(diagnostics.dt, logger.u[5]) {^id11}
+  connect(diagnostics.exec, logger.u[6]) {^id12}
+  connect(diagnostics.count_shoulder, logger.u[7]) {^id13}
+  connect(diagnostics.count_elbow, logger.u[8]) {^id14}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaHardware.svg"}},
   "_links": {
@@ -110,21 +206,70 @@ metadata {
     "command": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 140, "y2": 240}}}
     },
-    "periodicclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 160, "x2": 260, "y1": 10, "y2": 110}}}
+    "diagnostics": {
+      "Dyad": {"placement": {"diagram": {"x1": 440, "x2": 540, "y1": 140, "y2": 240}}}
     },
-    "id5": {
+    "logger": {
+      "Dyad": {"placement": {"diagram": {"x1": 790, "x2": 890, "y1": 140, "y2": 240}}}
+    },
+    "periodicclock": {"Dyad": {"placement": {"diagram": {"x1": 120, "x2": 20, "y1": 10, "y2": 110}}}},
+    "id7": {
       "Dyad": {
         "edges": [
-          {"S": 1, "M": [], "E": -1},
-          {"S": -1, "M": [], "E": 2},
-          {"S": -1, "M": [{"x": 140, "y": 60}], "E": 3}
+          {"S": 1, "M": [], "E": 2},
+          {"S": 2, "M": [{"x": 140, "y": 158}], "E": -1},
+          {"S": -1, "M": [{"x": 745, "y": 60}, {"x": 745, "y": 190}], "E": 3},
+          {"S": 4, "M": [], "E": -1}
         ],
-        "junctions": [{"x": 140, "y": 158}]
+        "junctions": [{"x": 140, "y": 60}],
+        "path": {}
       }
     },
-    "id6": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}},
-    "id7": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}]}}
+    "id8": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {
+            "S": 2,
+            "M": [
+              {"x": 140, "y": 213},
+              {"x": 140, "y": 320},
+              {"x": 745, "y": 320},
+              {"x": 745, "y": 190}
+            ],
+            "E": 3
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id9": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {
+            "S": 2,
+            "M": [
+              {"x": 420, "y": 190},
+              {"x": 420, "y": 290},
+              {"x": 750, "y": 290},
+              {"x": 750, "y": 190}
+            ],
+            "E": 3
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id10": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 155}], "E": 2}], "path": {}}},
+    "id11": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 172.5}], "E": 2}], "path": {}}
+    },
+    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id13": {
+      "Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 207.5}], "E": 2}], "path": {}}
+    },
+    "id14": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 570, "y": 225}], "E": 2}], "path": {}}}
   }
 }
 end

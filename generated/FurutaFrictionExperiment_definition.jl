@@ -7,28 +7,48 @@
 using DyadInterface
 using DyadInterface: ODEAlg, DEVerbosity, OptimizationLevel
 using ModelingToolkit: SymbolicT, toggle_namespacing
-using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
-@kwdef mutable struct FurutaFrictionExperimentSpec <: AbstractFurutaFrictionBaseSpec
+using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpec
+@kwdef mutable struct FurutaFrictionExperimentSpec <: AbstractQubeHardwareRunBaseSpec
   name::Symbol = :FurutaFrictionExperiment
   # Sample time [s]
   var"Ts"::Float64 = 0.005
-  # File the program writes its log to. Passed to the `DataLogger` inside the model
-  # *and* used to open the file, so the two cannot disagree
-  var"log_file"::String = "friction_experiment.csv"
-  # Run the experiment on the hardware; false only builds the program
-  var"run"::Bool = false
-  # Duration [s]; 0 runs exactly one full up-and-down sweep of the reference
+  # Run the program on the hardware; false only builds it
+  var"run"::Bool = true
+  # Duration [s] of the run; 0 means the program's own natural length
   var"Tf"::Float64 = 0.0
-  # Arm angle [deg] at start-up, added to every shoulder reading. Only the arm's
-  # *velocity* is used here, so unlike the swing-up this experiment does not care where
-  # the arm starts; the parameter exists so the logged angle means the same thing
-  var"arm_deg"::Float64 = 0.0
-  # Card-specific options applied after opening the board. Deadband compensation
-  # offsets the command in the direction it points, which lands on top of the Coulomb
-  # term this experiment measures, so it is off by default
-  var"card_options"::String = ""
   # Motor saturation [V]
   var"umax"::Float64 = 10.0
+  # Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at
+  # its home position first
+  var"arm_deg"::Float64 = 0.0
+  # Card-specific options applied after opening the board, e.g.
+  # \"deadband_compensation=0.65\". Empty leaves qube_hw.c on its own default, which is
+  # what every run should normally use: the command-to-torque path has to be the same one
+  # the identified parameters were fitted against
+  var"card_options"::String = ""
+  # Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
+  # `export_c` is true, which always builds C
+  var"backend"::String = "julia"
+  # Export the program as standalone C into `output_dir`, and run that instead of in-process
+  var"export_c"::Bool = false
+  # Directory the generated C sources and the log are written to
+  var"output_dir"::String = "friction_c"
+  # File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
+  # to open the file, so the two cannot disagree. Empty keeps the program's own default name.
+  # Exported and deployed runs use the bare file name inside their own directory, since an
+  # absolute path from this machine means nothing on the target
+  var"log_file"::String = "run_hardware.csv"
+  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  # `export_c`, since C sources are what gets copied over
+  var"deploy_host"::String = "fredrikb@192.168.1.49"
+  # Directory on `deploy_host` to copy the sources into
+  var"deploy_dir"::String = "friction_c"
+  # Launch a live plotter alongside the run to watch it as it happens (needs `run = true`)
+  var"live_plot"::Bool = false
+  # Live-plot viewer executable
+  var"live_plot_cmd"::String = "kst2"
+  # Viewer session file; a relative path resolves against `output_dir`
+  var"live_plot_config"::String = "kst2config.kst"
   # Slowest speed in the sweep [rad/s]
   var"w_min"::Float64 = 1.0
   # Fastest speed in the sweep [rad/s]
@@ -45,8 +65,6 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
   # above `Ts`
   var"Ti"::Float64 = 0.07
-  # Backend to build the program on, \"julia\" or \"c\"
-  var"backend"::String = "julia"
   # Time [s] discarded after each change of the velocity reference. The fit assumes zero
   # acceleration, so the transient at each step has to go
   var"settle"::Float64 = 0.6
@@ -86,13 +104,22 @@ using QuanserComponents: AbstractFurutaFrictionBaseSpec, FurutaFrictionBaseSpec
   # 
   # Two things about the experiment that matter more than the model does:
   # 
-  #   * **Turn deadband compensation off.** The driver can add a fixed offset in the
-  #     direction of the command, which lands directly on top of the Coulomb term this
-  #     experiment exists to measure — enough to make the fitted `kc` come out
-  #     negative. `FurutaFrictionExperiment` defaults `card_options` to
-  #     `"deadband_compensation=0.0"` for exactly this reason. The `kc` that comes out
-  #     then covers the amplifier's own deadband as well as mechanical Coulomb
-  #     friction; this experiment cannot separate the two.
+  #   * **Leave deadband compensation as the controller has it.** The driver adds a fixed
+  #     offset in the direction of the command, which lands directly on top of the Coulomb
+  #     term this experiment measures, so `kc` comes out as the *residual* after that
+  #     compensation rather than as mechanical Coulomb friction — small, and occasionally
+  #     small enough to go negative if the driver over-compensates.
+  # 
+  #     That is the right number anyway, and switching the compensation off to get a
+  #     "purer" one is a trap this experiment fell into once: with compensation off, `kc`
+  #     grows to cover the amplifier deadband (~0.57 V of command), and the fitted set then
+  #     describes a plant no controller run uses. Nothing in the loop compensates a
+  #     deadband — the feedforward here is odd in speed, a deadband is odd in command, and
+  #     the two coincide only in a constant-velocity sweep, never at the top where the speed
+  #     crosses zero while the command must act. Measured on the rig: holding upright takes
+  #     ~0.1 V and 0.2 deg of error with compensation on, ~0.59 V and 1.9 deg with it off.
+  #     So run the sweep on the same command-to-torque path the controller uses, which is
+  #     what `card_options = ""` (the default) does.
   #   * **The pendulum is a disturbance here.** At a genuinely constant arm speed it
   #     contributes no torque about the shoulder axis, but it takes a long time to get
   #     there — `bp` is tiny — so it rings through most of each step. The inertia-disc
@@ -113,8 +140,8 @@ function DyadInterface.run_analysis(spec::FurutaFrictionExperimentSpec)
   push!(overrides, no_namespace_model.n_levels => spec.var"n_levels")
   push!(overrides, no_namespace_model.t_step => spec.var"t_step")
   push!(overrides, no_namespace_model.spacing => spec.var"spacing")
-  base_spec = FurutaFrictionBaseSpec(;
-    name=:FurutaFrictionBase, overrides, Ts=spec.Ts, log_file=spec.log_file, run=spec.run, Tf=spec.Tf, arm_deg=spec.arm_deg, card_options=spec.card_options, umax=spec.umax, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, spacing=spec.spacing, K=spec.K, Ti=spec.Ti, backend=spec.backend, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
+  base_spec = QubeHardwareRunBaseSpec(;
+    name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, spacing=spec.spacing, K=spec.K, Ti=spec.Ti, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
   )
   run_analysis(base_spec)
 end

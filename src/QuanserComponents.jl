@@ -3,12 +3,13 @@ using DiscreteComponents
 using MultibodyComponents
 using LinearAlgebra
 
-# The FurutaExportC analysis spec base. The concrete `analysis FurutaExportC`
-# (dyad/furuta_export_c.dyad) is code-generated into generated/FurutaExportC_definition.jl;
-# that generated spec subtypes `AbstractFurutaExportCBaseSpec` and forwards to
-# `FurutaExportCBaseSpec`, so both must be defined before the generated module is included.
-include("export_analysis_base.jl")
-include("friction_analysis_base.jl")
+# Spec bases for the analyses. Both `FurutaExportC` and `FurutaFrictionExperiment` extend the
+# partial analysis `QubeHardwareRunBase`, and the Dyad compiler resolves an analysis' spec type
+# to the root of that chain, so the generated definitions
+# (generated/Furuta{ExportC,FrictionExperiment}_definition.jl) refer to
+# `AbstractQubeHardwareRunBaseSpec` and `QubeHardwareRunBaseSpec`; both must exist before the
+# generated module is included.
+include("analysis_base.jl")
 
 # The hardware-I/O and data-logging operators must exist before the generated module is
 # loaded: the components in dyad/ are written in terms of them.
@@ -17,9 +18,16 @@ include("data_log.jl")
 
 include("../generated/module.jl")
 
+# Building a synchronous program for the rig and running it, in three layers: what every
+# program shares (program.jl), how one gets onto hardware (harness.jl), and the two programs
+# themselves (codegen.jl for the swing-up controller, friction.jl for the friction experiment).
+include("program.jl")
+include("harness.jl")
 include("codegen.jl")
-include("export_analysis.jl")
 include("friction.jl")
+
+# The analyses on top of them.
+include("export_analysis.jl")
 include("friction_analysis.jl")
 
 end # module QuanserComponents

@@ -948,7 +948,7 @@ component SwingupCatch
   velocityestimator_elbow = QuanserComponents.VelocityEstimator() {^velocityestimator_elbow}
   energyswingup = QuanserComponents.EnergySwingup() {^energyswingup}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
-  lqrstabilizer = QuanserComponents.LQRstabilizer() {^lqrstabilizer}
+  lqrstabilizer = QuanserComponents.LQRstabilizer(final umax = umax) {^lqrstabilizer}
   neartop = QuanserComponents.NearTop() {^neartop}
   gain = BlockComponents.Math.Gain(k = 1.0) {^gain}
   switch1 = BlockComponents.Logical.Switch() {^switch1}
@@ -959,16 +959,18 @@ component SwingupCatch
   structural parameter friction_params::Native = friction_identified
   """
   Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
-  is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright
-  hold on the simulated plant, settling into a limit cycle rather than diverging outright.
-  Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is
-  not monotone in either knob, so this needs a structural decision rather than a gain --
-  compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious
-  candidate, since it is the *stabilizer* that the feedforward upsets
+  is wired up but inactive.
   """
   parameter friction_comp::Real = 0.0
   "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"
   parameter volt_per_torque::Real = identified.Rm / identified.kt
+  """
+  Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and
+  a parameter here so a model built around this one can bind it to the motor saturation it
+  also clamps the command to (`FurutaHardware` does). The swing-up phase has its own,
+  smaller limit in `energyswingup.umax`
+  """
+  parameter umax::Dyad.Voltage = 10.0
 relations
   connect(anglenormalization.y, energyswingup.elbow_angle, lqrstabilizer.elbow_angle, neartop.u) {^id15}
   connect(energyswingup.shoulder_velocity, lqrstabilizer.shoulder_velocity, velocityestimator_shoulder.vel, friction_ff.w) {^id16}
@@ -1483,8 +1485,10 @@ component RuntimeController
   elbow_angle = Dyad.RealInput() {^elbow_angle}
   "Control command"
   u = Dyad.RealOutput() {^u}
-  swingup_catch = QuanserComponents.SwingupCatch() {^swingup_catch}
+  swingup_catch = QuanserComponents.SwingupCatch(final umax = umax) {^swingup_catch}
   errorrecovery = QuanserComponents.ErrorRecovery() {^errorrecovery}
+  "Saturation of the stabilizing controller's output [V], forwarded to `swingup_catch`"
+  parameter umax::Dyad.Voltage = 10.0
 relations
   connect(elbow_angle, swingup_catch.elbow_angle) {^id6}
   connect(swingup_catch.u, errorrecovery.u_swingup) {^id7}
@@ -1543,7 +1547,7 @@ component SwingupWithHoming
   "Control command"
   u = Dyad.RealOutput() {^u}
   gohome = QuanserComponents.GoHome() {^gohome}
-  runtime = QuanserComponents.RuntimeController() {^runtime}
+  runtime = QuanserComponents.RuntimeController(final umax = umax) {^runtime}
   abs_arm = BlockComponents.Math.Abs() {^abs_arm}
   out_of_bounds = BlockComponents.Logical.GreaterThreshold(final threshold = arm_limit) {^out_of_bounds}
   oob_delay = DiscreteComponents.UnitDelay(initial_condition = 0) {^oob_delay}
@@ -1569,6 +1573,12 @@ component SwingupWithHoming
   parameter oob_increment::Real = 20.0
   "Out-of-bounds counter value that triggers re-homing"
   parameter oob_threshold::Real = 1000.0
+  """
+  Saturation of the stabilizing controller's output [V], forwarded down to
+  `runtime.swingup_catch.lqrstabilizer`. A model wrapping this one binds it to the motor
+  saturation, which is why it exists at every level of the chain
+  """
+  parameter umax::Dyad.Voltage = 10.0
 relations
   # Route measurements to both sub-controllers
   connect(runtime.shoulder_angle, abs_arm.u, shoulder_angle, gohome.shoulder_angle) {^id25}

@@ -1,12 +1,14 @@
-# Implementation of the FurutaExportC analysis: export the swing-up controller as C.
+# Implementation of the FurutaExportC analysis: build the swing-up controller, export it as C,
+# and optionally run it on the QUBE.
 #
-# `FurutaExportC` is a concrete `analysis` in `dyad/furuta_export_c.dyad`; the Dyad
-# compiler generates its spec/entry point (generated/FurutaExportC_definition.jl), whose
-# `run_analysis` forwards to `FurutaExportCBaseSpec` (defined in export_analysis_base.jl).
-# This file provides `run_analysis(::FurutaExportCBaseSpec)` — designing the LQR feedback
-# gain from the penalty weights `Q1`/`Q2` via `design_lqr`, then generating the SynchToolkit
-# C sources into `output_dir` via `export_swingup_c` — plus the solution type and its
-# artifacts. Results are reported through a single table artifact.
+# `FurutaExportC` is a concrete `analysis` in dyad/furuta_export_c.dyad; the Dyad compiler
+# generates its spec/entry point (generated/FurutaExportC_definition.jl), which forwards to
+# `FurutaExportCBaseSpec` (defined in analysis_base.jl — see the file header there for why the
+# forwarding goes through `QubeHardwareRunBaseSpec`). This file provides
+# `run_analysis(::FurutaExportCBaseSpec)`: design the LQR feedback gain from the penalty
+# weights `Q1`/`Q2` via `design_lqr`, compile the program, and hand it to
+# [`run_on_target`](@ref), which does the exporting, deploying, running and live plotting that
+# both analyses share.
 
 using DyadInterface: AbstractAnalysisSolution, ArtifactMetadata,
                      ArtifactType, AnalysisSolutionMetadata
@@ -16,135 +18,98 @@ export FurutaExportCSolution
 """
     FurutaExportCSolution
 
-Result of the `FurutaExportC` analysis: the `output_dir` written to, the list of generated
-`files`, the `mangled` base name of the exported `<mangled>_step`/`_reset` C functions, and
-the designed LQR gain `L` — or `nothing` when the gain design was skipped, in which case
-the controller keeps the tuned default baked into the model. When the analysis was run with
-`run = true`, `ran` is `true` and
-`log` is the path to the hardware run's CSV log (otherwise `nothing`). With a non-empty
-`deploy_host` the build and the run happen on that host and the log is copied back.
+Result of the `FurutaExportC` analysis: the designed LQR gain `L` and `hwrun`, the
+[`HardwareRun`](@ref) describing what became of the program — the `output_dir` written to, the
+`files` generated, the `mangled` base name of the exported `<mangled>_step`/`_reset` functions,
+and, when the analysis ran it, the log it wrote and how the loop kept time.
 
-`plotter` holds the live-plot viewer process when the analysis was run with
+`L` is the gain the program was built with, whether it was designed here or taken from the
+model's tuned default.
+
+`hwrun.plotter` holds the live-plot viewer process when the analysis was run with
 `live_plot = true`. It deliberately outlives the analysis so the trace stays on screen
-afterwards; `kill(sol.plotter)` closes it.
+afterwards; `kill(sol.hwrun.plotter)` closes it.
 """
-struct FurutaExportCSolution{SP <: AbstractFurutaExportCBaseSpec} <: AbstractAnalysisSolution
+struct FurutaExportCSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: AbstractAnalysisSolution
     spec::SP
-    output_dir::String
-    files::Vector{String}
-    mangled::String
-    L::Union{Nothing, Vector{Float64}}
-    ran::Bool
-    log::Union{Nothing, String}
-    plotter::Union{Nothing, Base.Process}
+    hwrun::HardwareRun
+    L::Vector{Float64}
 end
 
 function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
+    backend = program_backend(spec)
     mkpath(spec.output_dir)
+    # `design_lqr` costs a couple of minutes, so it stays switched off until asked for; the
+    # controller then keeps the tuned gain baked into the model.
     L = nothing # design_lqr(; Ts = spec.Ts, Q1 = spec.Q1, Q2 = spec.Q2)
-    res = export_swingup_c(spec.output_dir; Ts = spec.Ts, L = L, umax = spec.umax,
-                           Tf = spec.Tf, arm_deg = spec.arm_deg)
-    L = Vector(res.gains.L)
-    # `run = true` compiles the emitted C control loop and executes it on the physical
-    # pendulum for `Tf` seconds, capturing the trace as the `:RunLog` artifact.
-    log = nothing
-    plotter = nothing
-    if spec.run && !isempty(spec.deploy_host)
-        # Build and run on another machine (e.g. a Raspberry Pi with the QUBE attached).
-        # The log is streamed back during the run when a live plot is wanted, so the viewer
-        # watches this run rather than the copy fetched afterwards.
-        deploy_hardware_harness(spec.output_dir; host = spec.deploy_host,
-                                remote_dir = spec.deploy_dir)
-        task = @async run_hardware_harness_remote(spec.deploy_host, spec.deploy_dir;
-                                                  local_dir = spec.output_dir,
-                                                  stream_log = spec.live_plot)
-        spec.live_plot && (plotter = launch_live_plot(spec.output_dir;
-                                                      cmd = spec.live_plot_cmd,
-                                                      config = spec.live_plot_config))
-        log = fetch(task)
-    elseif spec.run
-        exe = compile_hardware_harness(spec.output_dir)
-        # With `live_plot`, the harness runs on a task so the viewer can be brought up
-        # while the run is in progress rather than after it. `fetch` rethrows whatever the
-        # harness threw, so failures still surface.
-        if spec.live_plot
-            task = @async run_hardware_harness(exe)
-            plotter = launch_live_plot(spec.output_dir; cmd = spec.live_plot_cmd,
-                                       config = spec.live_plot_config)
-            log = fetch(task)
-        else
-            log = run_hardware_harness(exe)
-        end
-    end
-    files = sort!(filter(f -> isfile(joinpath(spec.output_dir, f)),
-                         readdir(spec.output_dir)))
-    return FurutaExportCSolution(spec, spec.output_dir, files, res.mangled, L, spec.run, log,
-                                plotter)
+    # The model's parameters come from `spec.overrides`, which is what the Dyad compiler builds
+    # out of the analysis' `model = FurutaHardware(final umax = umax)` line — the analysis'
+    # parameters parameterize the model, rather than the implementation reading them back off
+    # the spec field by field. `Ts` and `log_file` are the exception: they are structural, so
+    # they are not parameters of the built system and have to be passed to the constructor.
+    log_file = program_log_path(spec, SWINGUP_LOG_FILE)
+    gen = generate_swingup_controller(; spec.Ts, log_file, param_overrides = spec.overrides)
+    Tf = spec.Tf > 0 ? spec.Tf : 10.0
+    hwrun = run_on_target(gen, SWINGUP_OUTPUT_NAMES; spec.run, spec.export_c, backend,
+                          spec.output_dir, Tf, spec.arm_deg,
+                          card_options = isempty(spec.card_options) ? nothing :
+                                         spec.card_options,
+                          spec.deploy_host, spec.deploy_dir, spec.live_plot,
+                          spec.live_plot_cmd, spec.live_plot_config, gains = (; L))
+    return FurutaExportCSolution(spec, hwrun,
+                                 collect(float.(something(L, gen.tuning_defaults[:L]))))
 end
 
 function DyadInterface.AnalysisSolutionMetadata(sol::FurutaExportCSolution)
-    arts = [ArtifactMetadata(:GeneratedFiles, ArtifactType.DataFrame,
-        "Generated C files",
-        "The SynchToolkit-generated C sources for the swing-up controller, with the \
-         exported step/reset symbol names.")]
-    if sol.ran
+    arts = ArtifactMetadata[]
+    if sol.hwrun.output_dir !== nothing
+        push!(arts, ArtifactMetadata(:GeneratedFiles, ArtifactType.DataFrame,
+            "Generated C files",
+            "The SynchToolkit-generated C sources for the swing-up controller, with the \
+             exported step/reset symbol names."))
+    end
+    if sol.hwrun.ran
         push!(arts, ArtifactMetadata(:RunLog, ArtifactType.DataFrame,
             "Hardware run log",
-            "Time series logged while running the generated controller on the hardware: \
-             time [s], shoulder/elbow angles [rad], the commanded control voltage [V], and \
-             the timing diagnostics dt (achieved period [s]) and exec (loop-body time [s])."))
+            "Time series the program logged while controlling the hardware: time [s], \
+             shoulder/elbow angles [rad], the commanded control voltage [V], the timing \
+             diagnostics dt (achieved period [s]) and exec (read-to-write duration [s]), and \
+             the raw encoder counts."))
     end
     AnalysisSolutionMetadata(arts, Symbol[])
 end
 
-# `:GeneratedFiles` returns a column table (Tables.jl-compatible NamedTuple of vectors)
-# listing each generated file, its size in bytes, and the exported C symbol on the
-# source/header rows. `:RunLog` (only when the analysis was run) returns the hardware
-# trace parsed from `run_hardware.csv`.
+# `:GeneratedFiles` returns a column table (Tables.jl-compatible NamedTuple of vectors) listing
+# each generated file, its size in bytes, and the exported C symbol on the source/header rows.
+# `:RunLog` (only when the analysis ran) returns the hardware trace, parsed from the log with
+# the same reader every other log in this package goes through.
 function DyadInterface.artifacts(sol::FurutaExportCSolution, name::Symbol)
     if name === :GeneratedFiles
-        files = sol.files
-        bytes = [filesize(joinpath(sol.output_dir, f)) for f in files]
+        dir = sol.hwrun.output_dir
+        dir === nothing &&
+            throw(ArgumentError("Nothing was exported (run the analysis with `export_c = true`)"))
+        files = sol.hwrun.files
+        bytes = [filesize(joinpath(dir, f)) for f in files]
         symbol = map(files) do f
-            f == "top.c" ? "$(sol.mangled)_step" :
-            f == "top.h" ? "$(sol.mangled)_reset" : ""
+            f == "top.c" ? "$(sol.hwrun.mangled)_step" :
+            f == "top.h" ? "$(sol.hwrun.mangled)_reset" : ""
         end
         return (; file = files, bytes = bytes, symbol = symbol)
     elseif name === :RunLog
-        (sol.ran && sol.log !== nothing && isfile(sol.log)) ||
-            throw(ArgumentError("No run log available (run the analysis with `run = true`)"))
-        return _read_run_log(sol.log)
+        return run_trace(sol.hwrun)
     else
         throw(ArgumentError("Unknown artifact `$name`"))
     end
 end
 
-# Parse the harness-written log (tab-separated header + numeric rows) into a Tables.jl
-# column table. Columns: time, shoulder_angle, elbow_angle, control_input, the timing
-# diagnostics dt (achieved period) and exec (control-loop body duration) in seconds, and
-# the raw encoder counts (for diagnosing counter glitches).
-function _read_run_log(path)
-    cols = (:time, :shoulder_angle, :elbow_angle, :control_input, :dt, :exec,
-            :count_shoulder, :count_elbow)
-    empty = NamedTuple{cols}(ntuple(_ -> Float64[], length(cols)))
-    lines = readlines(path)
-    length(lines) > 1 || return empty
-    rows = [parse.(Float64, split(l)) for l in lines[2:end] if !isempty(strip(l))]
-    isempty(rows) && return empty
-    mat = reduce(vcat, permutedims.(rows))
-    return NamedTuple{cols}(ntuple(j -> mat[:, j], length(cols)))
-end
-
 function Base.show(io::IO, ::MIME"text/plain", sol::FurutaExportCSolution)
     print(io, "FurutaExportC solution for ")
     printstyled(io, "$(nameof(sol.spec))\n", color = :green, bold = true)
-    println(io, "output_dir: ", sol.output_dir)
-    println(io, "files: ", join(sol.files, ", "))
-    println(io, "step/reset: ", sol.mangled, "_step / ", sol.mangled, "_reset")
-    println(io, "designed L: ", sol.L)
-    if sol.ran
-        println(io, "hardware run log: ", sol.log === nothing ? "(none)" : sol.log)
-        sol.plotter === nothing || println(io,
-            "live plot: still open (kill(sol.plotter) to close)")
+    if sol.hwrun.output_dir !== nothing
+        println(io, "output_dir: ", sol.hwrun.output_dir)
+        println(io, "files: ", join(sol.hwrun.files, ", "))
+        println(io, "step/reset: ", sol.hwrun.mangled, "_step / ", sol.hwrun.mangled, "_reset")
     end
+    println(io, "gain L: ", sol.L)
+    show_run(io, sol.hwrun)
 end

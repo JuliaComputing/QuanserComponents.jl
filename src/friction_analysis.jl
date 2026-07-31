@@ -3,7 +3,8 @@
 #
 # `FurutaFrictionExperiment` is a concrete `analysis` in `dyad/friction_experiment.dyad`;
 # the Dyad compiler generates its spec/entry point, whose `run_analysis` forwards to
-# `FurutaFrictionBaseSpec` (defined in friction_analysis_base.jl). This file is the whole
+# `FurutaFrictionBaseSpec` (defined in analysis_base.jl — see the file header there for why the
+# forwarding goes through `QubeHardwareRunBaseSpec`). This file is the whole
 # analysis: run the experiment, select the usable samples, fit, report, and expose the
 # result as artifacts and a plot recipe.
 #
@@ -71,36 +72,33 @@ end
 """
     FurutaFrictionSolution
 
-Result of the `FurutaFrictionExperiment` analysis: the `log_file` written, how many `rows`
-the program wrote and over how many `ticks` (these should be equal — the program logs from
-inside the tick), the `duration` in seconds, the achieved loop period as
-`(; median_dt, max_dt)`, the parsed `data`, and the `fit`.
+Result of the `FurutaFrictionExperiment` analysis: `hwrun` describing the run itself (see
+[`HardwareRun`](@ref) — where it ran, the log, how many rows against how many ticks, the
+achieved loop period), the `log_file` the fit read, the parsed `data`, and the `fit`.
 
-`ran` is `false` when the analysis was run with `run = false`, which compiles the program
-and skips the hardware; the fit still happens if a log from an earlier run is there, so
-`run = false` is also how you re-fit an existing log with different selection thresholds.
+`hwrun.ran` is `false` when the analysis was run with `run = false`, which compiles the
+program and skips the hardware; the fit still happens if a log from an earlier run is there,
+so `run = false` is also how you re-fit an existing log with different selection thresholds.
 
 `fit` is `nothing` when there was no log to fit or too little of it survived selection.
 
 `plot(sol)` shows everything: the trace with the selected samples marked, the command, the
 selection diagnostics against their thresholds, and the fitted curve over the data.
 """
-struct FurutaFrictionSolution{SP <: AbstractFurutaFrictionBaseSpec} <: AbstractAnalysisSolution
+struct FurutaFrictionSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: AbstractAnalysisSolution
     spec::SP
+    hwrun::HardwareRun
     log_file::String
-    ran::Bool
-    rows::Int
-    ticks::Int
-    duration::Float64
-    timing::NamedTuple{(:median_dt, :max_dt), Tuple{Float64, Float64}}
     data::Union{Nothing, NamedTuple}
     fit::Union{Nothing, FrictionFit}
 end
 
+# The run's own properties are the `HardwareRun`'s, not copies of them.
+ran(sol::FurutaFrictionSolution) = sol.hwrun.ran
+
 function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
-    backend = Symbol(spec.backend)
-    backend in (:julia, :c) ||
-        throw(ArgumentError("backend must be \"julia\" or \"c\", got $(repr(spec.backend))"))
+    backend = program_backend(spec)
+    mkpath(spec.output_dir)
     # One full up-and-down sweep unless asked otherwise. Anything shorter truncates the
     # reference schedule, which costs the fit its highest speeds or one whole direction.
     Tf = spec.Tf > 0 ? spec.Tf :
@@ -112,38 +110,36 @@ function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
     # builds out of the analysis' `model = FurutaFriction(final K = K, ...)` line — the
     # analysis' parameters parameterize the model, rather than the implementation reading
     # them back off the spec field by field. `Ts` and `log_file` are the exception: they are
-    # structural, so they are not parameters of the built system and have to be passed to
-    # the constructor.
-    ctrl = FrictionController(; Ts = spec.Ts, backend, log_file = spec.log_file,
-                                param_overrides = spec.overrides)
-    ran, rows, ticks, timing = false, 0, 0, (; median_dt = NaN, max_dt = NaN)
-    if spec.run
-        @info "Running friction experiment"
-        r = run_friction_experiment(ctrl; Tf, arm_deg = spec.arm_deg,
-                                    card_options = isempty(spec.card_options) ? nothing :
-                                                   spec.card_options)
-        ran, rows, ticks = true, r.rows, r.ticks
-        @info "Experiment done"
-        timing = (; median_dt = Float64(r.timing.median_dt),
-                    max_dt = Float64(r.timing.max_dt))
-    end
+    # structural, so they are not parameters of the built system and have to be passed to the
+    # constructor.
+    log_file = program_log_path(spec, FRICTION_LOG_FILE)
+    gen = generate_friction_controller(; spec.Ts, log_file, param_overrides = spec.overrides)
+    spec.run && @info "Running friction experiment"
+    hwrun = run_on_target(gen, FRICTION_OUTPUT_NAMES; spec.run, spec.export_c, backend,
+                          spec.output_dir, Tf, spec.arm_deg,
+                          card_options = isempty(spec.card_options) ? nothing :
+                                         spec.card_options,
+                          spec.deploy_host, spec.deploy_dir, spec.live_plot,
+                          spec.live_plot_cmd, spec.live_plot_config)
+    spec.run && @info "Experiment done"
 
     # Fit whatever log is there, so `run = false` re-fits an earlier one with new thresholds
-    # instead of needing the hardware again.
+    # instead of needing the hardware again. A deployed run leaves the fetched copy in
+    # `output_dir` under the same name, which is what `hwrun.log` points at.
+    path = something(hwrun.log, local_log_path(spec, FRICTION_LOG_FILE))
     data, fit = nothing, nothing
-    if isfile(spec.log_file)
-        data = friction_data(read_friction_log(spec.log_file); spec.settle, spec.acc_tol,
-                             spec.elbow_tol, spec.w_min_fit, spec.w_max_fit, spec.smooth_n)
+    if isfile(path)
+        data = friction_data(read_log(path); spec.settle, spec.acc_tol, spec.elbow_tol,
+                             spec.w_min_fit, spec.w_max_fit, spec.smooth_n)
         @info "Fitting friction model"
         fit = fit_friction(data)
     elseif spec.run
-        @warn "the program reported rows but no log file is readable" file = spec.log_file
+        @warn "the program reported rows but no log file is readable" file = path
     end
 
-    sol = FurutaFrictionSolution(spec, spec.log_file, ran, rows, ticks,
-                                 ran ? Tf : 0.0, timing, data, fit)
-    # The fitted parameters are the point of running this, so they go to the terminal
-    # without being asked for. `show` prints the same report.
+    sol = FurutaFrictionSolution(spec, hwrun, path, data, fit)
+    # The fitted parameters are the point of running this, so they go to the terminal without
+    # being asked for. `show` prints the same report.
     fit === nothing || print(friction_report(fit))
     return sol
 end
@@ -260,10 +256,13 @@ function fit_friction(data; motor::IdParams = identified)
     fit = FrictionFit(params, a, norm(resid) / sqrt(length(resid)),
                       maximum(u) - minimum(u), nkeep, nsamples, sc, motor)
     params.kc > 0 || @warn """
-        kc came out non-positive, which is not physical. The likeliest cause is deadband
-        compensation having been left on during the experiment: it adds a fixed offset in
-        the direction of the command, straight onto the term being measured. Re-run with
-        `card_options = "deadband_compensation=0.0"` (the analysis default)."""
+        kc came out non-positive. It is the breakaway command left over after the driver's
+        deadband compensation, so a slightly over-compensating driver can push it below
+        zero — the QUBE's 0.65 V default against a measured ~0.57 V of deadband. That is
+        not a reason to switch the compensation off: `kc` would then absorb the whole
+        deadband and describe a plant no controller run uses (see the note in
+        csrc/qube_hw.h). Trim the compensation towards the measured breakaway instead, or
+        take the fit as saying there is no residual Coulomb term to model."""
     return fit
 end
 
@@ -311,12 +310,10 @@ function Base.show(io::IO, ::MIME"text/plain", sol::FurutaFrictionSolution)
     print(io, "FurutaFrictionExperiment solution for ")
     printstyled(io, "$(nameof(sol.spec))\n", color = :green, bold = true)
     println(io, "log file: ", sol.log_file)
-    if sol.ran
-        println(io, "rows/ticks: ", sol.rows, " / ", sol.ticks,
-                sol.rows == sol.ticks ? "" : "   (MISMATCH — the log lost rows)")
-        println(io, "duration: ", sol.duration, " s")
-        println(io, "loop period: median ", sol.timing.median_dt,
-                " s, max ", sol.timing.max_dt, " s")
+    if sol.hwrun.ran
+        show_run(io, sol.hwrun)
+        sol.hwrun.rows == sol.hwrun.ticks || sol.hwrun.ticks == 0 ||
+            println(io, "   (MISMATCH — the log lost rows)")
     else
         println(io, "not run (run = false); the program was compiled only")
     end
@@ -396,28 +393,12 @@ _require(cond, msg) = cond || throw(ArgumentError(msg))
 """
     read_friction_log(path) -> NamedTuple of vectors
 
-Parse a log written by the `DataLogger` inside `FurutaFriction`: a tab-separated header line
-naming the columns, then one numeric row per tick. Returns a Tables.jl-compatible column
-table keyed by those names, so it stays correct if `FRICTION_LOG_COLUMNS` changes.
-
-A row cut short by the run being interrupted is dropped rather than erroring — the log is
-flushed on close, so the last line may be partial.
+[`read_log`](@ref) under the name this experiment has always used it by. Every log in this
+package is written by a `DataLogger` inside the program and read back by that one function,
+which takes the column names from the file's header rather than from a copy of the layout kept
+here.
 """
-function read_friction_log(path)
-    lines = readlines(path)
-    isempty(lines) && throw(ArgumentError("$path is empty"))
-    cols = Symbol.(split(strip(lines[1]), '\t'))
-    rows = Vector{Vector{Float64}}()
-    for l in Iterators.drop(lines, 1)
-        isempty(strip(l)) && continue
-        vals = tryparse.(Float64, split(strip(l), '\t'))
-        (length(vals) == length(cols) && all(!isnothing, vals)) || continue
-        push!(rows, Float64[vals...])
-    end
-    isempty(rows) && return NamedTuple{Tuple(cols)}(ntuple(_ -> Float64[], length(cols)))
-    mat = reduce(vcat, permutedims.(rows))
-    return NamedTuple{Tuple(cols)}(ntuple(j -> mat[:, j], length(cols)))
-end
+read_friction_log(path) = read_log(path)
 
 # ---------------------------------------------------------------------------
 ## Plotting

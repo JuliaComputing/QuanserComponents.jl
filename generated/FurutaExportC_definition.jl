@@ -7,35 +7,52 @@
 using DyadInterface
 using DyadInterface: ODEAlg, DEVerbosity, OptimizationLevel
 using ModelingToolkit: SymbolicT, toggle_namespacing
-using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
-@kwdef mutable struct FurutaExportCSpec <: AbstractFurutaExportCBaseSpec
+using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpec
+@kwdef mutable struct FurutaExportCSpec <: AbstractQubeHardwareRunBaseSpec
   name::Symbol = :FurutaExportC
-  # Directory to write the generated C sources into (top.c/.h/.pc, synchjulia.h). Created if missing.
-  var"output_dir"::String = "furuta_c"
-  # Controller sample time [s]
+  # Sample time [s]
   var"Ts"::Float64 = 0.005
-  # LQR state-penalty diagonal in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]
-  var"Q1"::Array{Float64, 1} = [1000.0, 10.0, 1.0, 1.0]
-  # LQR control-penalty weight
-  var"Q2"::Float64 = 100.0
-  # Stabilizer saturation [V]
-  var"umax"::Float64 = 10.0
-  # Compile and run the generated C control loop on the hardware after export
+  # Run the program on the hardware; false only builds it
   var"run"::Bool = true
-  # Duration [s] of the hardware run when `run = true`
+  # Duration [s] of the run; 0 means the program's own natural length
   var"Tf"::Float64 = 10.0
-  # Launch a live plotter alongside the hardware run to watch it as it happens (needs `run = true`)
+  # Motor saturation [V]
+  var"umax"::Float64 = 10.0
+  # Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at
+  # its home position first
+  var"arm_deg"::Float64 = 0.0
+  # Card-specific options applied after opening the board, e.g.
+  # \"deadband_compensation=0.65\". Empty leaves qube_hw.c on its own default, which is
+  # what every run should normally use: the command-to-torque path has to be the same one
+  # the identified parameters were fitted against
+  var"card_options"::String = ""
+  # Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
+  # `export_c` is true, which always builds C
+  var"backend"::String = "julia"
+  # Export the program as standalone C into `output_dir`, and run that instead of in-process
+  var"export_c"::Bool = true
+  # Directory the generated C sources and the log are written to
+  var"output_dir"::String = "furuta_c"
+  # File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
+  # to open the file, so the two cannot disagree. Empty keeps the program's own default name.
+  # Exported and deployed runs use the bare file name inside their own directory, since an
+  # absolute path from this machine means nothing on the target
+  var"log_file"::String = ""
+  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  # `export_c`, since C sources are what gets copied over
+  var"deploy_host"::String = "fredrikb@192.168.1.49"
+  # Directory on `deploy_host` to copy the sources into
+  var"deploy_dir"::String = "furuta_c"
+  # Launch a live plotter alongside the run to watch it as it happens (needs `run = true`)
   var"live_plot"::Bool = true
   # Live-plot viewer executable
   var"live_plot_cmd"::String = "kst2"
   # Viewer session file; a relative path resolves against `output_dir`
   var"live_plot_config"::String = "kst2config.kst"
-  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine
-  var"deploy_host"::String = "fredrikb@192.168.1.49"
-  # Directory on `deploy_host` to copy the sources into
-  var"deploy_dir"::String = "furuta_c"
-  # Arm angle [deg] at start-up, added to every shoulder reading so the arm need not be at its home position
-  var"arm_deg"::Float64 = 0.0
+  # LQR state-penalty diagonal in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]
+  var"Q1"::Array{Float64, 1} = [1000.0, 10.0, 1.0, 1.0]
+  # LQR control-penalty weight
+  var"Q2"::Float64 = 100.0
   # The swing-up controller closed around the physical QUBE, with the hardware I/O
   # inside the synchronous program.
   # 
@@ -45,6 +62,15 @@ using QuanserComponents: AbstractFurutaExportCBaseSpec, FurutaExportCBaseSpec
   # themselves. Compiling this model therefore yields a synchronous program that
   # needs nothing from its caller but a clock tick -- see
   # `generate_swingup_controller` and `SwingupController` in `src/codegen.jl`.
+  # 
+  # The run log is written from inside the program too, by the `DataLogger`, in the
+  # `SWINGUP_LOG_COLUMNS` order: what was measured and applied, plus the loop
+  # diagnostics `HardwareDiagnostics` reports. So every target logs the same file
+  # through the same code — the C harness around the exported program is timing and
+  # nothing else, and a Julia driver adds no logging of its own either. The driver
+  # opens the file, since a filename cannot cross a synchronous node's interface;
+  # `log_file` is the name it must use, and `open_log!` is called with it
+  # automatically by the runners in src/program.jl.
   var"model"::Union{Nothing, System} = QuanserComponents.FurutaHardware(; name=:FurutaHardware)
 end
 
@@ -52,8 +78,8 @@ function DyadInterface.run_analysis(spec::FurutaExportCSpec)
   overrides = Dict{SymbolicT, SymbolicT}()
   no_namespace_model = toggle_namespacing(spec.model, false)
   
-  base_spec = FurutaExportCBaseSpec(;
-    name=:FurutaExportCBase, overrides, output_dir=spec.output_dir, Ts=spec.Ts, Q1=spec.Q1, Q2=spec.Q2, umax=spec.umax, run=spec.run, Tf=spec.Tf, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, arm_deg=spec.arm_deg, model=spec.model
+  base_spec = QubeHardwareRunBaseSpec(;
+    name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, Q1=spec.Q1, Q2=spec.Q2, model=spec.model
   )
   run_analysis(base_spec)
 end

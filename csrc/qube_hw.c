@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef QUBE_HW_HAVE_HIL
 #include "hil.h"
@@ -25,6 +26,25 @@ static long   s_count_elbow    = 0;
 /* Added to every shoulder reading: where the arm physically sat at `qube_hw_open`
  * (HIL mode only), so the arm need not be at its home position to calibrate. */
 static double s_arm_offset = 0.0;
+
+/* Loop diagnostics, latched inside the tick so the program can log them as ordinary
+ * signals instead of the surrounding loop having to write a second file. `time` and `dt`
+ * are latched by the encoder read, `exec` by the motor write, so a row assembled after the
+ * write (which is what a data dependency on the applied voltage guarantees) carries this
+ * tick's values. Wall clock rather than tick count on purpose: the point of these three is
+ * to show where the loop failed to keep its period. */
+static double s_t_first   = 0.0;   /* CLOCK_MONOTONIC at the first read after open */
+static double s_t_measure = 0.0;   /* ... at this tick's read */
+static double s_time      = 0.0;
+static double s_dt        = 0.0;
+static double s_exec      = 0.0;
+static int    s_have_prev = 0;
+
+static double qube_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
 
 static qube_hw_measure_fn s_cb_measure = NULL;
 static qube_hw_write_fn   s_cb_write   = NULL;
@@ -140,6 +160,16 @@ int qube_hw_open(int mode, double arm_home_rad) {
     return 0;
 }
 
+/* Zeroed here rather than in `qube_hw_open` so `time` starts at the first tick, not at the
+ * board opening: opening homes the arm and can take a while, and a log whose first row is
+ * at t = 0.4 s reads like a dropped start. */
+void qube_hw_reset_timing(void) {
+    s_have_prev = 0;
+    s_time = 0.0;
+    s_dt = 0.0;
+    s_exec = 0.0;
+}
+
 void qube_hw_close(void) {
     if (s_mode < 0) return;
 #ifdef QUBE_HW_HAVE_HIL
@@ -156,6 +186,18 @@ void qube_hw_set_callbacks(qube_hw_measure_fn measure, qube_hw_write_fn write) {
 double qube_hw_measure(double dep) {
     (void)dep;
     s_n_measure += 1;
+    {
+        double now = qube_now();
+        if (s_have_prev) {
+            s_dt = now - s_t_measure;
+        } else {
+            s_t_first = now;
+            s_dt = 0.0;
+            s_have_prev = 1;
+        }
+        s_t_measure = now;
+        s_time = now - s_t_first;
+    }
     switch (s_mode) {
 #ifdef QUBE_HW_HAVE_HIL
     case QUBE_HW_MODE_HIL:
@@ -197,8 +239,15 @@ double qube_hw_write(double u, double umax) {
     default:
         break;
     }
+    s_exec = qube_now() - s_t_measure;
     return clamped;
 }
+
+double qube_hw_time(double dep) { (void)dep; return s_time; }
+double qube_hw_dt(double dep)   { (void)dep; return s_dt; }
+double qube_hw_exec(double dep) { (void)dep; return s_exec; }
+double qube_hw_count_shoulder(double dep) { (void)dep; return (double)s_count_shoulder; }
+double qube_hw_count_elbow(double dep)    { (void)dep; return (double)s_count_elbow; }
 
 long qube_hw_n_measure(void) { return s_n_measure; }
 long qube_hw_n_write(void)   { return s_n_write; }
