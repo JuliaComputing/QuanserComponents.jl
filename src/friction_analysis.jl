@@ -126,7 +126,7 @@ function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
     # Fit whatever log is there, so `run = false` re-fits an earlier one with new thresholds
     # instead of needing the hardware again. A deployed run leaves the fetched copy in
     # `output_dir` under the same name, which is what `hwrun.log` points at.
-    path = something(hwrun.log, log_file)
+    path = something(hwrun.log, local_log_path(spec, FRICTION_LOG_FILE))
     data, fit = nothing, nothing
     if isfile(path)
         data = friction_data(read_log(path); spec.settle, spec.acc_tol, spec.elbow_tol,

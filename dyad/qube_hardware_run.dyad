@@ -8,9 +8,13 @@ below are available to both:
 
 | `export_c` | `deploy_host` | what happens                                                |
 |------------|---------------|-------------------------------------------------------------|
-| false      | ignored       | the program is built in-process on `backend` and ticked from Julia |
+| false      | empty         | the program is built in-process on `backend` and ticked from Julia |
 | true       | empty         | standalone C is written to `output_dir`, compiled and run there   |
-| true       | set           | the C sources are copied to that host, built and run there, and the log is streamed and fetched back |
+| either     | set           | the C sources are copied to that host, built and run there, and the log is streamed and fetched back |
+
+A named `deploy_host` therefore implies `export_c`: an in-process run happens in the Julia
+process, so it cannot happen on another machine, and C sources are the only thing there is to
+send. Setting the host is enough.
 
 `run = false` stops before any of that, which is how a program is built and checked, or an
 earlier log re-analyzed, without a device attached.
@@ -38,7 +42,7 @@ partial analysis QubeHardwareRunBase
   Card-specific options applied after opening the board, e.g.
   \"deadband_compensation=0.0\". Empty leaves the driver on its own defaults
   """
-  parameter card_options::String = ""
+  parameter card_options::String = "deadband_compensation=0.0"
   """
   Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
   `export_c` is true, which always builds C
@@ -56,8 +60,8 @@ partial analysis QubeHardwareRunBase
   """
   parameter log_file::String = ""
   """
-  Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Needs
-  `export_c`, since it is C sources that get copied over
+  Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  `export_c`, since C sources are what gets copied over
   """
   parameter deploy_host::String = ""
   "Directory on `deploy_host` to copy the sources into"

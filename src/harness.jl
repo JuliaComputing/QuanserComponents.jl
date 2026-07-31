@@ -10,8 +10,9 @@
 using Printf: @printf
 
 export export_program_c, emit_hardware_harness, compile_hardware_harness,
+       program_log_path, local_log_path,
        launch_live_plot, deploy_hardware_harness, run_hardware_harness,
-       run_hardware_harness_remote, run_on_target, HardwareRun
+       run_hardware_harness_remote, run_on_target, run_target, HardwareRun
 
 # ---------------------------------------------------------------------------
 ## C export
@@ -440,6 +441,31 @@ struct HardwareRun
 end
 
 """
+    run_target(; run, export_c, deploy_host) -> Symbol
+
+Which of the four targets these parameters ask for: `:none` (nothing to do), `:export_only`
+(write the C sources and stop), `:inprocess` (build the program here and tick it from Julia),
+`:local_c` (build the exported C here and run that), or `:remote_c` (build and run it on
+`deploy_host`).
+
+**A non-empty `deploy_host` implies exporting C**, whatever `export_c` says. It has to: an
+in-process Julia run happens in *this* process, so it cannot happen on another machine, and C
+sources are the only thing there is to send. Taking `deploy_host` at face value is the
+alternative to what used to happen — the host was ignored and the program ran here, against
+whatever card this machine has, which on a workstation means `hil_open` failing with -108
+while the QUBE sits attached to the host that was named.
+
+`backend` is likewise irrelevant once C is being exported, and ignored.
+"""
+function run_target(; run::Bool, export_c::Bool, deploy_host::AbstractString)
+    remote = !isempty(deploy_host)
+    c = export_c || remote
+    run || return c ? :export_only : :none
+    remote && return :remote_c
+    return c ? :local_c : :inprocess
+end
+
+"""
     run_on_target(gen, names; run, export_c, backend, output_dir, Tf, arm_deg,
                   card_options, deploy_host, deploy_dir, live_plot, live_plot_cmd,
                   live_plot_config, gains) -> HardwareRun
@@ -462,17 +488,19 @@ function run_on_target(gen, names::Tuple{Vararg{Symbol}}; run::Bool = false,
                        live_plot::Bool = false, live_plot_cmd = "kst2",
                        live_plot_config = "kst2config.kst", gains = (;),
                        mode::Symbol = :hil)
+    target = run_target(; run, export_c, deploy_host)
     log_name = basename(gen.log.file)
     no_timing = (; median_dt = NaN, max_dt = NaN)
     start_plot(dir; log) = live_plot ? launch_live_plot(dir; cmd = live_plot_cmd,
                                                         config = live_plot_config, log) : nothing
 
-    if export_c
+    if target in (:export_only, :local_c, :remote_c)
         res = export_program_c(gen, output_dir; Tf, arm_deg, card_options, gains)
-        run || return HardwareRun(false, :none, nothing, 0, 0, no_timing, output_dir,
-                                  res.files, res.mangled, nothing)
+        target === :export_only &&
+            return HardwareRun(false, :none, nothing, 0, 0, no_timing, output_dir,
+                               res.files, res.mangled, nothing)
         expected = round(Int, Tf / gen.Ts)
-        if !isempty(deploy_host)
+        if target === :remote_c
             # Build and run on another machine (e.g. a Raspberry Pi with the QUBE attached).
             # The log is streamed back during the run when a live plot is wanted, so the
             # viewer watches this run rather than the copy fetched afterwards.
@@ -496,8 +524,8 @@ function run_on_target(gen, names::Tuple{Vararg{Symbol}}; run::Bool = false,
                            output_dir, res.files, res.mangled, plotter)
     end
 
-    run || return HardwareRun(false, :none, nothing, 0, 0, no_timing, nothing, String[],
-                              "", nothing)
+    target === :none && return HardwareRun(false, :none, nothing, 0, 0, no_timing, nothing,
+                                          String[], "", nothing)
     ctrl = make_runtime(gen, names; backend, gains)
     # The loop below does not yield, so the viewer is launched first; it waits for the log on
     # its own (see `launch_live_plot`) rather than on this thread, which would never get back
@@ -524,10 +552,29 @@ live-plot session file), while a path the caller spelled out is left alone.
 """
 function program_log_path(spec, default)
     name = isempty(spec.log_file) ? default : spec.log_file
-    spec.export_c && return basename(name)
+    _exports_c(spec) && return basename(name)
     return (isabspath(name) || !isempty(dirname(name))) ? name :
            joinpath(spec.output_dir, name)
 end
+
+"""
+    local_log_path(spec, default) -> String
+
+Where to *read* a log this analysis did not just produce — re-fitting an earlier run with
+`run = false`, say.
+
+Not always the same as [`program_log_path`](@ref): an exported program writes a bare file name
+in its own directory on the target, and the copy fetched back lands in `output_dir`, so that is
+where an earlier run's log is to be found. Without an export the program wrote it here in the
+first place.
+"""
+local_log_path(spec, default) =
+    _exports_c(spec) ? joinpath(spec.output_dir, program_log_path(spec, default)) :
+    program_log_path(spec, default)
+
+# A named deploy host means C sources get built there, whatever `export_c` says -- see
+# `run_target`, which is the one place that rule is decided.
+_exports_c(spec) = spec.export_c || !isempty(spec.deploy_host)
 
 "The backend an analysis asked for, as a `Symbol`. Errors on anything but `julia` or `c`."
 function program_backend(spec)

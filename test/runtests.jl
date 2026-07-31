@@ -708,6 +708,31 @@ import DyadCompilerPasses
         end
     end
 
+    # The four targets, as a decision that can be checked without a rig. The case that
+    # matters: a named `deploy_host` means the run happens *there*, which is only possible
+    # through exported C, so it implies `export_c`. Ignoring the host instead ran the program
+    # in this process against whatever card the workstation has — `hil_open` failing with
+    # -108 while the QUBE sat attached to the host that was named.
+    @testset "which target a run goes to" begin
+        T(; kw...) = QuanserComponents.run_target(; kw...)
+        pi = "fredrikb@192.168.1.49"
+        @test T(run = true,  export_c = false, deploy_host = "") === :inprocess
+        @test T(run = true,  export_c = true,  deploy_host = "") === :local_c
+        @test T(run = true,  export_c = true,  deploy_host = pi) === :remote_c
+        @test T(run = true,  export_c = false, deploy_host = pi) === :remote_c   # implied
+        @test T(run = false, export_c = false, deploy_host = "") === :none
+        @test T(run = false, export_c = true,  deploy_host = "") === :export_only
+        @test T(run = false, export_c = false, deploy_host = pi) === :export_only
+        # ...and the log paths follow the same rule, so a deployed run's fetched copy is
+        # where a later `run = false` re-fit looks for it.
+        spec = QuanserComponents.FurutaFrictionBaseSpec(; output_dir = "friction_c",
+                                                         deploy_host = pi,
+                                                         log_file = "friction.csv")
+        @test QuanserComponents.program_log_path(spec, "x.csv") == "friction.csv"
+        @test QuanserComponents.local_log_path(spec, "x.csv") ==
+              joinpath("friction_c", "friction.csv")
+    end
+
     # Where a run's log goes, which differs by target: an exported program runs in its own
     # directory on whatever machine it was deployed to, so it gets the bare name; an
     # in-process run resolves a bare name against `output_dir` so the log lands beside
@@ -754,9 +779,10 @@ import DyadCompilerPasses
             # This run writes its log; the wrapper may now let the viewer go.
             write(csv, "time\tvalue\n")
             t_write = time()
-            ok = timedwait(() -> isfile(started), 10.0)
+            # Non-empty, not merely present: the shell creates the file before writing to it.
+            ok = timedwait(() -> isfile(started) && !isempty(strip(read(started, String))), 10.0)
             @test ok === :ok
-            @test parse(Float64, read(started, String)) >= t_write - 0.5
+            @test parse(Float64, strip(read(started, String))) >= t_write - 0.5
         finally
             kill(p)
         end
