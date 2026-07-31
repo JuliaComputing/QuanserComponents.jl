@@ -51,7 +51,7 @@ relations
 end
 
 analysis FurutaFrictionExperiment
-  extends FurutaFrictionBase(Ti = 0.07, card_options = "deadband_compensation=0.0", w_min = 1.0, w_max = 40.0, n_levels = 10, w_max_fit = w_max + 4, w_min_fit = 0.4, deploy_host = "fredrikb@192.168.1.49", log_file = "run_hardware.csv")
+  extends FurutaFrictionBase(Ti = 0.07, w_min = 1.0, w_max = 40.0, n_levels = 10, w_max_fit = w_max + 4, w_min_fit = 0.4, deploy_host = "fredrikb@192.168.1.49", log_file = "run_hardware.csv")
   # Every *symbolic* parameter the model owns is forwarded here, so the analysis'
   # parameters parameterize the model directly instead of being read back out of the spec
   # by the implementation. `Ts` and `log_file` are deliberately absent: they are structural,
