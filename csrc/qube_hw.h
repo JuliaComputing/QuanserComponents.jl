@@ -36,7 +36,16 @@ extern "C" {
  * default when nothing is set, which makes the effective gain depend on the SDK
  * build rather than on anything we control -- so set it explicitly and get the
  * same behaviour on every host. 0.65 V is the value the QUBE-Servo 3 driver
- * documents as its default. */
+ * documents as its default.
+ *
+ * Not zero, which was measured: with compensation off, the amplifier's own deadband
+ * (~0.57 V, from a constant-velocity sweep's breakaway command) swallows the whole
+ * command range the upright stabilizer works in. Holding at the top needs ~0.1 V with
+ * compensation on and the pendulum sits 0.2 deg off vertical; with it off the loop has
+ * to push to ~0.59 V before anything happens and settles for 1.9 deg. Nothing in the
+ * controller compensates a deadband: the friction feedforward is odd in speed, and a
+ * deadband is odd in command -- the two coincide only in a constant-velocity sweep,
+ * never at the top, where the speed crosses zero while the command must act. */
 #define QUBE_HW_DEFAULT_CARD_OPTIONS "deadband_compensation=0.65"
 
 /* Fills both angles in radians: shoulder 0 at home, elbow 0 hanging down. */

@@ -256,10 +256,13 @@ function fit_friction(data; motor::IdParams = identified)
     fit = FrictionFit(params, a, norm(resid) / sqrt(length(resid)),
                       maximum(u) - minimum(u), nkeep, nsamples, sc, motor)
     params.kc > 0 || @warn """
-        kc came out non-positive, which is not physical. The likeliest cause is deadband
-        compensation having been left on during the experiment: it adds a fixed offset in
-        the direction of the command, straight onto the term being measured. Re-run with
-        `card_options = "deadband_compensation=0.0"` (the analysis default)."""
+        kc came out non-positive. It is the breakaway command left over after the driver's
+        deadband compensation, so a slightly over-compensating driver can push it below
+        zero — the QUBE's 0.65 V default against a measured ~0.57 V of deadband. That is
+        not a reason to switch the compensation off: `kc` would then absorb the whole
+        deadband and describe a plant no controller run uses (see the note in
+        csrc/qube_hw.h). Trim the compensation towards the measured breakaway instead, or
+        take the fit as saying there is no residual Coulomb term to model."""
     return fit
 end
 

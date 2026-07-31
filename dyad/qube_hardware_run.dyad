@@ -40,9 +40,11 @@ partial analysis QubeHardwareRunBase
   parameter arm_deg::Real = 0.0
   """
   Card-specific options applied after opening the board, e.g.
-  \"deadband_compensation=0.0\". Empty leaves the driver on its own defaults
+  \"deadband_compensation=0.65\". Empty leaves qube_hw.c on its own default, which is
+  what every run should normally use: the command-to-torque path has to be the same one
+  the identified parameters were fitted against
   """
-  parameter card_options::String = "deadband_compensation=0.0"
+  parameter card_options::String = ""
   """
   Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
   `export_c` is true, which always builds C

@@ -81,7 +81,6 @@ end
 
 @qube_run_spec FurutaFrictionBaseSpec :FurutaFrictionBase begin
     run::Bool = true
-    card_options::String = "deadband_compensation=0.0"
     output_dir::String = "friction_c"
     # Its own directory on the deploy host, so a deployed friction experiment does not
     # overwrite the swing-up controller's sources there (or get overwritten by them).

@@ -58,7 +58,7 @@ Compile the friction experiment to a SynchJulia node: build `FurutaFriction` on 
 `PeriodicClock` at sample time `Ts`, with its `DataLogger` writing to `log_file`, and
 `stkcompile` it.
 
-Returns what [`compile_program`](@ref) returns: `(; topmod, tuning_defaults, log, Ts)`. The
+Returns what [`compile_program`](@ref) returns: `(; compiled, tuning_defaults, log, Ts, ...)`. The
 node argument order is `(tick::Bool, gains::TuningGains, auto::AutoPars)` and the outputs are
 `(row, w_ref, shoulder_angle, shoulder_velocity, u_applied)`.
 
@@ -114,15 +114,17 @@ shorter truncates the sweep, longer just repeats it.
 friction_sweep_duration(; n_levels = 6, t_step = 2.0) = 2 * float(n_levels) * float(t_step)
 
 """
-    run_friction_experiment(ctrl; Tf, arm_deg=0.0, card_options="deadband_compensation=0.0")
+    run_friction_experiment(ctrl; Tf, arm_deg=0.0, card_options=nothing)
 
 Run `ctrl` against the physical QUBE for `Tf` seconds and return `(; rows, ticks, log_file,
-timing)` — [`run_program!`](@ref) with this experiment's default duration and card options.
+timing)` — [`run_program!`](@ref) with this experiment's default duration.
 
-Deadband compensation is off by default: it offsets the command in the direction it points,
-which is indistinguishable from the Coulomb friction this experiment measures. Pass
-`card_options = nothing` to leave `qube_hw.c`'s own default in force instead.
+`card_options` defaults to `nothing`, i.e. `qube_hw.c`'s own deadband compensation, which is
+deliberate: the point of the experiment is to measure the friction *the controller faces*, so
+it has to run on the same command-to-torque path the controller does. Turning compensation off
+here makes `kc` absorb the amplifier deadband, which then describes a plant that no runs use —
+see the note in csrc/qube_hw.h for what that costs.
 """
 run_friction_experiment(ctrl::ProgramRuntime; Tf = friction_sweep_duration(), arm_deg = 0.0,
-                        card_options = "deadband_compensation=0.0") =
+                        card_options = nothing) =
     run_program!(ctrl; Tf, arm_deg, card_options)

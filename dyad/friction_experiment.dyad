@@ -8,7 +8,7 @@ decide which samples are at a genuinely constant speed. `run = false` re-fits an
 log with new thresholds without touching the hardware.
 """
 partial analysis FurutaFrictionBase
-  extends QubeHardwareRunBase(card_options = "deadband_compensation=0.0", output_dir = "friction_c", deploy_dir = "friction_c", run = true)
+  extends QubeHardwareRunBase(output_dir = "friction_c", deploy_dir = "friction_c", run = true)
   "Slowest speed in the sweep [rad/s]"
   parameter w_min::Real = 2.0
   "Fastest speed in the sweep [rad/s]"
@@ -51,7 +51,7 @@ relations
 end
 
 analysis FurutaFrictionExperiment
-  extends FurutaFrictionBase(Ti = 0.07, card_options = "", w_min = 1.0, w_max = 40.0, n_levels = 10, w_max_fit = w_max + 4, w_min_fit = 0.4, run = false)
+  extends FurutaFrictionBase(Ti = 0.07, card_options = "deadband_compensation=0.0", w_min = 1.0, w_max = 40.0, n_levels = 10, w_max_fit = w_max + 4, w_min_fit = 0.4, deploy_host = "fredrikb@192.168.1.49", log_file = "run_hardware.csv")
   # Every *symbolic* parameter the model owns is forwarded here, so the analysis'
   # parameters parameterize the model directly instead of being read back out of the spec
   # by the implementation. `Ts` and `log_file` are deliberately absent: they are structural,

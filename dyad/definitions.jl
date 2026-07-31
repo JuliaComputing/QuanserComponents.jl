@@ -101,6 +101,11 @@ withparams(p::FrictionParams; changes...) =
 # higher-order terms.
 const friction_nominal = FrictionParams()
 
+# NOTE: this is the fit from a run with the driver's deadband compensation at its default.
+# The set fitted with compensation *off* (kc = 3.7e-3, i.e. 0.57 V of breakaway) was tried and
+# reverted: it describes a plant no controller run uses, and the swing-up holds 1.9 deg off
+# vertical on it instead of 0.2 deg. Replace the numbers below with a fresh fit on the restored
+# configuration.
 # The identified set, from a constant-velocity run on the QUBE (2026-07-30, 40 s sweep,
 # 1..40 rad/s in both directions; 4875 of 8000 samples survived the constant-velocity
 # selection, residual RMS 0.0105 V over a 4.01 V command range).

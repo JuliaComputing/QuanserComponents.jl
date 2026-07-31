@@ -13,7 +13,7 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # Sample time [s]
   var"Ts"::Float64 = 0.005
   # Run the program on the hardware; false only builds it
-  var"run"::Bool = false
+  var"run"::Bool = true
   # Duration [s] of the run; 0 means the program's own natural length
   var"Tf"::Float64 = 0.0
   # Motor saturation [V]
@@ -22,7 +22,9 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # its home position first
   var"arm_deg"::Float64 = 0.0
   # Card-specific options applied after opening the board, e.g.
-  # \"deadband_compensation=0.0\". Empty leaves the driver on its own defaults
+  # \"deadband_compensation=0.65\". Empty leaves qube_hw.c on its own default, which is
+  # what every run should normally use: the command-to-torque path has to be the same one
+  # the identified parameters were fitted against
   var"card_options"::String = ""
   # Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
   # `export_c` is true, which always builds C
@@ -35,10 +37,10 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # to open the file, so the two cannot disagree. Empty keeps the program's own default name.
   # Exported and deployed runs use the bare file name inside their own directory, since an
   # absolute path from this machine means nothing on the target
-  var"log_file"::String = ""
-  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Needs
-  # `export_c`, since it is C sources that get copied over
-  var"deploy_host"::String = ""
+  var"log_file"::String = "run_hardware.csv"
+  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  # `export_c`, since C sources are what gets copied over
+  var"deploy_host"::String = "fredrikb@192.168.1.49"
   # Directory on `deploy_host` to copy the sources into
   var"deploy_dir"::String = "friction_c"
   # Launch a live plotter alongside the run to watch it as it happens (needs `run = true`)
@@ -102,13 +104,22 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # 
   # Two things about the experiment that matter more than the model does:
   # 
-  #   * **Turn deadband compensation off.** The driver can add a fixed offset in the
-  #     direction of the command, which lands directly on top of the Coulomb term this
-  #     experiment exists to measure — enough to make the fitted `kc` come out
-  #     negative. `FurutaFrictionExperiment` defaults `card_options` to
-  #     `"deadband_compensation=0.0"` for exactly this reason. The `kc` that comes out
-  #     then covers the amplifier's own deadband as well as mechanical Coulomb
-  #     friction; this experiment cannot separate the two.
+  #   * **Leave deadband compensation as the controller has it.** The driver adds a fixed
+  #     offset in the direction of the command, which lands directly on top of the Coulomb
+  #     term this experiment measures, so `kc` comes out as the *residual* after that
+  #     compensation rather than as mechanical Coulomb friction — small, and occasionally
+  #     small enough to go negative if the driver over-compensates.
+  # 
+  #     That is the right number anyway, and switching the compensation off to get a
+  #     "purer" one is a trap this experiment fell into once: with compensation off, `kc`
+  #     grows to cover the amplifier deadband (~0.57 V of command), and the fitted set then
+  #     describes a plant no controller run uses. Nothing in the loop compensates a
+  #     deadband — the feedforward here is odd in speed, a deadband is odd in command, and
+  #     the two coincide only in a constant-velocity sweep, never at the top where the speed
+  #     crosses zero while the command must act. Measured on the rig: holding upright takes
+  #     ~0.1 V and 0.2 deg of error with compensation on, ~0.59 V and 1.9 deg with it off.
+  #     So run the sweep on the same command-to-torque path the controller uses, which is
+  #     what `card_options = ""` (the default) does.
   #   * **The pendulum is a disturbance here.** At a genuinely constant arm speed it
   #     contributes no torque about the shoulder axis, but it takes a long time to get
   #     there — `bp` is tiny — so it rings through most of each step. The inertia-disc
