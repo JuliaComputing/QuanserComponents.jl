@@ -8,8 +8,8 @@ using DyadInterface
 using DyadInterface: ODEAlg, DEVerbosity, OptimizationLevel
 using ModelingToolkit: SymbolicT, toggle_namespacing
 using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpec
-@kwdef mutable struct FurutaExportCSpec <: AbstractQubeHardwareRunBaseSpec
-  name::Symbol = :FurutaExportC
+@kwdef mutable struct FurutaSwingupExperimentSpec <: AbstractQubeHardwareRunBaseSpec
+  name::Symbol = :FurutaSwingupExperiment
   # Sample time [s]
   var"Ts"::Float64 = 0.005
   # Run the program on the hardware; false only builds it
@@ -74,7 +74,7 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   var"model"::Union{Nothing, System} = QuanserComponents.FurutaHardware(; name=:FurutaHardware)
 end
 
-function DyadInterface.run_analysis(spec::FurutaExportCSpec)
+function DyadInterface.run_analysis(spec::FurutaSwingupExperimentSpec)
   overrides = Dict{SymbolicT, SymbolicT}()
   no_namespace_model = toggle_namespacing(spec.model, false)
   
@@ -84,5 +84,5 @@ function DyadInterface.run_analysis(spec::FurutaExportCSpec)
   run_analysis(base_spec)
 end
 
-FurutaExportC(;kwargs...) = run_analysis(FurutaExportCSpec(;kwargs...))
-export FurutaExportC, FurutaExportCSpec
+FurutaSwingupExperiment(;kwargs...) = run_analysis(FurutaSwingupExperimentSpec(;kwargs...))
+export FurutaSwingupExperiment, FurutaSwingupExperimentSpec

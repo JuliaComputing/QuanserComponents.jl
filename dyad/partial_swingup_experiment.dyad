@@ -1,0 +1,27 @@
+# The partial base lives in its own file, apart from the concrete analysis that extends it.
+# That is not organisation for its own sake: editing a concrete analysis' parameters in the
+# Dyad GUI rewrites the file it sits in, and that write-back drops the `partial` qualifier
+# from any partial analysis in the same file (JuliaComputing/dyad-lang#1762). The base then
+# gets a generated definition of its own, which redefines the spec and adds a second,
+# self-recursive `run_analysis` -- everything still appears to work, because the hand-written
+# implementation is included later and wins, but precompilation of the whole package is
+# silently disabled. Keeping the two apart means a GUI edit to the concrete analysis cannot
+# reach the partial. The "analysis bases stay partial" testset in test/runtests.jl is the
+# backstop.
+"""
+Run the swing-up controller on the QUBE, and export it as standalone C.
+
+Building and running the program is `QubeHardwareRunBase`' job; what belongs to this analysis
+is the LQR design weights below. `export_c` defaults to true because C is how this program
+reaches the rig it is meant for: a Raspberry Pi with the QUBE attached, where the exported
+sources are built and run. `run = false` stops after the export, which is how the generated C
+is inspected without a device.
+"""
+partial analysis FurutaSwingupBase
+  extends QubeHardwareRunBase(export_c = true, Tf = 10.0)
+  "LQR state-penalty diagonal in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"
+  parameter Q1::Real[4] = [1000.0, 10.0, 1.0, 1.0]
+  "LQR control-penalty weight"
+  parameter Q2::Real = 100.0
+relations
+end

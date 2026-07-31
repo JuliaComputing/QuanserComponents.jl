@@ -1,0 +1,61 @@
+# The partial base lives in its own file, apart from the concrete analysis that extends it.
+# That is not organisation for its own sake: editing a concrete analysis' parameters in the
+# Dyad GUI rewrites the file it sits in, and that write-back drops the `partial` qualifier
+# from any partial analysis in the same file (JuliaComputing/dyad-lang#1762). The base then
+# gets a generated definition of its own, which redefines the spec and adds a second,
+# self-recursive `run_analysis` -- everything still appears to work, because the hand-written
+# implementation is included later and wins, but precompilation of the whole package is
+# silently disabled. Keeping the two apart means a GUI edit to the concrete analysis cannot
+# reach the partial. The "analysis bases stay partial" testset in test/runtests.jl is the
+# backstop.
+"""
+Run the constant-velocity friction experiment on the QUBE and fit a friction model to what
+the program logged.
+
+Building and running the program is `QubeHardwareRunBase`' job; what belongs to this
+analysis is the velocity staircase, the velocity loop's two gains, and the thresholds that
+decide which samples are at a genuinely constant speed. `run = false` re-fits an existing
+log with new thresholds without touching the hardware.
+"""
+partial analysis FurutaFrictionBase
+  extends QubeHardwareRunBase(output_dir = "friction_c", deploy_dir = "friction_c", run = true)
+  "Slowest speed in the sweep [rad/s]"
+  parameter w_min::Real = 2.0
+  "Fastest speed in the sweep [rad/s]"
+  parameter w_max::Real = 30.0
+  "Number of speeds per direction"
+  parameter n_levels::Real = 6
+  "Time held at each speed [s]"
+  parameter t_step::Real = 2.0
+  """
+  Speed-distribution exponent: 2 (quadratic) clusters the levels at low speed, where the
+  friction curve has its structure; 1 spaces them evenly
+  """
+  parameter spacing::Real = 2
+  "Velocity-loop proportional gain [V·s/rad]"
+  parameter K::Real = 0.05
+  """
+  Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
+  above `Ts`
+  """
+  parameter Ti::Real = 0.5
+  """
+  Time [s] discarded after each change of the velocity reference. The fit assumes zero
+  acceleration, so the transient at each step has to go
+  """
+  parameter settle::Real = 0.6
+  "Largest |arm acceleration| [rad/s²] still counted as constant speed"
+  parameter acc_tol::Real = 3.0
+  """
+  Largest |pendulum velocity| [rad/s] accepted. At constant arm speed the pendulum
+  should be at rest too; while it swings it is a torque disturbance
+  """
+  parameter elbow_tol::Real = 1.5
+  "Slowest |velocity| [rad/s] used in the fit; near standstill the sign term is undefined"
+  parameter w_min_fit::Real = 0.5
+  "Fastest |velocity| [rad/s] used in the fit"
+  parameter w_max_fit::Real = 40.0
+  "Width of the moving average applied to the acceleration before thresholding, in samples"
+  parameter smooth_n::Integer = 20
+relations
+end

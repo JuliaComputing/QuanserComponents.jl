@@ -14,7 +14,7 @@ import Moshi as __Ext__Moshi
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `friction_params`         | Friction coefficients used for the feedforward (see dyad/definitions.jl)                         | --  |   friction_identified |
-| `friction_comp`         | Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright hold on the simulated plant, settling into a limit cycle rather than diverging outright. Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is not monotone in either knob, so this needs a structural decision rather than a gain -- compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious candidate, since it is the *stabilizer* that the feedforward upsets                         | --  |   0.0 |
+| `friction_comp`         | Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward is wired up but inactive.                         | --  |   0.0 |
 | `volt_per_torque`         | Command needed per unit of motor torque, Rm/kt [V/(N*m)]                         | --  |   identified....entified.kt |
 | `umax`         | Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and a parameter here so a model built around this one can bind it to the motor saturation it also clamps the command to (`FurutaHardware` does). The swing-up phase has its own, smaller limit in `energyswingup.umax`                         | V  |   10.0 |
 
@@ -57,12 +57,7 @@ import Moshi as __Ext__Moshi
   ### Symbolic Parameters
   __local__friction_comp = friction_comp
   append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
-  append!(__params, @parameters (friction_comp::Real), [description = is wired up but inactive: at any nonzero value tried it costs the stabilizer the upright
-  append!(__params, @parameters (friction_comp::Real), [description = hold on the simulated plant, settling into a limit cycle rather than diverging outright.
-  append!(__params, @parameters (friction_comp::Real), [description = Widening `friction_ff.w_tanh` shrinks the cycle without removing it, and the response is
-  append!(__params, @parameters (friction_comp::Real), [description = not monotone in either knob, so this needs a structural decision rather than a gain --
-  append!(__params, @parameters (friction_comp::Real), [description = compensating only while the swing-up is active (i.e. ahead of `switch1`) is the obvious
-  append!(__params, @parameters (friction_comp::Real), [description = candidate, since it is the *stabilizer* that the feedforward upsets"])
+  append!(__params, @parameters (friction_comp::Real), [description = is wired up but inactive."])
   __initial_conditions[friction_comp] = __local__friction_comp
   __local__volt_per_torque = volt_per_torque
   append!(__params, @parameters (volt_per_torque::Real), [description = "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"])

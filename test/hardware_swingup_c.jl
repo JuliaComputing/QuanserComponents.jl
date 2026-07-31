@@ -45,7 +45,7 @@ dir = joinpath(@__DIR__, "..", "furuta_c")
 # Export, build, run on the hardware, and bring up kst2 alongside the run. The analysis
 # launches the viewer with its working directory set to `output_dir`, so the session file's
 # relative reference to run_hardware.csv resolves without changing this process's cwd.
-@time sol = QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = true,
+@time sol = QuanserComponents.FurutaSwingupExperiment(; output_dir = dir, Ts, run = true,
                                               live_plot = true)
 
 # The log was written by the program itself, from inside each tick, and fetched back here if
@@ -58,5 +58,5 @@ plotD(D)
 
 ##
 # Export only, without touching the hardware:
-# QuanserComponents.FurutaExportC(; output_dir = dir, Ts, run = false)
+# QuanserComponents.FurutaSwingupExperiment(; output_dir = dir, Ts, run = false)
 ##

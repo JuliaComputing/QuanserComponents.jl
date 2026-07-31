@@ -108,7 +108,7 @@ open_log!(l::ProgramLog) = open_log!(l.file; header = header(l), ncols = ncols(l
 """
     compile_program(ctor; name, Ts, tunables, outputs, log, param_overrides, overrides...)
 
-Compile one of the rig's programs to a SynchJulia node.
+Compile one of the rig's programs to a SynchJulia node. This is where the stkcompile call lives.
 
   - `ctor` is the generated model constructor (`FurutaHardware`, `FurutaFriction`), called
     with `Ts`, the log file and the overrides.

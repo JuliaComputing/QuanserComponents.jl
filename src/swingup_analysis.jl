@@ -1,11 +1,12 @@
-# Implementation of the FurutaExportC analysis: build the swing-up controller, export it as C,
-# and optionally run it on the QUBE.
+# Implementation of the FurutaSwingupExperiment analysis: build the swing-up controller, run it
+# on the QUBE, and export it as standalone C.
 #
-# `FurutaExportC` is a concrete `analysis` in dyad/furuta_export_c.dyad; the Dyad compiler
-# generates its spec/entry point (generated/FurutaExportC_definition.jl), which forwards to
-# `FurutaExportCBaseSpec` (defined in analysis_base.jl — see the file header there for why the
+# `FurutaSwingupExperiment` is a concrete `analysis` in dyad/swingup_experiment.dyad; the Dyad
+# compiler generates its spec/entry point (generated/FurutaSwingupExperiment_definition.jl),
+# which forwards to
+# `FurutaSwingupBaseSpec` (defined in analysis_base.jl — see the file header there for why the
 # forwarding goes through `QubeHardwareRunBaseSpec`). This file provides
-# `run_analysis(::FurutaExportCBaseSpec)`: design the LQR feedback gain from the penalty
+# `run_analysis(::FurutaSwingupBaseSpec)`: design the LQR feedback gain from the penalty
 # weights `Q1`/`Q2` via `design_lqr`, compile the program, and hand it to
 # [`run_on_target`](@ref), which does the exporting, deploying, running and live plotting that
 # both analyses share.
@@ -13,12 +14,12 @@
 using DyadInterface: AbstractAnalysisSolution, ArtifactMetadata,
                      ArtifactType, AnalysisSolutionMetadata
 
-export FurutaExportCSolution
+export FurutaSwingupSolution
 
 """
-    FurutaExportCSolution
+    FurutaSwingupSolution
 
-Result of the `FurutaExportC` analysis: the designed LQR gain `L` and `hwrun`, the
+Result of the `FurutaSwingupExperiment` analysis: the designed LQR gain `L` and `hwrun`, the
 [`HardwareRun`](@ref) describing what became of the program — the `output_dir` written to, the
 `files` generated, the `mangled` base name of the exported `<mangled>_step`/`_reset` functions,
 and, when the analysis ran it, the log it wrote and how the loop kept time.
@@ -30,13 +31,13 @@ model's tuned default.
 `live_plot = true`. It deliberately outlives the analysis so the trace stays on screen
 afterwards; `kill(sol.hwrun.plotter)` closes it.
 """
-struct FurutaExportCSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: AbstractAnalysisSolution
+struct FurutaSwingupSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: AbstractAnalysisSolution
     spec::SP
     hwrun::HardwareRun
     L::Vector{Float64}
 end
 
-function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
+function DyadInterface.run_analysis(spec::FurutaSwingupBaseSpec)
     backend = program_backend(spec)
     mkpath(spec.output_dir)
     # `design_lqr` costs a couple of minutes, so it stays switched off until asked for; the
@@ -56,11 +57,11 @@ function DyadInterface.run_analysis(spec::FurutaExportCBaseSpec)
                                          spec.card_options,
                           spec.deploy_host, spec.deploy_dir, spec.live_plot,
                           spec.live_plot_cmd, spec.live_plot_config, gains = (; L))
-    return FurutaExportCSolution(spec, hwrun,
+    return FurutaSwingupSolution(spec, hwrun,
                                  collect(float.(something(L, gen.tuning_defaults[:L]))))
 end
 
-function DyadInterface.AnalysisSolutionMetadata(sol::FurutaExportCSolution)
+function DyadInterface.AnalysisSolutionMetadata(sol::FurutaSwingupSolution)
     arts = ArtifactMetadata[]
     if sol.hwrun.output_dir !== nothing
         push!(arts, ArtifactMetadata(:GeneratedFiles, ArtifactType.DataFrame,
@@ -83,7 +84,7 @@ end
 # each generated file, its size in bytes, and the exported C symbol on the source/header rows.
 # `:RunLog` (only when the analysis ran) returns the hardware trace, parsed from the log with
 # the same reader every other log in this package goes through.
-function DyadInterface.artifacts(sol::FurutaExportCSolution, name::Symbol)
+function DyadInterface.artifacts(sol::FurutaSwingupSolution, name::Symbol)
     if name === :GeneratedFiles
         dir = sol.hwrun.output_dir
         dir === nothing &&
@@ -102,8 +103,8 @@ function DyadInterface.artifacts(sol::FurutaExportCSolution, name::Symbol)
     end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", sol::FurutaExportCSolution)
-    print(io, "FurutaExportC solution for ")
+function Base.show(io::IO, ::MIME"text/plain", sol::FurutaSwingupSolution)
+    print(io, "FurutaSwingupExperiment solution for ")
     printstyled(io, "$(nameof(sol.spec))\n", color = :green, bold = true)
     if sol.hwrun.output_dir !== nothing
         println(io, "output_dir: ", sol.hwrun.output_dir)

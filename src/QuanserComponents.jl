@@ -3,10 +3,10 @@ using DiscreteComponents
 using MultibodyComponents
 using LinearAlgebra
 
-# Spec bases for the analyses. Both `FurutaExportC` and `FurutaFrictionExperiment` extend the
+# Spec bases for the analyses. Both `FurutaSwingupExperiment` and `FurutaFrictionExperiment` extend the
 # partial analysis `QubeHardwareRunBase`, and the Dyad compiler resolves an analysis' spec type
 # to the root of that chain, so the generated definitions
-# (generated/Furuta{ExportC,FrictionExperiment}_definition.jl) refer to
+# (generated/Furuta{Swingup,Friction}Experiment_definition.jl) refer to
 # `AbstractQubeHardwareRunBaseSpec` and `QubeHardwareRunBaseSpec`; both must exist before the
 # generated module is included.
 include("analysis_base.jl")
@@ -27,7 +27,7 @@ include("codegen.jl")
 include("friction.jl")
 
 # The analyses on top of them.
-include("export_analysis.jl")
+include("swingup_analysis.jl")
 include("friction_analysis.jl")
 
 end # module QuanserComponents
