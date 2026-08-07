@@ -149,10 +149,22 @@ Returns `(; compiled, tuning_struct, auto_struct, tuning_defaults, log, Ts)`, wh
 they double as the constructors for the structs they were compiled into. The node's argument
 order is `(tick::Bool, gains::TuningGains, auto::AutoPars)`.
 """
-function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
-                         outputs, log::ProgramLog,
-                         traj::Union{Nothing, ProgramTrajectory} = nothing,
-                         param_overrides = nothing, overrides...)
+function compile_program(ctor; kwargs...)
+    sig = program_signature(ctor; kwargs...)
+    @info "Running stkcompile"
+    compiled = SynchToolkit.stkcompile(sig.sys; sig.inputs, outputs = sig.outs)
+    return (; compiled, sig.tuning_struct, sig.auto_struct, sig.tuning_defaults, sig.log,
+              sig.traj, sig.Ts)
+end
+
+# Build the model and the node signature that both compilation targets share: `stkcompile`
+# for everything that runs here or exports C ([`compile_program`](@ref)), and the source
+# emitter for a statically compiled binary ([`compile_program_source`](@ref)). Returns the
+# system, the `inputs`/`outs` the node is compiled with, and everything the callers pass on.
+function program_signature(ctor; name::Symbol, Ts, tunables::AbstractDict,
+                           outputs, log::ProgramLog,
+                           traj::Union{Nothing, ProgramTrajectory} = nothing,
+                           param_overrides = nothing, overrides...)
     # Every C library the program calls into has to exist before the `:c` backend links them
     # (the Julia backend only needs them at call time).
     ensure_qube_hw()
@@ -176,10 +188,81 @@ function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
     # declared and assigned Lustre names, and `clock` hits a missing branch in
     # SynchToolkit's `build_output`. So the outputs are indexed positionally.
     outs = [ClockedOutput(o) for o in outputs(nsys)]
-    @info "Running stkcompile"
-    compiled = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
-    return (; compiled, tuning_struct, auto_struct, tuning_defaults, log, traj,
+    return (; sys, inputs, outs, tuning_struct, auto_struct, tuning_defaults, log, traj,
               Ts = Float64(Ts))
+end
+
+"""
+    compile_program_source(ctor; name, Ts, tunables, outputs, log, ...) -> (; decls, operators, ...)
+
+Code-generate a program as *Julia source* rather than evaluating it: `decls` are the top-level
+expressions of the module SynchToolkit would have `eval`'d -- the `SynchJulia.@node`, the
+`TuningGains`/`AutoPars` definitions with their constructors, and the `using` line they need --
+ready to be written into a package. Takes and returns what [`compile_program`](@ref) does,
+minus `compiled` and the two `ParametersStruct`s, plus `operators`: the names of this library's
+I/O operators the node calls.
+
+This is what makes a statically compiled deployment possible: JuliaC's `--trim` needs the node
+*defined in a package*, so that precompiling that package compiles the node and serializes the
+executable into its image (see [`export_program_juliac`](@ref)). A module `eval`'d into
+SynchToolkit at runtime has no image to be serialized into.
+
+Two things have to be done by hand here, because SynchToolkit has no entry point that returns
+the generated code unevaluated (JuliaComputing/SynchToolkit.jl#160):
+
+  - `stkcompile`'s prologue is reproduced, stopping after `do_codegen`, before the node is
+    macroexpanded and the module `eval`'d. The node is pushed as a plain declaration holding
+    the *unexpanded* `SynchJulia.@node <source>`: `NodeDeclaration` macroexpands it in
+    SynchToolkit's own scope, which neither round-trips through `string` nor resolves in the
+    consumer's module. Assembly is left to `codegen_module` so declaration ordering stays
+    SynchToolkit's business (JuliaComputing/SynchToolkit.jl#157).
+  - References to this library's operators come out fully qualified
+    (`QuanserComponents.hw_measure`), which would make the emitted package depend on
+    QuanserComponents and pull the whole modelling stack into the binary. They are rewritten to
+    bare names, which the emitted package then defines itself as `ccall`s into the same
+    `csrc/` implementations.
+"""
+function compile_program_source(ctor; kwargs...)
+    sig = program_signature(ctor; kwargs...)
+    STK = SynchToolkit
+    state = STK.TearingState(STK.expand_connections(sig.sys))
+    ci = STK.MTKTearing.infer_clocks!(STK.MTKTearing.ClockInference(state))
+    tss, _, continuous_id, id_to_clock = STK.MTKTearing.split_system(ci)
+    continuous_id == 0 ||
+        error("compile_program_source: only purely discrete systems can be code-generated")
+    clocked = STK.collect_clocked(tss, ci, id_to_clock)
+    SynchJulia.backend!(:julia)
+    _, result, _, rtmod = STK.do_codegen(
+        sig.sys, tss, ci, clocked.original_eqs, clocked.eq_clocks, clocked.original_ieqs,
+        clocked.var_clocks, sig.inputs, sig.outs)
+    push!(rtmod.declarations,
+          STK.ExprDeclaration(:(SynchJulia.@node $(STK.to_sj(result.sj_node)))))
+    body = STK.codegen_module(rtmod).args[end]::Expr
+    operators = Set{Symbol}()
+    decls = Expr[_localize_operators(ex, operators) for ex in body.args if ex isa Expr]
+    return (; decls, operators = sort!(collect(operators)), sig.tuning_defaults, sig.log,
+              sig.traj, sig.Ts)
+end
+
+# Rewrite this library's operators into bare names, collecting the names rewritten. The emitted
+# package defines them itself (see `emit_program_ffi`), so the generated node calls into the
+# same `csrc/` implementations without depending on this package.
+#
+# Codegen splices the operator *functions themselves* into the expression tree, and printing
+# one qualifies it (`QuanserComponents.hw_measure`), so a bare `string` of the tree would only
+# be loadable where this package is. Base functions the node also calls (`sin`, `clamp`, ...)
+# print unqualified and resolve anywhere, hence the parent-module test rather than a name list.
+# `GlobalRef`s are handled too, in case a later SynchToolkit emits those instead.
+function _localize_operators(ex, operators::Set{Symbol})
+    if ex isa Function && parentmodule(ex) === @__MODULE__
+        push!(operators, nameof(ex))
+        return nameof(ex)
+    elseif ex isa GlobalRef && ex.mod === @__MODULE__
+        push!(operators, ex.name)
+        return ex.name
+    end
+    ex isa Expr || return ex
+    return Expr(ex.head, Any[_localize_operators(a, operators) for a in ex.args]...)
 end
 
 # ---------------------------------------------------------------------------
@@ -237,8 +320,10 @@ log_file(c::ProgramRuntime) = c.log.file
 # `SynchExecutable`/`node` take one, and each does its own `invoke_in_world` inside
 # (SynchToolkit#159). Hence no `@invokelatest` and no single-crossing contract to honour --
 # that used to be this function's whole shape.
-function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing,
-                     export_dir = nothing)
+# The program's runtime-settable values: the model's own, with `gains` overriding field by
+# field. Shared by the in-process/C path (`instantiate`, which hands them to the generated
+# constructor) and the JuliaC path (`export_program_juliac`, which writes them out as literals).
+function tuning_values(gen; gains = (;))
     vals = OrderedDict{Symbol, Any}(gen.tuning_defaults)
     for (field, v) in pairs(gains)
         v === nothing && continue
@@ -247,6 +332,12 @@ function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing
                                  ($(join(keys(vals), ", ")))"))
         vals[field] = vals[field] isa AbstractVector ? collect(float.(v)) : float(v)
     end
+    return vals
+end
+
+function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing,
+                     export_dir = nothing)
+    vals = tuning_values(gen; gains)
     cn = gen.compiled
     g = gen.tuning_struct(cn; vals...)
     # Pass the static struct: AutoPars defaults may be expressions of its fields.
