@@ -80,6 +80,21 @@ end
     Q2::Float64 = 100.0
 end
 
+# The JuliaC target's own analysis. It extends the swing-up base in Dyad, so it inherits the
+# LQR weights and builds the same program; what is its own is where the application goes and
+# how it is compiled. The C/deploy parameters come along with the shared root and are unused
+# here, which is the price of one root for the whole rig.
+@qube_run_spec FurutaSwingupJuliaCBaseSpec :FurutaSwingupJuliaCBase begin
+    Tf::Float64 = 10.0
+    output_dir::String = "furuta_juliac"
+    Q1::Vector{Float64} = [1000.0, 10.0, 1.0, 1.0]
+    Q2::Float64 = 100.0
+    app_name::String = "FurutaSwingupApp"
+    julia_channel::String = "1.13"
+    trim::String = "safe"
+    build::Bool = true
+end
+
 @qube_run_spec FurutaFrictionBaseSpec :FurutaFrictionBase begin
     run::Bool = true
     output_dir::String = "friction_c"
@@ -116,8 +131,8 @@ end
 end
 
 # Base specs an analysis' generated entry point may be asking for, most specific first.
-const QUBE_RUN_SPECS = (FurutaSwingupBaseSpec, FurutaFrictionBaseSpec,
-                        FurutaIdentificationBaseSpec)
+const QUBE_RUN_SPECS = (FurutaSwingupBaseSpec, FurutaSwingupJuliaCBaseSpec,
+                        FurutaFrictionBaseSpec, FurutaIdentificationBaseSpec)
 
 """
     QubeHardwareRunBaseSpec(; parameters...)

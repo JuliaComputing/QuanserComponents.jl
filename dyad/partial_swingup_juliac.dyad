@@ -1,0 +1,33 @@
+# The partial base lives in its own file, apart from the concrete analysis that extends it,
+# for the reason spelled out in partial_swingup_experiment.dyad: a GUI edit to a concrete
+# analysis rewrites its file and drops `partial` from any partial analysis sharing it
+# (JuliaComputing/dyad-lang#1762).
+"""
+Deploy the swing-up controller as a statically compiled Julia binary.
+
+Same program and same designed gains as `FurutaSwingupExperiment`, compiled by a different
+route: instead of writing C to be built with `make`, this writes a small Julia application
+package -- the code-generated node as source, plus a timing loop around it -- and compiles it
+with JuliaC's `--trim=safe` into a standalone executable with no Julia installation behind it.
+See `QuanserComponents.export_program_juliac`.
+
+`build = false` stops after writing the application, which is how the generated sources are
+inspected without a toolchain; `run = true` then drives the pendulum with the built binary.
+
+The application's libraries are named by absolute path, so it belongs to the directory it was
+written into -- deploying elsewhere means running this analysis there. The parameters
+`QubeHardwareRunBase` contributes for the C and deploy targets (`export_c`, `backend`,
+`deploy_host`, `live_plot`, ...) have no effect here.
+"""
+partial analysis FurutaSwingupJuliaCBase
+  extends FurutaSwingupBase(Tf = 10.0, output_dir = "furuta_juliac")
+  "Name of the generated application package and of the compiled executable"
+  parameter app_name::String = "FurutaSwingupApp"
+  "juliaup channel used for the build; JuliaC's --trim needs Julia 1.13 or newer"
+  parameter julia_channel::String = "1.13"
+  "JuliaC trimming mode: safe, unsafe, unsafe-warn or no"
+  parameter trim::String = "safe"
+  "Compile the generated application into a standalone binary; false only writes it"
+  parameter build::Boolean = true
+relations
+end

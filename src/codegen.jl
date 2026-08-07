@@ -26,8 +26,8 @@ using ControlSystemsMTK: named_ss
 using ControlSystemsBase: c2d, ss, lqr
 using LinearAlgebra: Diagonal, I, pinv
 
-export generate_swingup_controller, export_swingup_c, SwingupController, design_lqr,
-       swingup_log
+export generate_swingup_controller, export_swingup_c, export_swingup_juliac,
+       SwingupController, design_lqr, swingup_log
 
 """
     design_lqr(; Ts=0.005, Q1=[1000.0, 10.0, 1.0, 1.0], Q2=100.0) -> L::Vector{Float64}
@@ -186,4 +186,31 @@ function export_swingup_c(dir; Ts = 0.005, log_file = SWINGUP_LOG_FILE, L = noth
     gen = generate_swingup_controller(; Ts, log_file, L, umax, kwargs...)
     r = export_program_c(gen, dir; Tf, arm_deg, card_options, gains = gen.gains)
     return (; r..., gen.compiled)
+end
+
+"""
+    export_swingup_juliac(dir; Ts=0.005, log_file=SWINGUP_LOG_FILE, L=nothing, umax=nothing,
+                          Tf=10.0, arm_deg=0.0, card_options=nothing, app_name="FurutaSwingupApp",
+                          julia_channel="1.13", trim="safe", build=true, overrides...)
+
+Code-generate the swing-up controller as Julia source and export it as a standalone
+application under `dir`, compiled into a trimmed binary unless `build = false` — see
+[`export_program_juliac`](@ref), which does the work and documents what lands there. The
+JuliaC counterpart of [`export_swingup_c`](@ref), built from the same model, the same designed
+gains and the same log.
+
+Returns what `export_program_juliac` returns.
+"""
+function export_swingup_juliac(dir; Ts = 0.005, log_file = SWINGUP_LOG_FILE, L = nothing,
+                               umax = nothing, Tf = 10.0, arm_deg = 0.0,
+                               card_options = nothing,
+                               app_name::AbstractString = "FurutaSwingupApp",
+                               julia_channel::AbstractString = APP_COMPAT.julia,
+                               trim::AbstractString = "safe", build::Bool = true,
+                               param_overrides = nothing, overrides...)
+    gen = compile_program_source(FurutaHardware; name = :controller, Ts,
+                                 tunables = SWINGUP_TUNABLES, outputs = _swingup_outputs,
+                                 log = swingup_log(log_file), param_overrides, overrides...)
+    return export_program_juliac(gen, dir; app_name, Tf, arm_deg, card_options,
+                                 gains = (; L, umax), julia_channel, trim, build)
 end

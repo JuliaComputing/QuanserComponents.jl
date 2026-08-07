@@ -20,17 +20,20 @@ include("traj_source.jl")
 include("../generated/module.jl")
 
 # Building a synchronous program for the rig and running it, in three layers: what every
-# program shares (program.jl), how one gets onto hardware (harness.jl), and the programs
-# themselves (codegen.jl for the swing-up controller, friction.jl for the friction experiment,
-# identification.jl for the open-loop replay).
+# program shares (program.jl), how one gets onto hardware (harness.jl for the C target,
+# juliac.jl for a statically compiled Julia binary), and the programs themselves (codegen.jl
+# for the swing-up controller, friction.jl for the friction experiment, identification.jl for
+# the open-loop replay).
 include("program.jl")
 include("harness.jl")
+include("juliac.jl")
 include("codegen.jl")
 include("friction.jl")
 include("identification.jl")
 
 # The analyses on top of them.
 include("swingup_analysis.jl")
+include("juliac_analysis.jl")
 include("friction_analysis.jl")
 include("identification_analysis.jl")
 
