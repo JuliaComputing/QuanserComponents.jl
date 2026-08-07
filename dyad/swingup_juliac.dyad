@@ -1,0 +1,5 @@
+analysis FurutaSwingupJuliaC
+  extends FurutaSwingupJuliaCBase()
+  model = FurutaHardware()
+relations
+end

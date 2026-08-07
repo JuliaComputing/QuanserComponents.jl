@@ -8,6 +8,7 @@ using MultibodyComponents
 # using DiscreteComponents
 using SynchToolkit
 using LinearAlgebra
+using Libdl: dlext
 using Statistics: cor
 using DelimitedFiles: readdlm
 using Printf: @sprintf
@@ -268,8 +269,10 @@ import DyadCompilerPasses
         # struct, colliding with the dispatching function of that name in analysis_base.jl.
         @test length(methods(DI.run_analysis,
                              (QuanserComponents.FurutaIdentificationBaseSpec,))) == 1
-        for base in ("FurutaSwingupBase", "FurutaFrictionBase", "FurutaIdentificationBase",
-                     "QubeHardwareRunBase")
+        @test length(methods(DI.run_analysis,
+                             (QuanserComponents.FurutaSwingupJuliaCBaseSpec,))) == 1
+        for base in ("FurutaSwingupBase", "FurutaSwingupJuliaCBase", "FurutaFrictionBase",
+                     "FurutaIdentificationBase", "QubeHardwareRunBase")
             @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
                                    "$(base)_definition.jl"))
         end
@@ -354,6 +357,93 @@ import DyadCompilerPasses
         if sol.L !== nothing
             L2 = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 50.0)
             @test !(L2 ≈ sol.L)
+        end
+    end
+
+    # ---- FurutaSwingupJuliaC: the same program as a trimmed binary -----------
+    # Emits a Julia application package instead of C and compiles it with JuliaC. The build
+    # is gated on the toolchain; what runs unconditionally is the emission, which is where
+    # everything specific to this target lives.
+    @testset "FurutaSwingupJuliaC analysis" begin
+        DI = QuanserComponents.DyadInterface
+        dir = mktempdir()
+        # build=false: the analysis defaults to build=true, which shells out to JuliaC and
+        # takes minutes.
+        @time sol = QuanserComponents.FurutaSwingupJuliaC(; output_dir = dir, Ts,
+                                                          build = false, run = false)
+        app = joinpath(dir, "FurutaSwingupApp")
+        @test sol.app_dir == app && sol.exe === nothing && sol.buildlog === nothing
+        @test length(sol.L) == 4 && all(isfinite, sol.L)
+        for f in ("Project.toml", "README.md", joinpath("src", "FurutaSwingupApp.jl"),
+                  joinpath("src", "controller.jl"), joinpath("src", "hardware_ffi.jl"),
+                  joinpath("csrc", "qube_hw.c"), joinpath("csrc", "qube_log.c"))
+            @test isfile(joinpath(app, f))
+        end
+        # The C the node calls into is built next to the application, not borrowed from this
+        # package, so the binary does not reach back into the depot.
+        @test isfile(joinpath(app, "deps", "libqube_hw." * dlext))
+        @test isfile(joinpath(app, "deps", "libqube_log." * dlext))
+
+        # The node is emitted as source, so it has to round-trip through the parser. Syntax
+        # errors come back as `:error`/`:incomplete` nodes rather than throwing.
+        function parses_cleanly(src)
+            bad = false
+            walk(x) = x isa Expr &&
+                (x.head in (:error, :incomplete) ? (bad = true) : foreach(walk, x.args))
+            walk(Meta.parseall(src))
+            return !bad
+        end
+        ctrl_src = read(joinpath(app, "src", "controller.jl"), String)
+        app_src = read(joinpath(app, "src", "FurutaSwingupApp.jl"), String)
+        ffi_src = read(joinpath(app, "src", "hardware_ffi.jl"), String)
+        @test all(parses_cleanly, (ctrl_src, app_src, ffi_src))
+        @test occursin("SynchJulia.@node function top(", ctrl_src)
+        @test occursin("mutable struct TuningGains", ctrl_src)
+        @test occursin("mutable struct AutoPars", ctrl_src)
+        # The operators the node calls must be local to the application: a qualified
+        # reference would make it depend on this package, and so drag the modelling stack
+        # into the binary. Only the header comment may name QuanserComponents.
+        @test !occursin("QuanserComponents.hw_", ctrl_src)
+        @test !occursin("QuanserComponents.log_", ctrl_src)
+        for op in ("hw_measure", "hw_write", "log_row")
+            @test occursin("$op(", ctrl_src)      # called by the node
+            @test occursin("$op(", ffi_src)       # and defined by the application
+        end
+        # The tuned gain and the trim-critical settings are baked in.
+        @test occursin(string(sol.L[1]), app_src)
+        @test occursin("const EXE = SynchExecutable(", app_src)
+        @test occursin("compilation_enabled!(false)", app_src)
+        @test occursin("dynamic_execution = false", read(joinpath(app, "Project.toml"), String))
+
+        md = DI.AnalysisSolutionMetadata(sol)
+        @test any(a -> a.name === :GeneratedFiles, md.artifacts)
+        @test !any(a -> a.name === :BuildLog, md.artifacts)
+        tbl = DI.artifacts(sol, :GeneratedFiles)
+        @test Set(tbl.file) == Set(sol.files) && all(>(0), tbl.bytes)
+        @test_throws ArgumentError DI.artifacts(sol, :BuildLog)
+        @test_throws ArgumentError DI.artifacts(sol, :RunLog)
+        @test_throws ArgumentError DI.artifacts(sol, :Nonexistent)
+
+        # Where Julia >= 1.13 and JuliaC are installed, the application must actually build
+        # with `--trim=safe` — the property the whole shape of it exists to satisfy.
+        if QuanserComponents.juliac_available()
+            exe = QuanserComponents.build_program_juliac(app)
+            @test isfile(exe)
+            log = read(joinpath(dirname(app), "build.log"), String)
+            @test !occursin("Verifier error", log)
+            # The C toolchain is only a SynchCompiler weak dependency and must not be dragged
+            # into the bundle (as SynchJulia's own test/caching/trim.jl checks).
+            leftovers = [joinpath(r, n) for (r, ds, fs) in walkdir(dirname(dirname(exe)))
+                         for n in Iterators.flatten((ds, fs)) if occursin("clang", lowercase(n))]
+            @test isempty(leftovers)
+            # It starts, resolves its own libraries and reports the device it cannot open
+            # (this host has no HIL SDK, so `qube_hw_open` fails by design).
+            out = IOBuffer()
+            ok = success(pipeline(Cmd(`$exe`; dir = dirname(exe)); stdout = out, stderr = out))
+            @test ok || occursin("could not open the device", String(take!(out)))
+        else
+            @info "skipping the JuliaC build (needs `juliaup add 1.13` and JuliaC in that \
+                   Julia's default environment)"
         end
     end
 

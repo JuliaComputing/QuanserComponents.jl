@@ -18,14 +18,10 @@ end
 
 import BlockComponents
 import DiscreteComponents
-import DyadData
 import DyadInterface
 import ElectricalComponents
-import HydraulicComponents
 import MultibodyComponents
 import RotationalComponents
-import ThermalComponents
-import TranslationalComponents
 @doc Markdown.doc"""
 This connector represents an electrical pin with voltage and current as the potential and flow variables, respectively.
 """
@@ -219,6 +215,7 @@ include("FurutaHardware_definition.jl")
 include("FurutaIdentificationExperiment_definition.jl")
 include("FurutaIdentification_definition.jl")
 include("FurutaSwingupExperiment_definition.jl")
+include("FurutaSwingupJuliaC_definition.jl")
 include("FurutaSwingup_definition.jl")
 include("GoHome_definition.jl")
 include("HardwareCommand_definition.jl")
