@@ -21,6 +21,9 @@ using ModelingToolkit
 using ModelingToolkit: t_nounits as t
 using DiscreteComponents: PeriodicClock
 using OrderedCollections: OrderedDict
+# `default_values` (a system's bindings, initial conditions and observed equations merged
+# into one map) is owned by SymbolicIndexingInterface; ModelingToolkit no longer re-exports it.
+using SymbolicIndexingInterface: default_values
 
 export ProgramLog, ProgramRuntime, run_program!, read_log
 
@@ -51,8 +54,7 @@ analysis forward its own value into it.
 function resolve_tunables(sys, syms::AbstractDict)
     SymT = ModelingToolkit.SymbolicT
     keysyms = [ModelingToolkit.unwrap(k) for k in keys(syms)]
-    dv = Dict{SymT, SymT}(
-        ModelingToolkit.default_values(ModelingToolkit.expand_connections(sys)))
+    dv = Dict{SymT, SymT}(default_values(ModelingToolkit.expand_connections(sys)))
     ModelingToolkit.evaluate_varmap!(dv, keysyms)
     out = OrderedDict{Symbol, Any}()
     for (k, field) in syms
