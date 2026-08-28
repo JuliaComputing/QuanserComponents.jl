@@ -4,6 +4,7 @@ using Test
 # backend and C export used below require Clang_unified_jll to be loaded.
 using Clang_unified_jll
 using ModelingToolkit
+using SymbolicIndexingInterface: default_values
 using MultibodyComponents
 # using DiscreteComponents
 using SynchToolkit
@@ -510,7 +511,7 @@ import DyadCompilerPasses
         # the whole friction law as one expression in `w`; compile that and evaluate it.
         expr = S.substitute(S.substitute(rhs("tau_f(t)"),
                                          Dict(sym("sw(t)") => rhs("sw(t)"))),
-                            Dict(ModelingToolkit.default_values(f)))
+                            Dict(default_values(f)))
         tau = S.build_function(expr, sym("w(t)"); expression = Val(false))
 
         # Odd in w: friction opposes the motion whichever way the axis turns.
@@ -535,7 +536,7 @@ import DyadCompilerPasses
             rhs2(n) = eqs2[findfirst(e -> string(e.lhs) == n, eqs2)].rhs
             e2 = S.substitute(S.substitute(rhs2("tau_f(t)"),
                                           Dict(sym2("sw(t)") => rhs2("sw(t)"))),
-                              Dict(ModelingToolkit.default_values(fi)))
+                              Dict(default_values(fi)))
             tq = S.build_function(e2, sym2("w(t)"); expression = Val(false))
             ws = range(1.0, 40.0, length = 200)          # the measured range
             @test q.kv > 0
