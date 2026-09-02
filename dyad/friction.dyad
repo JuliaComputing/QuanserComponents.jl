@@ -252,7 +252,7 @@ relations
   else
     sw = sign(w)
   end
-  tau_f = kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3
+  tau_f = kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w*abs(w ^ 2)
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/Friction.svg"}},
   "_links": {

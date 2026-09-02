@@ -152,7 +152,7 @@ feedforward with `kv = 0` for that reason.
   __assertions = []
 
   ### Equations
-  push!(__eqs, tau_f ~ kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w ^ 3)
+  push!(__eqs, tau_f ~ kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w * abs(w ^ 2))
 
   ### Control Structures
   if smooth
