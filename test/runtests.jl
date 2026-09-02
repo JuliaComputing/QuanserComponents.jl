@@ -1,4 +1,4 @@
-using QuanserComponents
+import QuanserComponents as QC
 using Test
 # SynchCompiler ≥ 0.4 provides its C compiler through a package extension; the `:c`
 # backend and C export used below require Clang_unified_jll to be loaded.
@@ -12,16 +12,10 @@ using LinearAlgebra
 using Statistics: cor
 using DelimitedFiles: readdlm
 using Printf: @sprintf
-# The plot-artifact assertions build real `Plots.Plot`s, so a backend has to be loaded.
-# (The `using Plots` further down is inside a disabled block and does not count.)
 using Plots: Plots
-# using SynchJulia
-# SynchJulia.backend!(:julia)
-##
-# include("../generated/tests.jl")
 
 
-@time "model" @named model = QuanserComponents.FurutaSwingup();
+@time "model" @named model = QC.FurutaSwingup();
 @time "mtkcompile + compile_lustre" ssys = multibody(model, additional_passes=[SynchToolkit.compile_lustre])
 
 #
@@ -29,26 +23,10 @@ k = ModelingToolkit.ShiftIndex()
 ##
 @time "ODEProblem" prob = ODEProblem(ssys, [
     ssys.qubependulum.shoulder_joint.render => false
-    # ssys.qubependulum.shoulder_joint.radius => 0.01
-    # ssys.qubependulum.shoulder_joint.color => [0.8, 0.8, 0.8, 1]
-    # ssys.qubependulum.shoulder_joint.cylinder_length => 0.03
     ssys.qubependulum.elbow_joint.phi => 0+deg2rad(0.15)
     ssys.qubependulum.shoulder_joint.phi => 0.0
     ssys.gain.k => 1.0
-    # Controller gains (energyswingup gain/arm_centering/umax, lqrstabilizer L/umax)
-    # now come from the model defaults.
-
     ssys.qubependulum.floor.r_shape => [0, -0.10, 0]
-
-    # ssys.qubependulum.base_box.color => [0.1, 0.1, 0.1, 1]
-    # ssys.qubependulum.base_box.shape.specular_coefficient => 1.5
-
-    # ssys.qubependulum.base_box.shape_transform => MultibodyComponents.Rp2T(MultibodyComponents.RotXYZ(-pi/2, 0, -pi / 2), [0, -0.075, 0])
-    # ssys.qubependulum.motor_front_mesh.shape_transform => MultibodyComponents.Rp2T(MultibodyComponents.RotY(-pi / 2) * MultibodyComponents.RotX(-pi / 2), [0.025, 0, 0])
-
-
-    # ssys.qubependulum.lower_arm.shape_transform => MultibodyComponents.Rp2T(MultibodyComponents.RotY(pi / 2) * MultibodyComponents.RotX(pi / 2), [0, -0.058, 0])
-
 ], (0.0, 10.0))
 
 
@@ -121,7 +99,7 @@ sol[ssys.qubependulum.lower_arm.m]
 # [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]; `Q2` is the control
 # penalty.
 Ts = 0.005
-@time L = QuanserComponents.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
+@time L = QC.design_lqr(; Ts, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0)
 @show L
 
 
@@ -132,7 +110,7 @@ Ts = 0.005
 ##
 # Code generation for the swing-up controller.
 #
-# `QuanserComponents.generate_swingup_controller` / `SwingupController` compile the
+# `QC.generate_swingup_controller` / `SwingupController` compile the
 # discrete `SwingupWithHoming` controller into a standalone SynchJulia node (Julia- or
 # C-executable), and `export_swingup_c` writes C sources. The test below drives the
 # generated controller in closed loop against the Dyad `QubePendulum`, discretized with
@@ -151,16 +129,16 @@ import DyadCompilerPasses
     # angles and records what the controller writes.
     function hold(shoulder, elbow)
         applied = Ref(NaN)
-        QuanserComponents.bind_hardware!(measure = () -> (shoulder, elbow),
+        QC.bind_hardware!(measure = () -> (shoulder, elbow),
                                         control = u -> (applied[] = u))
         applied
     end
 
     # ---- generated controller: compile once, run on both backends ----------
     @testset "compile and step ($backend)" for backend in (:julia, :c)
-        ctrl = QuanserComponents.SwingupController(; Ts, backend)
+        ctrl = QC.SwingupController(; Ts, backend)
         # No log open: `log_row` is a no-op returning 0, so the program runs unchanged.
-        @test ctrl.log.columns == QuanserComponents.SWINGUP_LOG_COLUMNS
+        @test ctrl.log.columns == QC.SWINGUP_LOG_COLUMNS
         # near hanging -> small command; near upright -> stabilizer engages
         applied = hold(0.0, 0.01)
         out = ctrl()
@@ -172,18 +150,18 @@ import DyadCompilerPasses
         out_top = ctrl()
         @test isfinite(out_top.u) && out_top.u == applied[]
         # one read and one write per tick, no more
-        @test QuanserComponents.hardware_counters() == (n_measure = 1, n_write = 1)
+        @test QC.hardware_counters() == (n_measure = 1, n_write = 1)
         # a tick that does not fire touches no hardware
         out_notick = ctrl(; tick = false)
-        @test QuanserComponents.hardware_counters() == (n_measure = 1, n_write = 1)
+        @test QC.hardware_counters() == (n_measure = 1, n_write = 1)
         @test out_notick.u === nothing
     end
 
     # :julia and :c backends must produce identical control signals. This is the
     # single most important property of the ccall-based hardware I/O: the same
     # controller definition, the same C implementation of the I/O, both targets.
-    let cj = QuanserComponents.SwingupController(; Ts, backend=:julia),
-        cc = QuanserComponents.SwingupController(; Ts, backend=:c)
+    let cj = QC.SwingupController(; Ts, backend=:julia),
+        cc = QC.SwingupController(; Ts, backend=:c)
         step_all(c) = [(hold(0.0, el); c().u) for el in (0.01, 0.5, 1.5, Float64(π))]
         @test step_all(cj) ≈ step_all(cc)
     end
@@ -191,7 +169,7 @@ import DyadCompilerPasses
     # ---- C source export ----------------------------------------------------
     @testset "C export" begin
         dir = mktempdir()
-        r = QuanserComponents.export_swingup_c(dir; Ts)
+        r = QC.export_swingup_c(dir; Ts)
         @test isfile(joinpath(dir, "top.c"))
         @test isfile(joinpath(dir, "top.h"))
         csrc = read(joinpath(dir, "top.c"), String)
@@ -246,7 +224,7 @@ import DyadCompilerPasses
         # node's `extern qube_hw_*` declarations resolve against qube_hw.c.
         if isdir("/opt/quanser/hil_sdk") &&
            (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
-            exe = QuanserComponents.compile_hardware_harness(dir)
+            exe = QC.compile_hardware_harness(dir)
             @test isfile(exe)
         end
     end
@@ -259,19 +237,19 @@ import DyadCompilerPasses
     # package. This has been silently reintroduced twice by an editor round-trip, hence the
     # guard.
     @testset "the analysis bases stay partial" begin
-        DI = QuanserComponents.DyadInterface
+        DI = QC.DyadInterface
         @test length(methods(DI.run_analysis,
-                             (QuanserComponents.FurutaSwingupBaseSpec,))) == 1
+                             (QC.FurutaSwingupBaseSpec,))) == 1
         @test length(methods(DI.run_analysis,
-                             (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
+                             (QC.FurutaFrictionBaseSpec,))) == 1
         # `QubeHardwareRunBase` is the root both analyses extend, so un-partialling it is the
         # same hazard one level up: the compiler would emit a `QubeHardwareRunBaseSpec`
         # struct, colliding with the dispatching function of that name in analysis_base.jl.
         @test length(methods(DI.run_analysis,
-                             (QuanserComponents.FurutaIdentificationBaseSpec,))) == 1
+                             (QC.FurutaIdentificationBaseSpec,))) == 1
         for base in ("FurutaSwingupBase", "FurutaFrictionBase", "FurutaIdentificationBase",
                      "QubeHardwareRunBase")
-            @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
+            @test !isfile(joinpath(pkgdir(QC), "generated",
                                    "$(base)_definition.jl"))
         end
     end
@@ -281,7 +259,7 @@ import DyadCompilerPasses
     # `QubeHardwareRunBaseSpec`. It has to land on the right base spec, and say so rather than
     # guess when it cannot tell.
     @testset "shared analysis base" begin
-        QC = QuanserComponents
+        QC = QC
         @test QC.QubeHardwareRunBaseSpec(; Ts, Q1 = [1.0, 2, 3, 4], Q2 = 3.0) isa
               QC.FurutaSwingupBaseSpec
         @test QC.QubeHardwareRunBaseSpec(; Ts, settle = 0.5) isa QC.FurutaFrictionBaseSpec
@@ -310,11 +288,11 @@ import DyadCompilerPasses
     # ---- FurutaSwingupExperiment analysis (Dyad analysis wrapper) --------------------
     # Designs the LQR gain from the penalty weights Q1/Q2, then exports the C.
     @testset "FurutaSwingupExperiment analysis" begin
-        DI = QuanserComponents.DyadInterface
+        DI = QC.DyadInterface
         dir = mktempdir()
         # run=false: the analysis defaults to run=true (compile + drive the hardware),
         # which must not happen in the test suite.
-        @time sol = QuanserComponents.FurutaSwingupExperiment(; output_dir = dir, Ts, run = false)
+        @time sol = QC.FurutaSwingupExperiment(; output_dir = dir, Ts, run = false)
         @test isfile(joinpath(dir, "top.c")) && isfile(joinpath(dir, "top.h"))
         @test sol.hwrun.output_dir == dir && !sol.hwrun.ran
         @test !isempty(sol.hwrun.mangled)
@@ -334,12 +312,12 @@ import DyadCompilerPasses
         # the override map directly, which is what the compiler builds from a
         # `model = FurutaHardware(final umax = umax)` line — the line itself lives in a .dyad
         # file the Dyad GUI rewrites, and it has come back with the binding dropped twice.
-        let m = QuanserComponents.FurutaHardware(; name = :m),
+        let m = QC.FurutaHardware(; name = :m),
             nm = ModelingToolkit.toggle_namespacing(m, false),
             SymT = ModelingToolkit.SymbolicT
             ov = Dict{SymT, SymT}(ModelingToolkit.unwrap(nm.umax) =>
                                   ModelingToolkit.unwrap(Num(5.0)))
-            gen5 = QuanserComponents.generate_swingup_controller(; Ts, param_overrides = ov)
+            gen5 = QC.generate_swingup_controller(; Ts, param_overrides = ov)
             @test gen5.tuning_defaults[:umax] == 5.0
         end
         # With `export_c = false` the analysis would run in-process and export nothing.
