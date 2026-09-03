@@ -278,7 +278,14 @@ function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
     # Retire it rather than adding to the pile.
     _close_stale_plotters(cmd, cfg)
     csv = isabspath(log) ? log : joinpath(dir, log)
-    _check_plot_fields(cfg, csv)
+    # Advisory only, and the log may be truncated or rewritten by the run's task at this very
+    # moment (see `run_hardware_harness_remote`): whatever goes wrong here must not take the
+    # hardware run down with it.
+    try
+        _check_plot_fields(cfg, csv)
+    catch e
+        @warn "live plot: could not check the session's columns against the log" exception = e
+    end
     q = Base.shell_escape
     script = """
         stamp=\$(mktemp)
@@ -327,7 +334,11 @@ end
 # when *nothing* matches — that is the case that means a blank window.
 function _check_plot_fields(config, csv)
     (isfile(config) && isfile(csv)) || return
-    header = split(strip(first(eachline(csv))), '\t')
+    # An empty file is normal here: the run's task truncates the previous log in place before
+    # this run's rows arrive, and an aborted run can leave one behind. Nothing to check yet.
+    it = iterate(eachline(csv))
+    (it === nothing || isempty(strip(first(it)))) && return
+    header = split(strip(first(it)), '\t')
     fields = Set(m.captures[1] for m in eachmatch(r"field=\"([^\"]*)\"", read(config, String)))
     delete!(fields, "INDEX")                    # kst's built-in sample index
     isempty(fields) && return

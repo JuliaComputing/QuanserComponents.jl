@@ -900,6 +900,30 @@ import DyadCompilerPasses
         end
     end
 
+    # ---- the live plot must survive an empty log ------------------------------
+    # The remote run's task truncates the previous log in place before this run's rows
+    # arrive, and the viewer is launched concurrently, so the column check can meet a
+    # zero-byte file. That used to throw out of `launch_live_plot` (whose contract is that
+    # it never throws) and abandon the analysis while the hardware run carried on unwatched.
+    @testset "live plot tolerates an empty log" begin
+        dir = mktempdir()
+        viewer = joinpath(dir, "fake_viewer")
+        write(viewer, "#!/bin/sh\nsleep 30\n")
+        chmod(viewer, 0o755)
+        cfg = joinpath(dir, "session.kst")
+        write(cfg, "<kst><datavector field=\"time\"/></kst>")
+        csv = joinpath(dir, "run.csv")
+        touch(csv)                                   # just truncated: exists, zero bytes
+        @test QuanserComponents._check_plot_fields(cfg, csv) === nothing
+        write(csv, "\n")                              # a bare newline is not a header either
+        @test QuanserComponents._check_plot_fields(cfg, csv) === nothing
+        write(csv, "")                               # back to zero bytes
+        p = QuanserComponents.launch_live_plot(dir; cmd = viewer, config = cfg,
+                                               log = "run.csv", wait_for_log = 1.0)
+        @test p !== nothing
+        p === nothing || kill(p)
+    end
+
     # ---- closed loop: Dyad plant discretized with SeeToDee.Rk4 --------------
     # The plant must use the same parameter set as the one the controller is tuned for,
     # i.e. the one `FurutaSwingup` instantiates. `QubePendulum()` would default to
