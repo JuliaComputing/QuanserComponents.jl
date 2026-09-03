@@ -4,7 +4,7 @@ Dyad models of the Quanser QUBE-Servo 2 with the rotary pendulum attachment (a F
 pendulum): a multibody plant, a clocked swing-up and balancing controller, and the
 components that let the same controller run on the real device as a synchronous program.
 
-https://github.com/user-attachments/assets/6ca40531-b9a5-4f1d-b164-68bdc6bb4661
+https://github.com/user-attachments/assets/5ebe76e0-c05f-45de-a816-7d8e877a1d93
 
 ## Installation
 
