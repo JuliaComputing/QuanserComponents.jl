@@ -19,11 +19,5 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 
-# Non-registered / unreleased-branch dependencies. The rest resolve from the
-# General and Dyad registries (notably ControlSystemsMTK >= 2.7.1, which supports
-# DataInterpolations 9, so no local ControlSystemsMTK patch is needed).
 [sources]
-QuanserComponents  = {path = ".."}
-SynchToolkit       = {url = "https://github.com/JuliaComputing/SynchToolkit.git",      rev = "tb/param-struct-decl-order"}
-DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "rmicons"}
-BlockComponents    = {url = "https://github.com/JuliaComputing/BlockComponents.git",    rev = "di9-compat"}
+QuanserComponents = {path = ".."}
