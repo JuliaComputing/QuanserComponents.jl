@@ -1,6 +1,6 @@
 # QuanserComponents
 
-Dyad models of the Quanser QUBE-Servo 2 with the rotary pendulum attachment (a Furuta
+Dyad models of the Quanser QUBE-Servo 3 with the rotary pendulum attachment (a Furuta
 pendulum): a multibody plant, a clocked swing-up and balancing controller, and the
 components that let the same controller run on the real device as a synchronous program.
 
