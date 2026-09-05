@@ -28,5 +28,18 @@ SymbolicIndexingInterface = "2efcf032-c050-4f8e-a9bb-153293bab1f5"
 SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+# The branch pins the MPC controller needs (see the comment in ../Project.toml).
+[extras]
+LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
+acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
+tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
+
 [sources]
 MPCComponents = {url = "https://github.com/JuliaComputing/MPCComponents.jl", rev = "feat/acados-ad-jacobian-backend"}
+DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/with-d-compat"}
+SynchJulia = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args"}
+SynchCompiler = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args", subdir = "SynchCompiler"}
+SynchToolkit = {url = "https://github.com/JuliaComputing/SynchToolkit.jl.git", rev = "mpccomponents/compat-synchjulia-0.6"}
+LinearMPC = {url = "https://github.com/baggepinnen/LinearMPC.jl.git", rev = "feat/disturbance-cross-term"}
+acados_jll = {url = "https://github.com/baggepinnen/acados_jll.jl", rev = "main"}
+tera_renderer_jll = {url = "https://github.com/baggepinnen/tera_renderer_jll.jl", rev = "main"}

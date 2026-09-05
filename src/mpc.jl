@@ -98,6 +98,16 @@ override paths, e.g. `control_system__Q1 = diagm([100, 100, 1, 1])` or `umax = 8
 function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
                                   dynamics = furuta_mpc_dynamics(), param_overrides = nothing,
                                   overrides...)
+    # The MPC's `u` is an array variable of the clocked partition. Registry SynchToolkit 0.5.0
+    # indexes its clock table by the array element and fails inside `stkcompile` with
+    # `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch MPCComponents pins
+    # (JuliaComputing/SynchToolkit.jl#185) looks the element up through `lookup_var_clock`.
+    isdefined(SynchToolkit, :lookup_var_clock) ||
+        error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) cannot \
+               compile a program with array clocked variables, which the MPC's outputs are. \
+               Resolve SynchToolkit from the mpccomponents/compat-synchjulia-0.6 branch -- the \
+               [sources] of this package's Project.toml pin it and the rest of the MPC stack; \
+               see the README's \"Nonlinear MPC\" section.")
     return compile_program(FurutaMPCHardware; name = :mpc_controller, Ts, Np, dynamics,
                            tunables = MPC_TUNABLES, outputs = _mpc_outputs,
                            log = mpc_log(log_file), param_overrides, overrides...)

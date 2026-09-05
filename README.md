@@ -134,41 +134,32 @@ configuration, in which an energy-based swing-up handed over to the MPC for bala
 ### Environment
 
 MPCComponents is not registered, and the AD Jacobian backend lives on its
-`feat/acados-ad-jacobian-backend` branch, which pins branch builds of SynchJulia/SynchCompiler
-0.6 and SynchToolkit 0.5 in its own Manifest. This package's `[sources]` entry points at that
-branch, so `pkg> instantiate` works once the branch is on GitHub; until then, or to work from a
-local checkout, assemble an environment by hand with the same pins MPCComponents uses:
+`feat/acados-ad-jacobian-backend` branch, which pins branch builds of its own dependencies:
+SynchJulia/SynchCompiler 0.6, a SynchToolkit that supports array clocked variables in
+`stkcompile` (JuliaComputing/SynchToolkit.jl#185), a DiscreteComponents branch, a LinearMPC
+fork and unregistered acados JLLs. **Registry SynchToolkit 0.5.0 does not have the array
+support**: with it, compiling `FurutaMPCHardware` fails inside `stkcompile` with
 
-```toml
-[deps]                      # plus whatever else the scripts need: Plots, Statistics, ...
-MPCComponents = "aba2bcdf-b216-4bf2-af71-aceb9999ebd9"
-QuanserComponents = "d44921f8-446f-4040-8b54-e37c69fd1e29"
-MultibodyComponents = "01883e52-22cd-4538-b14d-b44f958a131d"
-DiscreteComponents = "b5590941-51af-4a5a-9bca-5ae7cd448b75"
-SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
-SynchJulia = "a1b2c3d4-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
-SynchCompiler = "5d9dccf6-a926-4748-b7e2-6521ccc431d1"
-
-[extras]
-acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
-tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
-LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
-
-[sources]
-QuanserComponents = {path = "path/to/QuanserComponents"}
-MPCComponents = {path = "path/to/MPCComponents"}      # checked out at feat/acados-ad-jacobian-backend
-DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/with-d-compat"}
-SynchJulia = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args"}
-SynchCompiler = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args", subdir = "SynchCompiler"}
-SynchToolkit = {url = "https://github.com/JuliaComputing/SynchToolkit.jl.git", rev = "mpccomponents/compat-synchjulia-0.6"}
-LinearMPC = {url = "https://github.com/baggepinnen/LinearMPC.jl.git", rev = "feat/disturbance-cross-term"}
-acados_jll = {url = "https://github.com/baggepinnen/acados_jll.jl", rev = "main"}
-tera_renderer_jll = {url = "https://github.com/baggepinnen/tera_renderer_jll.jl", rev = "main"}
+```
+KeyError: key (control_system₊mpc₊u(t))[1] not found
 ```
 
-MultibodyComponents has to be the `~/.julia/dev` checkout (the registered release does not
-resolve against these pins). The first `using` precompiles the multibody and acados trees, a
-few minutes.
+(`MPCController` checks for this and says so). The `[sources]` of this package's Project.toml
+and of test/Project.toml pin the whole stack, so the simplest working environment is the
+package project itself, with the two unregistered or dev'd packages pointed at local checkouts:
+
+```julia
+# julia --project=path/to/QuanserComponents
+using Pkg
+Pkg.develop(path = "path/to/MPCComponents")        # checked out at feat/acados-ad-jacobian-backend
+Pkg.develop(path = "path/to/MultibodyComponents")  # the ~/.julia/dev checkout; the release does not resolve against these pins
+Pkg.instantiate()
+using SynchToolkit; isdefined(SynchToolkit, :lookup_var_clock)   # true with the right SynchToolkit
+```
+
+For an environment of your own, copy the `[sources]` block (and the `[extras]` entries they
+refer to) from Project.toml into it. The first `using` precompiles the multibody and acados
+trees, a few minutes.
 
 ## Layout
 
