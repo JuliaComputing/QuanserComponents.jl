@@ -4,8 +4,6 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
-import Moshi as __Ext__Moshi
-
 @doc Markdown.doc"""
    QubePendulum(; name, idparams, friction_params, Rm, kt, r_cm_r, mr, r, Jr, mp, Lp, l, Jp, bp, base_size)
 

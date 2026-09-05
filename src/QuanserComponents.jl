@@ -22,12 +22,13 @@ include("../generated/module.jl")
 # Building a synchronous program for the rig and running it, in three layers: what every
 # program shares (program.jl), how one gets onto hardware (harness.jl), and the programs
 # themselves (codegen.jl for the swing-up controller, friction.jl for the friction experiment,
-# identification.jl for the open-loop replay).
+# identification.jl for the open-loop replay, mpc.jl for the MPC swing-up).
 include("program.jl")
 include("harness.jl")
 include("codegen.jl")
 include("friction.jl")
 include("identification.jl")
+include("mpc.jl")
 
 # The analyses on top of them.
 include("swingup_analysis.jl")

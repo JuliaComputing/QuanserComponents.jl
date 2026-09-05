@@ -84,14 +84,86 @@ The hardware I/O calls into `csrc/qube_hw.c`, which needs the Quanser HIL SDK; t
 is built on the target for the same reason. See `test/runtests.jl` for how the controller is
 built, stepped and compared across backends without a device attached.
 
+## Nonlinear MPC swing-up (experimental)
+
+`FurutaMPC` (dyad/furuta_mpc.dyad) is the swing-up controller with the LQR stabilizer replaced
+by a nonlinear model-predictive controller, `MPCComponents.ACADOSMPC`: the energy swing-up
+pumps the pendulum up and, once it is within `catch_angle` of upright, the MPC balances it,
+solving every 5 ms a constrained optimal control problem over the horizon (30 samples by
+default) with the motor voltage bounded to ±10 V and the arm bounded to the end stops, and the
+infinite-horizon LQR cost-to-go about upright as terminal cost. The prediction model is the
+multibody `QubePendulum` itself: `furuta_mpc_dynamics()` compiles it with `multibody` and hands
+it to `continuous_dynamics` with the `ForwardDiff` Jacobian backend, which differentiates a
+numeric evaluation of the model. That backend exists because a multibody model's compiled form
+contains cached linear solves that the default symbolic Jacobian cannot reconstruct; the same
+fact rules out C export, so this controller runs on SynchJulia's Julia backend only.
+
+`FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
+hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
+
+```julia
+using QuanserComponents, ModelingToolkit, MultibodyComponents, SynchToolkit, OrdinaryDiffEqDefault
+@named model = FurutaMPCSwingup()
+ssys = multibody(model, additional_passes = [SynchToolkit.compile_lustre])
+prob = ODEProblem(ssys, Pair[ssys.qubependulum.shoulder_joint.render => false,
+                             ssys.qubependulum.elbow_joint.phi => deg2rad(0.15),
+                             ssys.qubependulum.shoulder_joint.phi => 0.0], (0.0, 10.0))
+sol = solve(prob; dt = 0.005)
+
+ctrl = MPCController(; Ts = 0.005, Np = 30)     # the hardware program, see test/hardware_mpc.jl
+```
+
+`test/mpc_rollouts.jl` ticks the compiled hardware program against a simulated pendulum from a
+thousand random initial conditions and reports success statistics, catch times and tick timings;
+`test/hardware_mpc.jl` runs it on the rig.
+
+### Environment
+
+MPCComponents is not registered, and the AD Jacobian backend lives on its
+`feat/acados-ad-jacobian-backend` branch, which pins branch builds of SynchJulia/SynchCompiler
+0.6 and SynchToolkit 0.5 in its own Manifest. This package's `[sources]` entry points at that
+branch, so `pkg> instantiate` works once the branch is on GitHub; until then, or to work from a
+local checkout, assemble an environment by hand with the same pins MPCComponents uses:
+
+```toml
+[deps]                      # plus whatever else the scripts need: Plots, Statistics, ...
+MPCComponents = "aba2bcdf-b216-4bf2-af71-aceb9999ebd9"
+QuanserComponents = "d44921f8-446f-4040-8b54-e37c69fd1e29"
+MultibodyComponents = "01883e52-22cd-4538-b14d-b44f958a131d"
+DiscreteComponents = "b5590941-51af-4a5a-9bca-5ae7cd448b75"
+SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
+SynchJulia = "a1b2c3d4-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
+SynchCompiler = "5d9dccf6-a926-4748-b7e2-6521ccc431d1"
+
+[extras]
+acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
+tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
+LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
+
+[sources]
+QuanserComponents = {path = "path/to/QuanserComponents"}
+MPCComponents = {path = "path/to/MPCComponents"}      # checked out at feat/acados-ad-jacobian-backend
+DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/with-d-compat"}
+SynchJulia = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args"}
+SynchCompiler = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args", subdir = "SynchCompiler"}
+SynchToolkit = {url = "https://github.com/JuliaComputing/SynchToolkit.jl.git", rev = "mpccomponents/compat-synchjulia-0.6"}
+LinearMPC = {url = "https://github.com/baggepinnen/LinearMPC.jl.git", rev = "feat/disturbance-cross-term"}
+acados_jll = {url = "https://github.com/baggepinnen/acados_jll.jl", rev = "main"}
+tera_renderer_jll = {url = "https://github.com/baggepinnen/tera_renderer_jll.jl", rev = "main"}
+```
+
+MultibodyComponents has to be the `~/.julia/dev` checkout (the registered release does not
+resolve against these pins). The first `using` precompiles the multibody and acados trees, a
+few minutes.
+
 ## Layout
 
 ```
-dyad/        the Dyad models: plant, controller, hardware I/O, analyses
+dyad/        the Dyad models: plant, controllers (swing-up state machine and MPC), hardware I/O, analyses
 generated/   Julia code generated from dyad/ (checked in)
 src/         hand-written Julia: hardware operators, program compilation, C export, deployment
 csrc/        the C side: Quanser HIL I/O, logging, trajectory replay, the run_hardware harness
 assets/      component icons, QUBE meshes and textures
 examples/    parameter identification scripts (their own environment, see examples/Project.toml)
-test/        test suite (its own environment, see test/Project.toml)
+test/        test suite (its own environment, see test/Project.toml), the hardware run scripts and the MPC Monte Carlo
 ```

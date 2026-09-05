@@ -4,8 +4,6 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
-import Moshi as __Ext__Moshi
-
 @doc Markdown.doc"""
    VelocityStaircase(; name, w_min, w_max, n_levels, t_step, spacing)
 
