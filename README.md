@@ -144,19 +144,18 @@ support**: with it, compiling `FurutaMPCHardware` fails inside `stkcompile` with
 KeyError: key (control_system₊mpc₊u(t))[1] not found
 ```
 
-(`MPCController` checks for this and says so). The `[sources]` of this package's Project.toml
-and of test/Project.toml pin the whole stack, so the simplest working environment is the
-package project itself, with the two unregistered or dev'd packages pointed at local checkouts:
+(`MPCController` checks for this and says so). This branch therefore checks in `Manifest.toml`
+and `test/Manifest.toml`, resolved against the pinned stack, with the two packages that have to
+come from local checkouts recorded relative to this repository: `../MPCComponents` (at
+`feat/acados-ad-jacobian-backend`) and `../MultibodyComponents` (the `~/.julia/dev` checkout;
+the registered release does not resolve against these pins). With both next to the repo,
 
-```julia
-# julia --project=path/to/QuanserComponents
-using Pkg
-Pkg.develop(path = "path/to/MPCComponents")        # checked out at feat/acados-ad-jacobian-backend
-Pkg.develop(path = "path/to/MultibodyComponents")  # the ~/.julia/dev checkout; the release does not resolve against these pins
-Pkg.instantiate()
-using SynchToolkit; isdefined(SynchToolkit, :lookup_var_clock)   # true with the right SynchToolkit
+```
+julia --project=path/to/QuanserComponents -e 'using Pkg; Pkg.instantiate()'   # the package
+julia --project=path/to/QuanserComponents/test test/hardware_mpc.jl           # the scripts
 ```
 
+is all it takes; check with `using SynchToolkit; isdefined(SynchToolkit, :lookup_var_clock)`.
 For an environment of your own, copy the `[sources]` block (and the `[extras]` entries they
 refer to) from Project.toml into it. The first `using` precompiles the multibody and acados
 trees, a few minutes.

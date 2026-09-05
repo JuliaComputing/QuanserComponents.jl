@@ -31,11 +31,15 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 # The branch pins the MPC controller needs (see the comment in ../Project.toml).
 [extras]
 LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
+SynchCompiler = "5d9dccf6-a926-4748-b7e2-6521ccc431d1"
+SynchJulia = "a1b2c3d4-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
 acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
 tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
 
 [sources]
-MPCComponents = {url = "https://github.com/JuliaComputing/MPCComponents.jl", rev = "feat/acados-ad-jacobian-backend"}
+QuanserComponents = {path = ".."}
+MPCComponents = {path = "../../MPCComponents"}
+MultibodyComponents = {path = "../../MultibodyComponents"}
 DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/with-d-compat"}
 SynchJulia = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args"}
 SynchCompiler = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args", subdir = "SynchCompiler"}

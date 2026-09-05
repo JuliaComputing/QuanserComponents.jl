@@ -80,7 +80,8 @@ acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
 tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
 
 [sources]
-MPCComponents = {url = "https://github.com/JuliaComputing/MPCComponents.jl", rev = "feat/acados-ad-jacobian-backend"}
+MPCComponents = {path = "../MPCComponents"}
+MultibodyComponents = {path = "../MultibodyComponents"}
 DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/with-d-compat"}
 SynchJulia = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args"}
 SynchCompiler = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args", subdir = "SynchCompiler"}
