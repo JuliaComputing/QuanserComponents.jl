@@ -112,8 +112,13 @@ end
 # ---------------------------------------------------------------------------
 @time "prediction model" dyn = QC.furuta_mpc_dynamics()
 @time "compile FurutaMPCHardware" ctrl = QC.MPCController(; Ts)
-# The simulated plant: the prediction model itself, or the same model with the nominal parameters.
-plant = PLANT === :identified ? dyn : QC.furuta_mpc_dynamics(; idparams = getfield(QC, PLANT))
+# The simulated plant: the prediction model itself, or the same model with other parameters.
+plant_params = PLANT === :identified ? nothing :
+               PLANT === :nominal ? QC.nominal :
+               PLANT === :perturbed ? QC.withparams(QC.identified; kt = 0.85 * QC.identified.kt, mr = 1.2 * QC.identified.mr,
+                                                    Jp = 1.15 * QC.identified.Jp, bp = 2 * QC.identified.bp) :
+               error("plant must be identified, perturbed or nominal")
+plant = plant_params === nothing ? dyn : QC.furuta_mpc_dynamics(; idparams = plant_params)
 sim = FurutaSim(plant; Ts)
 
 rng = Xoshiro(1)
@@ -203,12 +208,22 @@ any(!, success) && scatter!(p3, [x[2] for x in x0s[.!success]], [x[1] for x in x
                             color = ORANGE, markersize = 6, markershape = :x, label = "failed")
 savefig(p3, joinpath(OUTDIR, "initial_conditions.png"))
 
-# 4. Per-tick execution time, MPC in command versus swing-up.
-p4 = histogram(1e3exec_swing, bins = 0:0.02:3, color = GRAY, linecolor = :white, alpha = 0.8,
+# 4. Per-tick execution time, MPC in command versus swing-up (the MPC is solved in both phases; the
+#    swing-up phase is where it is fed states far from upright). Ticks beyond the axis are counted in
+#    the title: those are the collection pauses of the ~2 MB the acados callbacks allocate per tick.
+tmax = 5.0
+nover = count(>(tmax), 1e3exec_mpc) + count(>(tmax), 1e3exec_swing)
+p4 = histogram(1e3exec_swing, bins = 0:0.05:tmax, color = GRAY, linecolor = :white, alpha = 0.7,
                label = "energy swing-up", xlabel = "controller execution time per tick [ms]", ylabel = "ticks",
-               title = "Tick execution time (clock period 5 ms)", yscale = :log10)
-histogram!(p4, 1e3exec_mpc, bins = 0:0.02:3, color = BLUE, linecolor = :white, alpha = 0.8, label = "MPC in command")
+               title = @sprintf("Tick execution time; %d of %d ticks beyond the 5 ms clock period", nover, length(exec_mpc) + length(exec_swing)))
+histogram!(p4, 1e3exec_mpc, bins = 0:0.05:tmax, color = BLUE, linecolor = :white, alpha = 0.7, label = "MPC in command")
 savefig(p4, joinpath(OUTDIR, "exec_times.png"))
+# Raw tick times, for re-plotting without re-running.
+open(joinpath(OUTDIR, "exec_times.tsv"), "w") do io
+    println(io, "phase\texec_ms")
+    for v in exec_mpc; println(io, "mpc\t", 1e3v); end
+    for v in exec_swing; println(io, "swingup\t", 1e3v); end
+end
 
 # 5. Arm excursion against the end stops: over the whole rollout (swing-up included) and while the
 #    MPC, which carries the constraint, is in command.

@@ -1,0 +1,10 @@
+MPC swing-up Monte Carlo: 1000 rollouts of 10 s, Ts = 0.005 s, Np = 30
+successes (upright within 0.10 rad for the last 1.0 s): 978 / 1000 = 97.8%
+catch time [s]: median 2.51, 90% 5.57, max 8.84
+arm excursion max |phi| [rad]: median 2.07, max 5.31 (end stops at 1.92); rollouts beyond the stops: 578
+arm excursion while the MPC is in command [rad]: median 0.75, max 5.14; rollouts beyond the stops with the MPC in command: 115
+|u| max over all rollouts: 10.00 V
+acados exitflag != 0 on 0 of 1461796 MPC ticks
+tick execution time, MPC in command  [ms]: median 1.849, 99% 2.589, max 133.853
+tick execution time, energy swing-up [ms]: median 2.488, 99% 5.594, max 1162.125
+wall time 80.3 min (2.41 ms per tick incl. the plant simulation)

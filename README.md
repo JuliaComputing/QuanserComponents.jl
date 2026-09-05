@@ -126,9 +126,32 @@ sol = solve(prob; dt = 0.005)          # balanced within 2 s, arm within the end
 ctrl = MPCController(; Ts = 0.005, Np = 30)     # the hardware program, see test/hardware_mpc.jl
 ```
 
-`test/mpc_rollouts.jl` ticks the compiled hardware program against a simulated pendulum from a
-thousand random initial conditions and reports success statistics, catch times and tick timings
-(see the pull request that added it for the numbers); `test/hardware_mpc.jl` runs it on the rig.
+`test/hardware_mpc.jl` runs it on the rig. `test/mpc_rollouts.jl` ticks the compiled hardware
+program -- the very node the rig runs -- against a simulated pendulum (the multibody model with
+encoder quantization, RK4 at five sub-steps per period) from a thousand random initial
+conditions: arm anywhere within ±1.5 rad, pendulum anywhere, arm velocity within ±3 rad/s,
+pendulum velocity within ±10 rad/s. A rollout counts as a success if the pendulum stays within
+0.1 rad of upright for the last second of the 10 s run. The results of one such run are in
+assets/mpc/ (the per-rollout table and summaries), in short:
+
+| | plant = prediction model | plant perturbed (kt −15 %, arm mass +20 %, Jp +15 %, damping ×2), 200 rollouts |
+|---|---|---|
+| swung up and held within 10 s | 978 / 1000 | 156 / 200 |
+| catch time, median / 90 % / max | 2.5 s / 5.6 s / 8.8 s | 3.5 s / 6.5 s / 8.8 s |
+| acados status ≠ 0 | 0 of 1.46 M MPC ticks | 0 of 214 k |
+| arm past the end stops while the MPC is in command | 115 rollouts (all caught with the arm already out) | 12 |
+| arm past the end stops during the energy swing-up | 578 rollouts | 72 |
+| tick execution time with the MPC in command, median / 99 % | 1.85 ms / 2.6 ms (two batches sharing the machine) | |
+
+![catch times](assets/mpc/catch_times.png)
+![trajectories](assets/mpc/trajectories.png)
+![arm excursion](assets/mpc/arm_excursion.png)
+
+The failures are swing-ups that did not settle within the 10 s window (six never reached the
+catch region, the rest were caught and lost again), spread over the whole initial-condition
+space. The arm excursions are the energy swing-up's: the MPC, which carries the end-stop
+constraint, holds the arm inside once it is in command and brings it back when the pendulum
+comes up with the arm already out.
 
 ### Environment
 
