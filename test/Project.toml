@@ -12,6 +12,7 @@ GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 HardwareAbstractions = "9ac91abb-62f4-42c0-88e8-83732e93d543"
 LeastSquaresOptim = "0fc2ff8b-aaa3-5acd-a817-1944a5e08891"
 LowLevelParticleFilters = "d9d29d28-c116-5dba-9239-57a5fe23875b"
+MPCComponents = "aba2bcdf-b216-4bf2-af71-aceb9999ebd9"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 MultibodyComponents = "01883e52-22cd-4538-b14d-b44f958a131d"
 OrdinaryDiffEqDefault = "50262376-6c5a-4cf5-baba-aaf4f84d72d7"
@@ -26,3 +27,23 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 SymbolicIndexingInterface = "2efcf032-c050-4f8e-a9bb-153293bab1f5"
 SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+# The branch pins the MPC controller needs (see the comment in ../Project.toml).
+[extras]
+LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
+SynchCompiler = "5d9dccf6-a926-4748-b7e2-6521ccc431d1"
+SynchJulia = "a1b2c3d4-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
+acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
+tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
+
+[sources]
+QuanserComponents = {path = ".."}
+MPCComponents = {path = "../../MPCComponents"}
+MultibodyComponents = {path = "../../MultibodyComponents"}
+DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/with-d-compat"}
+SynchJulia = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args"}
+SynchCompiler = {url = "https://github.com/JuliaComputing/SynchJulia.jl.git", rev = "mpccomponents/ref-ccall-args", subdir = "SynchCompiler"}
+SynchToolkit = {url = "https://github.com/JuliaComputing/SynchToolkit.jl.git", rev = "mpccomponents/compat-synchjulia-0.6"}
+LinearMPC = {url = "https://github.com/baggepinnen/LinearMPC.jl.git", rev = "feat/disturbance-cross-term"}
+acados_jll = {url = "https://github.com/baggepinnen/acados_jll.jl", rev = "main"}
+tera_renderer_jll = {url = "https://github.com/baggepinnen/tera_renderer_jll.jl", rev = "main"}

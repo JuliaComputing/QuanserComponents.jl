@@ -4,8 +4,6 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
-import Moshi as __Ext__Moshi
-
 @doc Markdown.doc"""
    FrictionAndBackEMF(; name, params, smooth, kc, kv, k2, k3, w_tanh)
 

@@ -4,8 +4,6 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
-import Moshi as __Ext__Moshi
-
 @doc Markdown.doc"""
    GoHome(; name, k, k2, th, lambda, angle_tol, vel_tol, home_time)
 

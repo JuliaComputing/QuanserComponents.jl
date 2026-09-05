@@ -5,41 +5,44 @@
 
 
 @doc Markdown.doc"""
-   FurutaHardware(; name, Ts, log_file, umax)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, command_umax)
 
-The swing-up controller closed around the physical QUBE, with the hardware I/O
-inside the synchronous program.
+The MPC controller closed around the physical QUBE, with the hardware I/O inside the
+synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
+machine.
 
-`FurutaSwingup` is the same controller closed around the simulated
-`QubePendulum`; here the plant is replaced by `HardwareMeasurement` and
-`HardwareCommand`, which perform the encoder read and the amplifier write
-themselves. Compiling this model therefore yields a synchronous program that
-needs nothing from its caller but a clock tick -- see
-`generate_swingup_controller` and `SwingupController` in `src/codegen.jl`.
+`HardwareMeasurement` reads the encoders, `HardwareCommand` writes the motor and the
+`DataLogger` appends a row per tick in the `MPC_LOG_COLUMNS` order: what was measured and
+applied, the loop diagnostics, and acados' `exitflag` of every solve. Compiling this model
+yields a synchronous program that needs nothing from its caller but a clock tick; see
+`generate_mpc_controller` and `MPCController` in src/mpc.jl.
 
-The run log is written from inside the program too, by the `DataLogger`, in the
-`SWINGUP_LOG_COLUMNS` order: what was measured and applied, plus the loop
-diagnostics `HardwareDiagnostics` reports. So every target logs the same file
-through the same code — the C harness around the exported program is timing and
-nothing else, and a Julia driver adds no logging of its own either. The driver
-opens the file, since a filename cannot cross a synchronous node's interface;
-`log_file` is the name it must use, and `open_log!` is called with it
-automatically by the runners in src/program.jl.
+Unlike `FurutaHardware` there is no homing and no error recovery: the arm limit is a
+constraint of the MPC instead, and the arm starts from wherever it is (`open_hardware!`'s
+`arm_deg` says where that is). `command_umax` clamps the command before the amplifier and is
+runtime-settable, the one `TuningGains` field, so a first run can be made with less voltage
+than the MPC is allowed to plan with.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Ts`         | Controller sample time                         | --  |   0.005 |
-| `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   SWINGUP_LOG_FILE |
-| `umax`         | Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand` clamps to it as well, so no command outside the amplifier's range can be produced or written. Runtime-settable, being one of the compiled program's `TuningGains`                         | V  |   10.0 |
+| `Ts`         | Controller sample time                         | --  |   0.01 |
+| `Np`         | Prediction horizon in shooting intervals                         | --  |   60 |
+| `dynamics`         | Prediction model of the MPC (see `furuta_mpc_dynamics`)                         | --  |   furuta_mpc_dynamics() |
+| `umax`         | Motor saturation [V]: the MPC's control bound                         | --  |   10.0 |
+| `arm_limit`         | Arm angle of the end stops [rad], the MPC's constraint on the arm                         | --  |   1.9198621771937625 |
+| `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...olver.SQP() |
+| `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...art.Shift() |
+| `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   MPC_LOG_FILE |
+| `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field                         | V  |   10.0 |
 """
-@component function FurutaHardware(; name = nothing, Ts=0.005, log_file=SWINGUP_LOG_FILE, umax=Float64(10.0), kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, command_umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = FurutaHardware()
+    @named model = FurutaMPCHardware()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -65,11 +68,9 @@ automatically by the runners in src/program.jl.
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
-  __local__umax = umax
-  append!(__params, @parameters (umax::Real), [description = "Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand`
-  append!(__params, @parameters (umax::Real), [description = clamps to it as well, so no command outside the amplifier's range can be produced or
-  append!(__params, @parameters (umax::Real), [description = written. Runtime-settable, being one of the compiled program's `TuningGains`"])
-  __initial_conditions[umax] = __local__umax
+  __local__command_umax = command_umax
+  append!(__params, @parameters (command_umax::Real), [description = "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field"])
+  __initial_conditions[command_umax] = __local__command_umax
 
   ### Final Parameters (assignments)
 
@@ -86,19 +87,13 @@ automatically by the runners in src/program.jl.
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
   push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
-  # Subcomponent control_system of type QuanserComponents.SwingupWithHoming
+  # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; control_system_overrides...))
-  __bindings[control_system.umax] = umax
-  # Now remove initial conditions in control_system that correspond to the bindings just added
-  __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
-  __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
-  __control_system_umax = Symbolics.unwrap(__no_namespace_control_system.umax)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_umax)
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, control_system_overrides...))
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
   push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
-  __bindings[command.umax] = umax
+  __bindings[command.umax] = command_umax
   # Now remove initial conditions in command that correspond to the bindings just added
   __command_ics = ModelingToolkit.get_initial_conditions(command)
   __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
@@ -109,7 +104,7 @@ automatically by the runners in src/program.jl.
   push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; diagnostics_overrides...))
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
-  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=SWINGUP_LOG_NCOLS, filename=log_file, header=SWINGUP_LOG_HEADER, logger_overrides...))
+  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, logger_overrides...))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
   push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, periodicclock_overrides...))
@@ -132,10 +127,9 @@ automatically by the runners in src/program.jl.
   push!(__eqs, connect(diagnostics.elapsed, logger.u[1]))
   push!(__eqs, connect(diagnostics.dt, logger.u[5]))
   push!(__eqs, connect(diagnostics.exec, logger.u[6]))
-  push!(__eqs, connect(diagnostics.count_shoulder, logger.u[7]))
-  push!(__eqs, connect(diagnostics.count_elbow, logger.u[8]))
+  push!(__eqs, connect(control_system.exitflag, logger.u[7]))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export FurutaHardware
+export FurutaMPCHardware

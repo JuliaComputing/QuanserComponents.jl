@@ -5,20 +5,28 @@
 
 
 @doc Markdown.doc"""
-   FurutaSwingup(; name, gray)
+   FurutaMPCSwingup(; name, Ts, gray)
+
+The MPC controller closed around the simulated `QubePendulum` -- `FurutaSwingup` with
+`FurutaMPC` in place of the swing-up state machine. The plant and the MPC's prediction
+model are the same multibody model with the identified parameters.
+
+Compile with `multibody(model, additional_passes = [SynchToolkit.compile_lustre])` and
+simulate with `dt = Ts`, as in the README.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
+| `Ts`         | Controller sample time                         | --  |   0.01 |
 | `gray`         |                          | --  |   [0.9, 0.9, 0.9, 1] |
 """
-@component function FurutaSwingup(; name = nothing, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
+@component function FurutaMPCSwingup(; name = nothing, Ts=0.01, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
   
-    @named model = FurutaSwingup()
+    @named model = FurutaMPCSwingup()
   """))
 
   __overrides = __build_overrides(kwargs)
@@ -60,9 +68,9 @@
   __constants = Any[]
 
   ### Components
-  # Subcomponent control_system of type QuanserComponents.SwingupWithHoming
+  # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; Ts=Ts, control_system_overrides...))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
   qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
   push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; idparams=QuanserComponents.identified, qubependulum_overrides...))
@@ -77,13 +85,10 @@
   push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, shoulder_sampler_overrides...))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=0.005, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, periodicclock_overrides...))
   # Subcomponent world of type MultibodyComponents.World
   world_overrides = __pop_subcomponent_overrides!(__overrides, "world")
   push!(__systems, @named world = MultibodyComponents.World(; default_body_color=gray, default_rod_color=gray, default_joint_color=gray, nominal_length=0.1, render=false, world_overrides...))
-  # Subcomponent gain of type BlockComponents.Math.Gain
-  gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
-  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -96,18 +101,14 @@
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(zeroorderhold.y, :u_plant, qubependulum.voltage))
-  push!(__eqs, connect(qubependulum.elbow_angle, :elbow_y, elbow_sampler.u))
-  push!(__eqs, connect(qubependulum.shoulder_angle, :shoulder_y, shoulder_sampler.u))
   push!(__eqs, connect(elbow_sampler.y, control_system.elbow_angle))
   push!(__eqs, connect(shoulder_sampler.y, control_system.shoulder_angle, periodicclock.y))
   push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
   push!(__eqs, connect(zeroorderhold.y, qubependulum.voltage))
   push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
-  push!(__eqs, connect(control_system.u, gain.u))
-  push!(__eqs, connect(gain.y, zeroorderhold.u))
+  push!(__eqs, connect(control_system.u, zeroorderhold.u))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
-export FurutaSwingup
+export FurutaMPCSwingup

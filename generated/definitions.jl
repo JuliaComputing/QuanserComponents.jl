@@ -6,7 +6,6 @@
 
 using ModelingToolkit
 import Markdown
-import Moshi
 using ModelingToolkit: t_nounits as t
 using OrdinaryDiffEqDefault
 using RuntimeGeneratedFunctions
@@ -22,6 +21,7 @@ import DyadData
 import DyadInterface
 import ElectricalComponents
 import HydraulicComponents
+import MPCComponents
 import MultibodyComponents
 import RotationalComponents
 import ThermalComponents
@@ -218,6 +218,9 @@ include("FurutaFriction_definition.jl")
 include("FurutaHardware_definition.jl")
 include("FurutaIdentificationExperiment_definition.jl")
 include("FurutaIdentification_definition.jl")
+include("FurutaMPCHardware_definition.jl")
+include("FurutaMPCSwingup_definition.jl")
+include("FurutaMPC_definition.jl")
 include("FurutaSwingupExperiment_definition.jl")
 include("FurutaSwingup_definition.jl")
 include("GoHome_definition.jl")
