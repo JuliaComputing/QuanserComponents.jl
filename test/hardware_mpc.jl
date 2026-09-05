@@ -54,6 +54,9 @@ end
 
 # --- main --------------------------------------------------------------------
 # Pendulum hanging, arm wherever it is: `arm_deg` is where the arm physically is now.
+# `run_program!` switches the garbage collector off for the run so no collection lands inside
+# a 5 ms period; this program allocates about 2 MB per tick in acados' Julia callbacks (0.4 GB
+# per second), which a 10 s run can afford. For a long run pass `disable_gc = false`.
 r = run_program!(ctrl; Tf = 10, arm_deg = 0)
 
 log = read_log(r.log_file)

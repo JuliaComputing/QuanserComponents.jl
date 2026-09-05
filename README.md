@@ -89,14 +89,27 @@ built, stepped and compared across backends without a device attached.
 `FurutaMPC` (dyad/furuta_mpc.dyad) is the swing-up controller with the LQR stabilizer replaced
 by a nonlinear model-predictive controller, `MPCComponents.ACADOSMPC`: the energy swing-up
 pumps the pendulum up and, once it is within `catch_angle` of upright, the MPC balances it,
-solving every 5 ms a constrained optimal control problem over the horizon (30 samples by
-default) with the motor voltage bounded to ±10 V and the arm bounded to the end stops, and the
-infinite-horizon LQR cost-to-go about upright as terminal cost. The prediction model is the
+solving every 5 ms a constrained optimal control problem over a horizon of 30 samples with the
+motor voltage bounded to ±10 V, the arm bounded to the end stops (a soft state constraint), and
+the infinite-horizon LQR cost-to-go about upright as terminal cost. The prediction model is the
 multibody `QubePendulum` itself: `furuta_mpc_dynamics()` compiles it with `multibody` and hands
 it to `continuous_dynamics` with the `ForwardDiff` Jacobian backend, which differentiates a
 numeric evaluation of the model. That backend exists because a multibody model's compiled form
 contains cached linear solves that the default symbolic Jacobian cannot reconstruct; the same
-fact rules out C export, so this controller runs on SynchJulia's Julia backend only.
+fact rules out C export, so this controller runs on SynchJulia's Julia backend only. One
+real-time iteration (`SQP_RTI`) per tick takes under a millisecond.
+
+Three defaults came out of tuning it in closed loop and are worth knowing about. The velocities
+the MPC is fed are filtered first differences of the encoder angles, half a sample behind, so
+the weights follow the LQR design (`Q1 = diag(1000, 100, 1, 1)`, `Q2 = 100`); a control penalty
+a thousand times smaller is unstable with that lag. `warm_start = None` restarts the solver from
+the current state on every tick: the MPC is also solved during the swing-up, on states nowhere
+near upright, and with a shifted warm start a single bad iterate poisons every later solve. And
+the slack weight of the arm constraint is a moderate 1e3, because the pendulum can come up with
+the arm already past the limit (nothing stops it in simulation); with acados' default of 1e6 the
+MPC then drops the pendulum to haul the arm back. The energy swing-up in turn centres the arm
+more strongly than in `SwingupCatch` (`arm_centering = 5` V/rad, saturation 2.5 V) so it stays
+near the end stops while the pendulum is pumped up.
 
 `FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
 hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
@@ -108,14 +121,14 @@ ssys = multibody(model, additional_passes = [SynchToolkit.compile_lustre])
 prob = ODEProblem(ssys, Pair[ssys.qubependulum.shoulder_joint.render => false,
                              ssys.qubependulum.elbow_joint.phi => deg2rad(0.15),
                              ssys.qubependulum.shoulder_joint.phi => 0.0], (0.0, 10.0))
-sol = solve(prob; dt = 0.005)
+sol = solve(prob; dt = 0.005)          # balanced within 2 s, arm within the end stops throughout
 
 ctrl = MPCController(; Ts = 0.005, Np = 30)     # the hardware program, see test/hardware_mpc.jl
 ```
 
 `test/mpc_rollouts.jl` ticks the compiled hardware program against a simulated pendulum from a
-thousand random initial conditions and reports success statistics, catch times and tick timings;
-`test/hardware_mpc.jl` runs it on the rig.
+thousand random initial conditions and reports success statistics, catch times and tick timings
+(see the pull request that added it for the numbers); `test/hardware_mpc.jl` runs it on the rig.
 
 ### Environment
 

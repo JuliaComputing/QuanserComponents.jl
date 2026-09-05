@@ -20,12 +20,16 @@ A rollout succeeds if the pendulum is within 0.1 rad of upright for the whole la
 of the 10 s run; the catch time is the instant from which it stays there. The arm's
 excursion is compared with the end stops as well, since that is the MPC's constraint.
 
+The plant is the MPC's own model by default; `plant = nominal` simulates the datasheet
+parameter set instead while the MPC keeps predicting with the identified one, a model-mismatch
+check in the direction the hardware will exercise.
+
 Writes the plots and a summary to `outdir` (default `mpc_rollouts/` in the current directory)
 and prints the statistics. Runtime is dominated by the MPC solves: about a millisecond per
 tick, some 2000 ticks per rollout, so roughly half an hour for the default 1000 rollouts.
 
 ENVIRONMENT: as for test/hardware_mpc.jl (see the README's "Nonlinear MPC" section):
-  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir]
+  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | nominal]
 =#
 
 using QuanserComponents
@@ -37,6 +41,7 @@ const Ts = 0.005
 const Tf = 10.0
 const NROLL = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1000
 const OUTDIR = length(ARGS) >= 2 ? ARGS[2] : "mpc_rollouts"
+const PLANT = length(ARGS) >= 3 ? Symbol(ARGS[3]) : :identified
 const ARM_LIMIT = 1.9198621771937625        # FurutaMPC's default arm_limit (110 deg)
 const CATCH_TOL = 0.1                       # rad from upright counted as balanced
 const HOLD = 1.0                            # s the pendulum must stay balanced at the end
@@ -107,7 +112,9 @@ end
 # ---------------------------------------------------------------------------
 @time "prediction model" dyn = QC.furuta_mpc_dynamics()
 @time "compile FurutaMPCHardware" ctrl = QC.MPCController(; Ts)
-sim = FurutaSim(dyn; Ts)
+# The simulated plant: the prediction model itself, or the same model with the nominal parameters.
+plant = PLANT === :identified ? dyn : QC.furuta_mpc_dynamics(; idparams = getfield(QC, PLANT))
+sim = FurutaSim(plant; Ts)
 
 rng = Xoshiro(1)
 sample_x0(rng) = [1.5 * (2rand(rng) - 1), 2pi * rand(rng), 3.0 * (2rand(rng) - 1), 10.0 * (2rand(rng) - 1)]
@@ -132,7 +139,7 @@ end
 
 success = .!isnan.(tcatch)
 summary = @sprintf("""
-    MPC swing-up Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 30
+    MPC swing-up Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 30, plant = %s
     successes (upright within %.2f rad for the last %.1f s): %d / %d = %.1f%%
     catch time [s]: median %.2f, 90%% %.2f, max %.2f
     arm excursion max |phi| [rad]: median %.2f, max %.2f (end stops at %.2f); rollouts beyond the stops: %d
@@ -142,7 +149,7 @@ summary = @sprintf("""
     tick execution time, MPC in command  [ms]: median %.3f, 99%% %.3f, max %.3f
     tick execution time, energy swing-up [ms]: median %.3f, 99%% %.3f, max %.3f
     wall time %.1f min (%.2f ms per tick incl. the plant simulation)
-    """, NROLL, Tf, Ts, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
+    """, NROLL, Tf, Ts, PLANT, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
     median(tcatch[success]), quantile(tcatch[success], 0.9), maximum(tcatch[success]),
     median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax),
     median(armmax_mpc), maximum(armmax_mpc), count(>(ARM_LIMIT), armmax_mpc), maximum(umax),
