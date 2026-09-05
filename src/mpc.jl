@@ -64,7 +64,7 @@ const _MPC_DYNAMICS_CACHE = Dict{Any, ContinuousDynamics}()
 "The log `FurutaMPCHardware` writes, in `MPC_LOG_COLUMNS` order. `file` defaults to `MPC_LOG_FILE`."
 mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 
-# The runtime-settable parameters: both root parameters of `FurutaMPCHardware`, bound down
+# The runtime-settable parameters: the swing-up phase's knobs, root parameters of `FurutaMPCHardware` bound down
 # into `FurutaMPC` with `final` (see `resolve_tunables` for why the root is the right place).
 # The MPC's own weights are tunable parameters of `ACADOSMPC` too, but arrays of a shape
 # `ParametersStruct` has no field type for; they are set at construction with `overrides`
@@ -72,6 +72,7 @@ mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 const MPC_TUNABLES = OrderedDict{Any, Symbol}(
     (nsys -> nsys.catch_angle) => :catch_angle,
     (nsys -> nsys.swingup_umax) => :swingup_umax,
+    (nsys -> nsys.arm_centering) => :arm_centering,
 )
 
 # Node outputs, in the order the runtime reports them: the swing-up program's four, then
@@ -108,7 +109,7 @@ function generate_mpc_controller(; Ts = 0.005, Np = 30, log_file = MPC_LOG_FILE,
 end
 
 """
-    MPCController(; Ts=0.005, Np=30, backend=:julia, log_file=MPC_LOG_FILE, catch_angle=nothing, swingup_umax=nothing, overrides...)
+    MPCController(; Ts=0.005, Np=30, backend=:julia, log_file=MPC_LOG_FILE, catch_angle=nothing, swingup_umax=nothing, arm_centering=nothing, overrides...)
 
 A ready-to-call runtime wrapper around the generated MPC swing-up controller, the
 counterpart of [`SwingupController`](@ref). Compiles the controller, builds a
@@ -127,11 +128,12 @@ with `overrides` at compile time (see [`generate_mpc_controller`](@ref)).
 """
 function MPCController(; Ts = 0.005, Np = 30, backend::Symbol = :julia,
                         log_file = MPC_LOG_FILE, catch_angle = nothing, swingup_umax = nothing,
-                        kwargs...)
+                        arm_centering = nothing, kwargs...)
     backend === :julia ||
         throw(ArgumentError("MPCController runs on the :julia backend only: the multibody \
                              prediction model needs the AD Jacobian backend, which cannot be \
                              exported to C"))
     gen = generate_mpc_controller(; Ts, Np, log_file, kwargs...)
-    return make_runtime(gen, MPC_OUTPUT_NAMES; backend, gains = (; catch_angle, swingup_umax))
+    return make_runtime(gen, MPC_OUTPUT_NAMES; backend,
+                        gains = (; catch_angle, swingup_umax, arm_centering))
 end

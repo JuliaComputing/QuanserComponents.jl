@@ -47,10 +47,10 @@ component FurutaMPC
   velocityestimator_shoulder = QuanserComponents.VelocityEstimator() {^velocityestimator_shoulder}
   velocityestimator_elbow = QuanserComponents.VelocityEstimator() {^velocityestimator_elbow}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
-  energyswingup = QuanserComponents.EnergySwingup(final umax = swingup_umax) {^energyswingup}
+  energyswingup = QuanserComponents.EnergySwingup(final umax = swingup_umax, final arm_centering_gain = arm_centering) {^energyswingup}
   neartop = QuanserComponents.NearTop(final th = catch_angle) {^neartop}
   errorrecovery = QuanserComponents.ErrorRecovery(final arm_limit = arm_limit) {^errorrecovery}
-  mpc = MPCComponents.ACADOSMPC(dynamics = dynamics, states = FURUTA_MPC_STATES, outputs = FURUTA_MPC_STATES, Ts = Ts, Np = Np, Q1 = Q1, Q2 = Q2, umin = [-umax], umax = [umax], constrained = FURUTA_MPC_ARM_SIGNAL, constrained_min = [-arm_limit], constrained_max = [arm_limit], terminal_lqr_cost = true, operating_point = [0, pi, 0, 0], nlp_solver = nlp_solver, warm_start = warm_start, integrator = MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend = MPCComponents.ACADOSBackend.Julia(), max_iter = max_iter, levenberg_marquardt = levenberg_marquardt) {^mpc}
+  mpc = MPCComponents.ACADOSMPC(dynamics = dynamics, states = FURUTA_MPC_STATES, outputs = FURUTA_MPC_STATES, Ts = Ts, Np = Np, Q1 = Q1, Q2 = Q2, umin = [-umax], umax = [umax], constrained = FURUTA_MPC_ARM_SIGNAL, constrained_min = [-arm_limit], constrained_max = [arm_limit], soft_weight = arm_soft_weight, terminal_lqr_cost = true, operating_point = [0, pi, 0, 0], nlp_solver = nlp_solver, warm_start = warm_start, integrator = MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend = MPCComponents.ACADOSBackend.Julia(), max_iter = max_iter, levenberg_marquardt = levenberg_marquardt) {^mpc}
   zero = BlockComponents.Sources.Constant(k = 0) {^zero}
   upright = BlockComponents.Sources.Constant(k = pi) {^upright}
   switch1 = BlockComponents.Logical.Switch() {^switch1}
@@ -69,6 +69,14 @@ component FurutaMPC
   structural parameter umax::Real = 10.0
   "Arm angle of the end stops [rad]; the MPC keeps the arm inside ±arm_limit (softly, over its horizon). The same limit the swing-up state machine treats as out of bounds"
   structural parameter arm_limit::Real = 1.9198621771937625
+  """
+  Quadratic penalty on the slack of the arm constraint. Moderate on purpose: the pendulum can
+  come up with the arm already past the limit (in simulation, where nothing stops it), and
+  with acados' default of 1e6 the constraint then dominates the cost and the MPC drops the
+  pendulum to haul the arm back; at 1e3 it balances first and recovers the arm after, while
+  still holding an arm that starts inside
+  """
+  structural parameter arm_soft_weight::Real = 1e3
   "NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence"
   structural parameter nlp_solver::MPCComponents.ACADOSSolver = MPCComponents.ACADOSSolver.SQP_RTI()
   """
@@ -95,7 +103,9 @@ component FurutaMPC
   "Pendulum angle from upright below which the MPC takes over from the swing-up [rad]"
   parameter catch_angle::Real = 0.4
   "Saturation of the energy swing-up's command [V]"
-  parameter swingup_umax::Real = 3.0
+  parameter swingup_umax::Real = 2.5
+  "Arm centering gain of the energy swing-up [V/rad]; stronger than `SwingupCatch`'s default so the arm stays near the end stops instead of running past them while the pendulum is pumped up"
+  parameter arm_centering::Real = 5.0
 relations
   connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u) {^id1}
   connect(anglenormalization.y, energyswingup.elbow_angle, mpc.x[2], neartop.u) {^id2}
@@ -182,7 +192,7 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
 """
 component FurutaMPCHardware
   measurement = HardwareMeasurement() {^measurement}
-  control_system = FurutaMPC(dynamics = dynamics, Ts = Ts, Np = Np, umax = umax, arm_limit = arm_limit, nlp_solver = nlp_solver, warm_start = warm_start, final catch_angle = catch_angle, final swingup_umax = swingup_umax) {^control_system}
+  control_system = FurutaMPC(dynamics = dynamics, Ts = Ts, Np = Np, umax = umax, arm_limit = arm_limit, nlp_solver = nlp_solver, warm_start = warm_start, final catch_angle = catch_angle, final swingup_umax = swingup_umax, final arm_centering = arm_centering) {^control_system}
   command = HardwareCommand(umax = umax) {^command}
   diagnostics = HardwareDiagnostics() {^diagnostics}
   logger = DataLogger(n = MPC_LOG_NCOLS, filename = log_file, header = MPC_LOG_HEADER) {^logger}
@@ -206,7 +216,9 @@ component FurutaMPCHardware
   "Pendulum angle from upright below which the MPC takes over [rad]. Runtime-settable, being one of the compiled program's `TuningGains`"
   parameter catch_angle::Real = 0.4
   "Saturation of the energy swing-up's command [V]. Runtime-settable, being one of the compiled program's `TuningGains`"
-  parameter swingup_umax::Real = 3.0
+  parameter swingup_umax::Real = 2.5
+  "Arm centering gain of the energy swing-up [V/rad]. Runtime-settable, being one of the compiled program's `TuningGains`"
+  parameter arm_centering::Real = 5.0
 relations
   connect(measurement.shoulder_angle, control_system.shoulder_angle, logger.u[2], periodicclock.y) {^id7}
   connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3]) {^id8}

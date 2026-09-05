@@ -67,10 +67,10 @@ using Statistics: median
     @test all(abs.(r.shoulder) .< 1.9198621771937625)
     @test count(!=(0), r.flags) <= 2
 
-    # Runtime-settable tunables: the two root parameters.
+    # Runtime-settable tunables: the swing-up phase's three root parameters.
     ctrl2 = QC.make_runtime(QC.generate_mpc_controller(; Ts), QC.MPC_OUTPUT_NAMES;
-                            gains = (; catch_angle = 0.3, swingup_umax = 2.5))
-    @test ctrl2.gains.catch_angle == 0.3 && ctrl2.gains.swingup_umax == 2.5
+                            gains = (; catch_angle = 0.3, swingup_umax = 2.0, arm_centering = 3.0))
+    @test ctrl2.gains.catch_angle == 0.3 && ctrl2.gains.swingup_umax == 2.0 && ctrl2.gains.arm_centering == 3.0
     @test_throws ArgumentError QC.make_runtime(QC.generate_mpc_controller(; Ts), QC.MPC_OUTPUT_NAMES;
                                                gains = (; L = [1.0]))
 end

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, nlp_solver, warm_start, max_iter, levenberg_marquardt, Q1, Q2, catch_angle, swingup_umax)
+   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, arm_soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, Q1, Q2, catch_angle, swingup_umax, arm_centering)
 
 Swing-up and balancing of the Furuta pendulum with a nonlinear MPC in the balancing role.
 
@@ -50,6 +50,7 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
 | `Np`         | Prediction horizon in shooting intervals; the horizon is Np * Ts                         | --  |   30 |
 | `umax`         | Motor saturation [V]: the MPC's control bound. The amplifier range is ±10 V                         | --  |   10.0 |
 | `arm_limit`         | Arm angle of the end stops [rad]; the MPC keeps the arm inside ±arm_limit (softly, over its horizon). The same limit the swing-up state machine treats as out of bounds                         | --  |   1.9198621771937625 |
+| `arm_soft_weight`         | Quadratic penalty on the slack of the arm constraint. Moderate on purpose: the pendulum can come up with the arm already past the limit (in simulation, where nothing stops it), and with acados' default of 1e6 the constraint then dominates the cost and the MPC drops the pendulum to haul the arm back; at 1e3 it balances first and recovers the arm after, while still holding an arm that starts inside                         | --  |   1e3 |
 | `nlp_solver`         | NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence                         | --  |   MPCComponen...r.SQP_RTI() |
 | `warm_start`         | Initial guess of the NLP at every tick. `None` (the default) restarts the solver's trajectories from the current state every tick, so one bad solve -- the MPC is solved on every tick, also during the swing-up, on states nowhere near upright -- cannot poison the next: with `Shift` a single NaN iterate persists in the warm start and the solver never recovers                         | --  |   MPCComponen...tart.None() |
 | `max_iter`         | Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it                         | --  |   10 |
@@ -57,7 +58,8 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
 | `Q1`         | State weight of the MPC, on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. The default is the `design_lqr` weighting (with a heavier pendulum-angle term); the ratio to `Q2` matters, since the velocities the MPC is fed are filtered first differences with half a sample of lag -- a control penalty a thousand times smaller destabilizes the loop                         | --  |   diagonal([1... 1.0, 1.0]) |
 | `Q2`         | Control weight of the MPC                         | --  |   diagonal([100.0]) |
 | `catch_angle`         | Pendulum angle from upright below which the MPC takes over from the swing-up [rad]                         | --  |   0.4 |
-| `swingup_umax`         | Saturation of the energy swing-up's command [V]                         | --  |   3.0 |
+| `swingup_umax`         | Saturation of the energy swing-up's command [V]                         | --  |   2.5 |
+| `arm_centering`         | Arm centering gain of the energy swing-up [V/rad]; stronger than `SwingupCatch`'s default so the arm stays near the end stops instead of running past them while the pendulum is pumped up                         | --  |   5.0 |
 
 ## Connectors
 
@@ -67,7 +69,7 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
  * `exitflag` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `stabilizing` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.005, Np=30, umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.None(), max_iter=10, levenberg_marquardt=0.001, Q1=diagonal([1000.0, 100.0, 1.0, 1.0]), Q2=diagonal([100.0]), catch_angle=0.4, swingup_umax=Float64(3.0), kwargs...)
+@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.005, Np=30, umax=Float64(10.0), arm_limit=1.9198621771937625, arm_soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.None(), max_iter=10, levenberg_marquardt=0.001, Q1=diagonal([1000.0, 100.0, 1.0, 1.0]), Q2=diagonal([100.0]), catch_angle=0.4, swingup_umax=2.5, arm_centering=Float64(5.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -114,6 +116,9 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   __local__swingup_umax = swingup_umax
   append!(__params, @parameters (swingup_umax::Real), [description = "Saturation of the energy swing-up's command [V]"])
   __initial_conditions[swingup_umax] = __local__swingup_umax
+  __local__arm_centering = arm_centering
+  append!(__params, @parameters (arm_centering::Real), [description = "Arm centering gain of the energy swing-up [V/rad]; stronger than `SwingupCatch`'s default so the arm stays near the end stops instead of running past them while the pendulum is pumped up"])
+  __initial_conditions[arm_centering] = __local__arm_centering
 
   ### Final Parameters (assignments)
 
@@ -145,11 +150,14 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   energyswingup_overrides = __pop_subcomponent_overrides!(__overrides, "energyswingup")
   push!(__systems, @named energyswingup = QuanserComponents.EnergySwingup(; energyswingup_overrides...))
   __bindings[energyswingup.umax] = swingup_umax
+  __bindings[energyswingup.arm_centering_gain] = arm_centering
   # Now remove initial conditions in energyswingup that correspond to the bindings just added
   __energyswingup_ics = ModelingToolkit.get_initial_conditions(energyswingup)
   __no_namespace_energyswingup = ModelingToolkit.toggle_namespacing(energyswingup, false)
   __energyswingup_umax = Symbolics.unwrap(__no_namespace_energyswingup.umax)::Symbolics.SymbolicT
   delete!(__energyswingup_ics, __energyswingup_umax)
+  __energyswingup_arm_centering_gain = Symbolics.unwrap(__no_namespace_energyswingup.arm_centering_gain)::Symbolics.SymbolicT
+  delete!(__energyswingup_ics, __energyswingup_arm_centering_gain)
   # Subcomponent neartop of type QuanserComponents.NearTop
   neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
   push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))
@@ -170,7 +178,7 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   delete!(__errorrecovery_ics, __errorrecovery_arm_limit)
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
-  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, states=FURUTA_MPC_STATES, outputs=FURUTA_MPC_STATES, Ts=Ts, Np=Np, Q1=Q1, Q2=Q2, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_ARM_SIGNAL, constrained_min=[-arm_limit], constrained_max=[arm_limit], terminal_lqr_cost=true, operating_point=[Float64(0), pi, Float64(0), Float64(0)], nlp_solver=nlp_solver, warm_start=warm_start, integrator=MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend=MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend=MPCComponents.ACADOSBackend.Julia(), max_iter=max_iter, levenberg_marquardt=levenberg_marquardt, mpc_overrides...))
+  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, states=FURUTA_MPC_STATES, outputs=FURUTA_MPC_STATES, Ts=Ts, Np=Np, Q1=Q1, Q2=Q2, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_ARM_SIGNAL, constrained_min=[-arm_limit], constrained_max=[arm_limit], soft_weight=arm_soft_weight, terminal_lqr_cost=true, operating_point=[Float64(0), pi, Float64(0), Float64(0)], nlp_solver=nlp_solver, warm_start=warm_start, integrator=MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend=MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend=MPCComponents.ACADOSBackend.Julia(), max_iter=max_iter, levenberg_marquardt=levenberg_marquardt, mpc_overrides...))
   # Subcomponent zero of type BlockComponents.Sources.Constant
   zero_overrides = __pop_subcomponent_overrides!(__overrides, "zero")
   push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), zero_overrides...))

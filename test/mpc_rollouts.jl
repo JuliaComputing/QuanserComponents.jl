@@ -113,7 +113,7 @@ rng = Xoshiro(1)
 sample_x0(rng) = [1.5 * (2rand(rng) - 1), 2pi * rand(rng), 3.0 * (2rand(rng) - 1), 10.0 * (2rand(rng) - 1)]
 x0s = [sample_x0(rng) for _ in 1:NROLL]
 
-tcatch = fill(NaN, NROLL); armmax = zeros(NROLL); umax = zeros(NROLL)
+tcatch = fill(NaN, NROLL); armmax = zeros(NROLL); armmax_mpc = zeros(NROLL); umax = zeros(NROLL)
 nbadflag = zeros(Int, NROLL); nmpc = zeros(Int, NROLL)
 exec_mpc = Float64[]; exec_swing = Float64[]
 NKEEP = min(NROLL, 100)                    # trajectories kept for the overlay plot
@@ -122,6 +122,7 @@ twall = @elapsed for (i, x0) in enumerate(x0s)
     r = rollout!(ctrl, sim, x0)
     tcatch[i] = catch_time(r.X)
     armmax[i] = maximum(abs, r.X[1, :])
+    armmax_mpc[i] = maximum(abs, r.X[1, r.stab]; init = 0.0)     # while the MPC was in command
     umax[i] = maximum(abs, r.U)
     nbadflag[i] = count(!=(0), r.flag[r.stab]); nmpc[i] = count(r.stab)
     append!(exec_mpc, r.texec[r.stab]); append!(exec_swing, r.texec[.!r.stab])
@@ -135,6 +136,7 @@ summary = @sprintf("""
     successes (upright within %.2f rad for the last %.1f s): %d / %d = %.1f%%
     catch time [s]: median %.2f, 90%% %.2f, max %.2f
     arm excursion max |phi| [rad]: median %.2f, max %.2f (end stops at %.2f); rollouts beyond the stops: %d
+    arm excursion while the MPC is in command [rad]: median %.2f, max %.2f; rollouts beyond the stops with the MPC in command: %d
     |u| max over all rollouts: %.2f V
     acados exitflag != 0 on %d of %d MPC ticks
     tick execution time, MPC in command  [ms]: median %.3f, 99%% %.3f, max %.3f
@@ -142,7 +144,8 @@ summary = @sprintf("""
     wall time %.1f min (%.2f ms per tick incl. the plant simulation)
     """, NROLL, Tf, Ts, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
     median(tcatch[success]), quantile(tcatch[success], 0.9), maximum(tcatch[success]),
-    median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax), maximum(umax),
+    median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax),
+    median(armmax_mpc), maximum(armmax_mpc), count(>(ARM_LIMIT), armmax_mpc), maximum(umax),
     sum(nbadflag), sum(nmpc),
     1e3median(exec_mpc), 1e3quantile(exec_mpc, 0.99), 1e3maximum(exec_mpc),
     1e3median(exec_swing), 1e3quantile(exec_swing, 0.99), 1e3maximum(exec_swing),
@@ -150,9 +153,9 @@ summary = @sprintf("""
 println(summary)
 write(joinpath(OUTDIR, "summary.txt"), summary)
 open(joinpath(OUTDIR, "rollouts.csv"), "w") do io
-    println(io, "shoulder0\telbow0\tshoulder_vel0\telbow_vel0\tcatch_time\tarm_max\tu_max\tbad_exitflags\tmpc_ticks")
+    println(io, "shoulder0\telbow0\tshoulder_vel0\telbow_vel0\tcatch_time\tarm_max\tarm_max_mpc\tu_max\tbad_exitflags\tmpc_ticks")
     for i in 1:NROLL
-        println(io, join(string.([x0s[i]; tcatch[i]; armmax[i]; umax[i]; nbadflag[i]; nmpc[i]]), '\t'))
+        println(io, join(string.([x0s[i]; tcatch[i]; armmax[i]; armmax_mpc[i]; umax[i]; nbadflag[i]; nmpc[i]]), '\t'))
     end
 end
 
@@ -200,10 +203,13 @@ p4 = histogram(1e3exec_swing, bins = 0:0.02:3, color = GRAY, linecolor = :white,
 histogram!(p4, 1e3exec_mpc, bins = 0:0.02:3, color = BLUE, linecolor = :white, alpha = 0.8, label = "MPC in command")
 savefig(p4, joinpath(OUTDIR, "exec_times.png"))
 
-# 5. Arm excursion against the end stops.
-p5 = histogram(armmax, bins = 0:0.05:2.2, color = BLUE, linecolor = :white, label = "",
-               xlabel = "largest |arm angle| during the rollout [rad]", ylabel = "rollouts",
+# 5. Arm excursion against the end stops: over the whole rollout (swing-up included) and while the
+#    MPC, which carries the constraint, is in command.
+bmax = max(2.2, ceil(maximum(armmax); digits = 1))
+p5 = histogram(armmax, bins = 0:0.05:bmax, color = GRAY, linecolor = :white, alpha = 0.8, label = "whole rollout",
+               xlabel = "largest |arm angle| [rad]", ylabel = "rollouts",
                title = "Arm excursion versus the end stops")
+histogram!(p5, armmax_mpc, bins = 0:0.05:bmax, color = BLUE, linecolor = :white, alpha = 0.8, label = "MPC in command")
 vline!(p5, [ARM_LIMIT], color = ORANGE, ls = :dash, lw = 2, label = "end stops")
 savefig(p5, joinpath(OUTDIR, "arm_excursion.png"))
 println("plots written to ", abspath(OUTDIR))

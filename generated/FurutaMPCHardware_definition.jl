@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, catch_angle, swingup_umax)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, catch_angle, swingup_umax, arm_centering)
 
 The MPC swing-up controller closed around the physical QUBE, with the hardware I/O inside
 the synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
@@ -35,9 +35,10 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
 | `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...tart.None() |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   MPC_LOG_FILE |
 | `catch_angle`         | Pendulum angle from upright below which the MPC takes over [rad]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   0.4 |
-| `swingup_umax`         | Saturation of the energy swing-up's command [V]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   3.0 |
+| `swingup_umax`         | Saturation of the energy swing-up's command [V]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   2.5 |
+| `arm_centering`         | Arm centering gain of the energy swing-up [V/rad]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   5.0 |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.005, Np=30, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.None(), log_file=MPC_LOG_FILE, catch_angle=0.4, swingup_umax=Float64(3.0), kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.005, Np=30, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.None(), log_file=MPC_LOG_FILE, catch_angle=0.4, swingup_umax=2.5, arm_centering=Float64(5.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -74,6 +75,9 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
   __local__swingup_umax = swingup_umax
   append!(__params, @parameters (swingup_umax::Real), [description = "Saturation of the energy swing-up's command [V]. Runtime-settable, being one of the compiled program's `TuningGains`"])
   __initial_conditions[swingup_umax] = __local__swingup_umax
+  __local__arm_centering = arm_centering
+  append!(__params, @parameters (arm_centering::Real), [description = "Arm centering gain of the energy swing-up [V/rad]. Runtime-settable, being one of the compiled program's `TuningGains`"])
+  __initial_conditions[arm_centering] = __local__arm_centering
 
   ### Final Parameters (assignments)
 
@@ -95,6 +99,7 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
   push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, control_system_overrides...))
   __bindings[control_system.catch_angle] = catch_angle
   __bindings[control_system.swingup_umax] = swingup_umax
+  __bindings[control_system.arm_centering] = arm_centering
   # Now remove initial conditions in control_system that correspond to the bindings just added
   __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
   __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
@@ -102,6 +107,8 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
   delete!(__control_system_ics, __control_system_catch_angle)
   __control_system_swingup_umax = Symbolics.unwrap(__no_namespace_control_system.swingup_umax)::Symbolics.SymbolicT
   delete!(__control_system_ics, __control_system_swingup_umax)
+  __control_system_arm_centering = Symbolics.unwrap(__no_namespace_control_system.arm_centering)::Symbolics.SymbolicT
+  delete!(__control_system_ics, __control_system_arm_centering)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
   push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=umax, command_overrides...))
