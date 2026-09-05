@@ -7,8 +7,8 @@
 @doc Markdown.doc"""
    FurutaMPCSwingup(; name, Ts, gray)
 
-The MPC swing-up controller closed around the simulated `QubePendulum` -- `FurutaSwingup`
-with `FurutaMPC` in place of the swing-up state machine. The plant and the MPC's prediction
+The MPC controller closed around the simulated `QubePendulum` -- `FurutaSwingup` with
+`FurutaMPC` in place of the swing-up state machine. The plant and the MPC's prediction
 model are the same multibody model with the identified parameters.
 
 Compile with `multibody(model, additional_passes = [SynchToolkit.compile_lustre])` and
@@ -18,10 +18,10 @@ simulate with `dt = Ts`, as in the README.
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Ts`         | Controller sample time                         | --  |   0.005 |
+| `Ts`         | Controller sample time                         | --  |   0.01 |
 | `gray`         |                          | --  |   [0.9, 0.9, 0.9, 1] |
 """
-@component function FurutaMPCSwingup(; name = nothing, Ts=0.005, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
+@component function FurutaMPCSwingup(; name = nothing, Ts=0.01, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

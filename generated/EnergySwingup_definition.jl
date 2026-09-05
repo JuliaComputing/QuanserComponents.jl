@@ -5,14 +5,13 @@
 
 
 @doc Markdown.doc"""
-   EnergySwingup(; name, umax, arm_centering_gain)
+   EnergySwingup(; name, umax)
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `umax`         | maximum control signal during swingup                         | --  |   3 |
-| `arm_centering_gain`         | Proportional pull of the arm toward centre during the swing-up [V/rad]; stronger keeps the arm from running into the end stops while the pendulum is pumped up                         | --  |   1.0 |
 
 ## Connectors
 
@@ -22,7 +21,7 @@
  * `shoulder_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `realoutput` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function EnergySwingup(; name = nothing, umax=Float64(3), arm_centering_gain=Float64(1.0), kwargs...)
+@component function EnergySwingup(; name = nothing, umax=Float64(3), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -56,9 +55,6 @@
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "maximum control signal during swingup", bounds = (0.1, 50)])
   __initial_conditions[umax] = __local__umax
-  __local__arm_centering_gain = arm_centering_gain
-  append!(__params, @parameters (arm_centering_gain::Real), [description = "Proportional pull of the arm toward centre during the swing-up [V/rad]; stronger keeps the arm from running into the end stops while the pendulum is pumped up"])
-  __initial_conditions[arm_centering_gain] = __local__arm_centering_gain
 
   ### Final Parameters (assignments)
 
@@ -97,13 +93,7 @@
   push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(-100), gain_overrides...))
   # Subcomponent arm_centering of type BlockComponents.Math.Gain
   arm_centering_overrides = __pop_subcomponent_overrides!(__overrides, "arm_centering")
-  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(; arm_centering_overrides...))
-  __bindings[arm_centering.k] = -arm_centering_gain
-  # Now remove initial conditions in arm_centering that correspond to the bindings just added
-  __arm_centering_ics = ModelingToolkit.get_initial_conditions(arm_centering)
-  __no_namespace_arm_centering = ModelingToolkit.toggle_namespacing(arm_centering, false)
-  __arm_centering_k = Symbolics.unwrap(__no_namespace_arm_centering.k)::Symbolics.SymbolicT
-  delete!(__arm_centering_ics, __arm_centering_k)
+  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(; k=-1.0, arm_centering_overrides...))
   # Subcomponent add_centering of type BlockComponents.Math.Add
   add_centering_overrides = __pop_subcomponent_overrides!(__overrides, "add_centering")
   push!(__systems, @named add_centering = BlockComponents.Math.Add(; add_centering_overrides...))

@@ -550,7 +550,7 @@ component EnergySwingup
   energy1 = QuanserComponents.Energy() {^energy1}
   constant2 = BlockComponents.Sources.Constant(k = 0) {^constant2}
   gain = BlockComponents.Math.Gain(k = -100) {^gain}
-  arm_centering = BlockComponents.Math.Gain(final k = -arm_centering_gain) {^arm_centering}
+  arm_centering = BlockComponents.Math.Gain(k = -1.0) {^arm_centering}
   add_centering = BlockComponents.Math.Add() {^add_centering}
   sub_eref = BlockComponents.Math.Add(k2 = -1) {^sub_eref}
   product = BlockComponents.Math.Product() {^product}
@@ -564,8 +564,6 @@ component EnergySwingup
   constant3 = BlockComponents.Sources.Constant(k = 1e-16) {^constant3}
   "maximum control signal during swingup"
   parameter umax::Real(min = 0.1, max = 50) = 3
-  "Proportional pull of the arm toward centre during the swing-up [V/rad]; stronger keeps the arm from running into the end stops while the pendulum is pumped up"
-  parameter arm_centering_gain::Real = 1.0
 relations
   connect(elbow_velocity, energy.dα, gain1.u) {^id23}
   connect(elbow_angle, sub_pi.u1) {^id24}

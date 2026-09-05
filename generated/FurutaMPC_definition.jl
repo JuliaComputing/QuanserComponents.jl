@@ -5,61 +5,49 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, arm_soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, Q1, Q2, catch_angle, swingup_umax, arm_centering)
+   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, arm_soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, Q1, Q2)
 
-Swing-up and balancing of the Furuta pendulum with a nonlinear MPC in the balancing role.
+Swing-up and balancing of the Furuta pendulum by a nonlinear MPC alone.
 
-The structure is that of `SwingupCatch`: the energy-based `EnergySwingup` pumps the
-pendulum up, `NearTop` switches to the balancing controller once the pendulum is within
-`catch_angle` of upright, and the velocities are estimated from the angles with the
-discrete `VelocityEstimator`. What differs is the balancing controller. Instead of the
-`LQRstabilizer` -- a state feedback designed around a linearization of the plant -- an
-`MPCComponents.ACADOSMPC` solves, every tick, a finite-horizon optimal control problem
-over the *nonlinear* multibody `QubePendulum` model itself, with the motor voltage
-bounded to ±`umax` and the arm angle bounded to the end stops.
+An `MPCComponents.ACADOSMPC` solves, every tick, a finite-horizon optimal control problem over
+the *nonlinear* multibody `QubePendulum` model itself, with the motor voltage bounded to ±`umax`
+and the arm angle bounded to the end stops, and applies the first move. There is no separate
+swing-up law and no switching: the same controller swings the pendulum up from hanging and
+balances it, driven by the reference -- the upright state `[0, π, 0, 0]` -- and the
+infinite-horizon LQR cost-to-go of the model linearized about upright as terminal weight
+(`terminal_lqr_cost`). The horizon is `Np` intervals of `Ts`.
 
-The prediction model is the very plant model: `furuta_mpc_dynamics()` (src/mpc.jl)
-compiles a `QubePendulum` with `MultibodyComponents.multibody` and hands the result to
-`continuous_dynamics` with the `ForwardDiff` Jacobian backend. A multibody model compiled
-this way references cached linear solves (MTK diffcache parameters) that cannot be rebuilt
-symbolically, which is what rules out the default `Symbolic` backend and, with it, C export
--- this controller runs on the Julia solver backend only. The four MPC states are the
-model's states, named so the state input does not depend on the compiler's state order:
-the two joint angles and their derivatives, which are exactly what the hardware measures
-and what the estimators produce.
+The prediction model is the very plant model: `furuta_mpc_dynamics()` (src/mpc.jl) compiles a
+`QubePendulum` with `MultibodyComponents.multibody` and hands the result to
+`continuous_dynamics` with the `ForwardDiff` Jacobian backend. A multibody model compiled this
+way references cached linear solves (MTK diffcache parameters) that cannot be rebuilt
+symbolically, which is what rules out the default `Symbolic` backend and, with it, C export --
+this controller runs on the Julia solver backend only. The four MPC states are the model's
+states, named so the state input does not depend on the compiler's state order: the two joint
+angles and their derivatives, which are exactly what the hardware measures and what the
+discrete `VelocityEstimator`s produce from the angles.
 
-The cost is quadratic in the deviation from upright -- the reference is the upright state
-`[0, π, 0, 0]` -- with the infinite-horizon LQR cost-to-go of the model linearized at
-that point as terminal weight (`terminal_lqr_cost`), so a short horizon (`Np` intervals of
-`Ts`) behaves like the infinite-horizon regulator around upright while the constraints
-are honoured along the horizon. The NLP is solved by one real-time iteration per tick by
-default (`SQP_RTI`), which takes well under a millisecond here.
-
-The measured elbow angle is wrapped to `[0, 2π)` before it reaches the MPC, so the
-reference `π` is upright whichever way the pendulum came up.
-
-The end stops are the MPC's constraint while it is in command; during the swing-up the
-same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes the limit.
+The measured elbow angle is wrapped to `[0, 2π)` before it reaches the MPC. The cut is at the
+hanging position, where the model is 2π-periodic and the cost symmetric about the bottom, so a
+swing through the bottom is planned equally well either way; the reference `π` is upright
+whichever way the pendulum comes up.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `dynamics`         | Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with the identified parameters                         | --  |   furuta_mpc_dynamics() |
-| `Ts`         | Sample time of the controller; the MPC's shooting interval, so it must equal the clock period                         | --  |   0.005 |
-| `Np`         | Prediction horizon in shooting intervals; the horizon is Np * Ts                         | --  |   30 |
+| `Ts`         | Sample time of the controller; the MPC's shooting interval, so it must equal the clock period                         | --  |   0.01 |
+| `Np`         | Prediction horizon in shooting intervals; the horizon is Np * Ts                         | --  |   60 |
 | `umax`         | Motor saturation [V]: the MPC's control bound. The amplifier range is ±10 V                         | --  |   10.0 |
 | `arm_limit`         | Arm angle of the end stops [rad]; the MPC keeps the arm inside ±arm_limit (softly, over its horizon). The same limit the swing-up state machine treats as out of bounds                         | --  |   1.9198621771937625 |
-| `arm_soft_weight`         | Quadratic penalty on the slack of the arm constraint. Moderate on purpose: the pendulum can come up with the arm already past the limit (in simulation, where nothing stops it), and with acados' default of 1e6 the constraint then dominates the cost and the MPC drops the pendulum to haul the arm back; at 1e3 it balances first and recovers the arm after, while still holding an arm that starts inside                         | --  |   1e3 |
-| `nlp_solver`         | NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence                         | --  |   MPCComponen...r.SQP_RTI() |
-| `warm_start`         | Initial guess of the NLP at every tick. `None` (the default) restarts the solver's trajectories from the current state every tick, so one bad solve -- the MPC is solved on every tick, also during the swing-up, on states nowhere near upright -- cannot poison the next: with `Shift` a single NaN iterate persists in the warm start and the solver never recovers                         | --  |   MPCComponen...tart.None() |
-| `max_iter`         | Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it                         | --  |   10 |
+| `arm_soft_weight`         | Quadratic penalty on the slack of the arm constraint. Moderate on purpose: with acados' default of 1e6 the constraint dominates the cost whenever the arm is past the limit and the MPC sacrifices the pendulum to haul the arm back; at 1e3 it balances first and recovers the arm after, while still holding an arm that starts inside                         | --  |   1e3 |
+| `nlp_solver`         | NLP solver: SQP iterated to convergence (at most max_iter iterations), or one real-time iteration per tick (SQP_RTI)                         | --  |   MPCComponen...olver.SQP() |
+| `warm_start`         | Initial guess of the NLP at every tick. `Shift` (the default) continues from the previous solution, which a swing-up over a long horizon needs; `None` restarts the trajectories from the current state every tick, which is robust to one bad solve (with `Shift` a NaN iterate persists) but gives a single real-time iteration nothing to work from                         | --  |   MPCComponen...art.Shift() |
+| `max_iter`         | Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it                         | --  |   30 |
 | `levenberg_marquardt`         | Levenberg-Marquardt regularization of the Gauss-Newton Hessian                         | --  |   1e-3 |
-| `Q1`         | State weight of the MPC, on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. The default is the `design_lqr` weighting (with a heavier pendulum-angle term); the ratio to `Q2` matters, since the velocities the MPC is fed are filtered first differences with half a sample of lag -- a control penalty a thousand times smaller destabilizes the loop                         | --  |   diagonal([1... 1.0, 1.0]) |
+| `Q1`         | State weight of the MPC, on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. The ratio to `Q2` matters, since the velocities the MPC is fed are filtered first differences with half a sample of lag -- for balancing, a control penalty a thousand times smaller than this destabilizes the loop                         | --  |   diagonal([1... 1.0, 1.0]) |
 | `Q2`         | Control weight of the MPC                         | --  |   diagonal([100.0]) |
-| `catch_angle`         | Pendulum angle from upright below which the MPC takes over from the swing-up [rad]                         | --  |   0.4 |
-| `swingup_umax`         | Saturation of the energy swing-up's command [V]                         | --  |   2.5 |
-| `arm_centering`         | Arm centering gain of the energy swing-up [V/rad]; stronger than `SwingupCatch`'s default so the arm stays near the end stops instead of running past them while the pendulum is pumped up                         | --  |   5.0 |
 
 ## Connectors
 
@@ -67,9 +55,8 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `exitflag` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
- * `stabilizing` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.005, Np=30, umax=Float64(10.0), arm_limit=1.9198621771937625, arm_soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.None(), max_iter=10, levenberg_marquardt=0.001, Q1=diagonal([1000.0, 100.0, 1.0, 1.0]), Q2=diagonal([100.0]), catch_angle=0.4, swingup_umax=2.5, arm_centering=Float64(5.0), kwargs...)
+@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.01, Np=60, umax=Float64(10.0), arm_limit=1.9198621771937625, arm_soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=0.001, Q1=diagonal([100.0, 100.0, 1.0, 1.0]), Q2=diagonal([100.0]), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -102,23 +89,13 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   ### Symbolic Parameters
   __local__Q1 = Q1
   append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = "State weight of the MPC, on the deviation from upright in the order [shoulder_angle,
-  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = elbow_angle, shoulder_velocity, elbow_velocity]. The default is the `design_lqr` weighting
-  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = (with a heavier pendulum-angle term); the ratio to `Q2` matters, since the velocities the MPC
-  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = is fed are filtered first differences with half a sample of lag -- a control penalty a
-  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = thousand times smaller destabilizes the loop"])
+  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = elbow_angle, shoulder_velocity, elbow_velocity]. The ratio to `Q2` matters, since the
+  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = velocities the MPC is fed are filtered first differences with half a sample of lag -- for
+  append!(__params, @parameters (Q1[1:4, 1:4]::Real), [description = balancing, a control penalty a thousand times smaller than this destabilizes the loop"])
   __initial_conditions[Q1] = __local__Q1
   __local__Q2 = Q2
   append!(__params, @parameters (Q2[1:1, 1:1]::Real), [description = "Control weight of the MPC"])
   __initial_conditions[Q2] = __local__Q2
-  __local__catch_angle = catch_angle
-  append!(__params, @parameters (catch_angle::Real), [description = "Pendulum angle from upright below which the MPC takes over from the swing-up [rad]"])
-  __initial_conditions[catch_angle] = __local__catch_angle
-  __local__swingup_umax = swingup_umax
-  append!(__params, @parameters (swingup_umax::Real), [description = "Saturation of the energy swing-up's command [V]"])
-  __initial_conditions[swingup_umax] = __local__swingup_umax
-  __local__arm_centering = arm_centering
-  append!(__params, @parameters (arm_centering::Real), [description = "Arm centering gain of the energy swing-up [V/rad]; stronger than `SwingupCatch`'s default so the arm stays near the end stops instead of running past them while the pendulum is pumped up"])
-  __initial_conditions[arm_centering] = __local__arm_centering
 
   ### Final Parameters (assignments)
 
@@ -127,7 +104,6 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   append!(__vars, @variables (elbow_angle(t)::Real), [input = true])
   append!(__vars, @variables (u(t)::Real), [output = true])
   append!(__vars, @variables (exitflag(t)::Real), [output = true])
-  append!(__vars, @variables (stabilizing(t)::Real), [output = true])
 
   ### Variables (declarations)
 
@@ -146,36 +122,6 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
   anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
   push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
-  # Subcomponent energyswingup of type QuanserComponents.EnergySwingup
-  energyswingup_overrides = __pop_subcomponent_overrides!(__overrides, "energyswingup")
-  push!(__systems, @named energyswingup = QuanserComponents.EnergySwingup(; energyswingup_overrides...))
-  __bindings[energyswingup.umax] = swingup_umax
-  __bindings[energyswingup.arm_centering_gain] = arm_centering
-  # Now remove initial conditions in energyswingup that correspond to the bindings just added
-  __energyswingup_ics = ModelingToolkit.get_initial_conditions(energyswingup)
-  __no_namespace_energyswingup = ModelingToolkit.toggle_namespacing(energyswingup, false)
-  __energyswingup_umax = Symbolics.unwrap(__no_namespace_energyswingup.umax)::Symbolics.SymbolicT
-  delete!(__energyswingup_ics, __energyswingup_umax)
-  __energyswingup_arm_centering_gain = Symbolics.unwrap(__no_namespace_energyswingup.arm_centering_gain)::Symbolics.SymbolicT
-  delete!(__energyswingup_ics, __energyswingup_arm_centering_gain)
-  # Subcomponent neartop of type QuanserComponents.NearTop
-  neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
-  push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))
-  __bindings[neartop.th] = catch_angle
-  # Now remove initial conditions in neartop that correspond to the bindings just added
-  __neartop_ics = ModelingToolkit.get_initial_conditions(neartop)
-  __no_namespace_neartop = ModelingToolkit.toggle_namespacing(neartop, false)
-  __neartop_th = Symbolics.unwrap(__no_namespace_neartop.th)::Symbolics.SymbolicT
-  delete!(__neartop_ics, __neartop_th)
-  # Subcomponent errorrecovery of type QuanserComponents.ErrorRecovery
-  errorrecovery_overrides = __pop_subcomponent_overrides!(__overrides, "errorrecovery")
-  push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; errorrecovery_overrides...))
-  __bindings[errorrecovery.arm_limit] = arm_limit
-  # Now remove initial conditions in errorrecovery that correspond to the bindings just added
-  __errorrecovery_ics = ModelingToolkit.get_initial_conditions(errorrecovery)
-  __no_namespace_errorrecovery = ModelingToolkit.toggle_namespacing(errorrecovery, false)
-  __errorrecovery_arm_limit = Symbolics.unwrap(__no_namespace_errorrecovery.arm_limit)::Symbolics.SymbolicT
-  delete!(__errorrecovery_ics, __errorrecovery_arm_limit)
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
   push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, states=FURUTA_MPC_STATES, outputs=FURUTA_MPC_STATES, Ts=Ts, Np=Np, Q1=Q1, Q2=Q2, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_ARM_SIGNAL, constrained_min=[-arm_limit], constrained_max=[arm_limit], soft_weight=arm_soft_weight, terminal_lqr_cost=true, operating_point=[Float64(0), pi, Float64(0), Float64(0)], nlp_solver=nlp_solver, warm_start=warm_start, integrator=MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend=MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend=MPCComponents.ACADOSBackend.Julia(), max_iter=max_iter, levenberg_marquardt=levenberg_marquardt, mpc_overrides...))
@@ -185,12 +131,6 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
   # Subcomponent upright of type BlockComponents.Sources.Constant
   upright_overrides = __pop_subcomponent_overrides!(__overrides, "upright")
   push!(__systems, @named upright = BlockComponents.Sources.Constant(; k=pi, upright_overrides...))
-  # Subcomponent switch1 of type BlockComponents.Logical.Switch
-  switch1_overrides = __pop_subcomponent_overrides!(__overrides, "switch1")
-  push!(__systems, @named switch1 = BlockComponents.Logical.Switch(; switch1_overrides...))
-  # Subcomponent stabilizing_flag of type BlockComponents.Math.BooleanToReal
-  stabilizing_flag_overrides = __pop_subcomponent_overrides!(__overrides, "stabilizing_flag")
-  push!(__systems, @named stabilizing_flag = BlockComponents.Math.BooleanToReal(; stabilizing_flag_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -204,19 +144,14 @@ same `ErrorRecovery` as in `RuntimeController` pulls the arm back once it passes
 
   ### Equations
   push!(__eqs, connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u))
-  push!(__eqs, connect(anglenormalization.y, energyswingup.elbow_angle, mpc.x[2], neartop.u))
-  push!(__eqs, connect(shoulder_angle, energyswingup.shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1], errorrecovery.shoulder_angle))
-  push!(__eqs, connect(velocityestimator_shoulder.vel, energyswingup.shoulder_velocity, mpc.x[3]))
-  push!(__eqs, connect(velocityestimator_elbow.vel, energyswingup.elbow_velocity, mpc.x[4]))
+  push!(__eqs, connect(anglenormalization.y, mpc.x[2]))
+  push!(__eqs, connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]))
+  push!(__eqs, connect(velocityestimator_shoulder.vel, mpc.x[3]))
+  push!(__eqs, connect(velocityestimator_elbow.vel, mpc.x[4]))
   push!(__eqs, connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]))
   push!(__eqs, connect(upright.y, mpc.r[2]))
-  push!(__eqs, connect(neartop.y, switch1.u2, stabilizing_flag.u))
-  push!(__eqs, connect(mpc.u[1], switch1.u1))
-  push!(__eqs, connect(energyswingup.realoutput, errorrecovery.u_swingup))
-  push!(__eqs, connect(errorrecovery.u, switch1.u3))
-  push!(__eqs, connect(switch1.y, u))
+  push!(__eqs, connect(mpc.u[1], u))
   push!(__eqs, connect(mpc.exitflag, exitflag))
-  push!(__eqs, connect(stabilizing_flag.y, stabilizing))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

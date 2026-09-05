@@ -177,11 +177,10 @@ const FRICTION_LOG_FILE = "friction_experiment.csv"
 ## MPC swing-up run log layout
 # ---------------------------------------------------------------------------
 # What the `DataLogger` inside `FurutaMPCHardware` writes. The first six columns are the
-# swing-up log's, so `plotD` and the readers of those logs work unchanged; the last two are
-# what judges the MPC on the rig -- acados' status of every solve and whether the MPC was in
-# command (1) or the energy swing-up (0) -- in place of the raw encoder counts.
+# swing-up log's, so `plotD` and the readers of those logs work unchanged; the seventh is what
+# judges the MPC on the rig -- acados' status of every solve.
 const MPC_LOG_COLUMNS = ["time", "shoulder_angle", "elbow_angle", "control_input",
-                         "dt", "exec", "exitflag", "stabilizing"]
+                         "dt", "exec", "exitflag"]
 const MPC_LOG_HEADER = join(MPC_LOG_COLUMNS, "\t")
 const MPC_LOG_NCOLS = length(MPC_LOG_COLUMNS)
 const MPC_LOG_FILE = "run_mpc.csv"

@@ -5,40 +5,39 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, catch_angle, swingup_umax, arm_centering)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, command_umax)
 
-The MPC swing-up controller closed around the physical QUBE, with the hardware I/O inside
-the synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
+The MPC controller closed around the physical QUBE, with the hardware I/O inside the
+synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
 machine.
 
 `HardwareMeasurement` reads the encoders, `HardwareCommand` writes the motor and the
 `DataLogger` appends a row per tick in the `MPC_LOG_COLUMNS` order: what was measured and
-applied, the loop diagnostics, and the two signals that matter for judging the MPC on the
-rig -- acados' `exitflag` and whether the MPC was in command. Compiling this model yields
-a synchronous program that needs nothing from its caller but a clock tick; see
+applied, the loop diagnostics, and acados' `exitflag` of every solve. Compiling this model
+yields a synchronous program that needs nothing from its caller but a clock tick; see
 `generate_mpc_controller` and `MPCController` in src/mpc.jl.
 
 Unlike `FurutaHardware` there is no homing and no error recovery: the arm limit is a
 constraint of the MPC instead, and the arm starts from wherever it is (`open_hardware!`'s
-`arm_deg` says where that is).
+`arm_deg` says where that is). `command_umax` clamps the command before the amplifier and is
+runtime-settable, the one `TuningGains` field, so a first run can be made with less voltage
+than the MPC is allowed to plan with.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Ts`         | Controller sample time                         | --  |   0.005 |
-| `Np`         | Prediction horizon in shooting intervals                         | --  |   30 |
+| `Ts`         | Controller sample time                         | --  |   0.01 |
+| `Np`         | Prediction horizon in shooting intervals                         | --  |   60 |
 | `dynamics`         | Prediction model of the MPC (see `furuta_mpc_dynamics`)                         | --  |   furuta_mpc_dynamics() |
-| `umax`         | Motor saturation [V]: the MPC's control bound, and `HardwareCommand` clamps to it as well                         | --  |   10.0 |
+| `umax`         | Motor saturation [V]: the MPC's control bound                         | --  |   10.0 |
 | `arm_limit`         | Arm angle of the end stops [rad], the MPC's constraint on the arm                         | --  |   1.9198621771937625 |
-| `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...r.SQP_RTI() |
-| `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...tart.None() |
+| `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...olver.SQP() |
+| `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...art.Shift() |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   MPC_LOG_FILE |
-| `catch_angle`         | Pendulum angle from upright below which the MPC takes over [rad]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   0.4 |
-| `swingup_umax`         | Saturation of the energy swing-up's command [V]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   2.5 |
-| `arm_centering`         | Arm centering gain of the energy swing-up [V/rad]. Runtime-settable, being one of the compiled program's `TuningGains`                         | --  |   5.0 |
+| `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field                         | V  |   10.0 |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.005, Np=30, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.None(), log_file=MPC_LOG_FILE, catch_angle=0.4, swingup_umax=2.5, arm_centering=Float64(5.0), kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, command_umax=Float64(10.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -69,15 +68,9 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
-  __local__catch_angle = catch_angle
-  append!(__params, @parameters (catch_angle::Real), [description = "Pendulum angle from upright below which the MPC takes over [rad]. Runtime-settable, being one of the compiled program's `TuningGains`"])
-  __initial_conditions[catch_angle] = __local__catch_angle
-  __local__swingup_umax = swingup_umax
-  append!(__params, @parameters (swingup_umax::Real), [description = "Saturation of the energy swing-up's command [V]. Runtime-settable, being one of the compiled program's `TuningGains`"])
-  __initial_conditions[swingup_umax] = __local__swingup_umax
-  __local__arm_centering = arm_centering
-  append!(__params, @parameters (arm_centering::Real), [description = "Arm centering gain of the energy swing-up [V/rad]. Runtime-settable, being one of the compiled program's `TuningGains`"])
-  __initial_conditions[arm_centering] = __local__arm_centering
+  __local__command_umax = command_umax
+  append!(__params, @parameters (command_umax::Real), [description = "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field"])
+  __initial_conditions[command_umax] = __local__command_umax
 
   ### Final Parameters (assignments)
 
@@ -97,21 +90,15 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
   # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
   push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, control_system_overrides...))
-  __bindings[control_system.catch_angle] = catch_angle
-  __bindings[control_system.swingup_umax] = swingup_umax
-  __bindings[control_system.arm_centering] = arm_centering
-  # Now remove initial conditions in control_system that correspond to the bindings just added
-  __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
-  __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
-  __control_system_catch_angle = Symbolics.unwrap(__no_namespace_control_system.catch_angle)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_catch_angle)
-  __control_system_swingup_umax = Symbolics.unwrap(__no_namespace_control_system.swingup_umax)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_swingup_umax)
-  __control_system_arm_centering = Symbolics.unwrap(__no_namespace_control_system.arm_centering)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_arm_centering)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
-  push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=umax, command_overrides...))
+  push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
+  __bindings[command.umax] = command_umax
+  # Now remove initial conditions in command that correspond to the bindings just added
+  __command_ics = ModelingToolkit.get_initial_conditions(command)
+  __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
+  __command_umax = Symbolics.unwrap(__no_namespace_command.umax)::Symbolics.SymbolicT
+  delete!(__command_ics, __command_umax)
   # Subcomponent diagnostics of type QuanserComponents.HardwareDiagnostics
   diagnostics_overrides = __pop_subcomponent_overrides!(__overrides, "diagnostics")
   push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; diagnostics_overrides...))
@@ -141,7 +128,6 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
   push!(__eqs, connect(diagnostics.dt, logger.u[5]))
   push!(__eqs, connect(diagnostics.exec, logger.u[6]))
   push!(__eqs, connect(control_system.exitflag, logger.u[7]))
-  push!(__eqs, connect(control_system.stabilizing, logger.u[8]))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

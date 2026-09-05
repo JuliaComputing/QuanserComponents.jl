@@ -1,15 +1,15 @@
 #=
-Monte Carlo verification of the MPC swing-up controller (`FurutaMPCHardware`) in
-simulation: the compiled synchronous program -- the very node that runs on the rig -- is
-ticked against a simulated Furuta pendulum from about a thousand random initial
-conditions, and every rollout is checked for a swing-up that holds within 10 s.
+Monte Carlo verification of the MPC controller (`FurutaMPCHardware`) in simulation: the
+compiled synchronous program -- the very node that runs on the rig -- is ticked against a
+simulated Furuta pendulum from about a thousand random initial conditions, and every rollout is
+checked for a swing-up that holds within 10 s.
 
 The plant simulator is the multibody `QubePendulum` ODE (the same model the MPC predicts
 with, taken from `furuta_mpc_dynamics()`), integrated with RK4 at five sub-steps per
 controller period, with the encoder quantization of the QUBE (2048 counts per revolution)
 applied to the measured angles. The program reads the simulator through `bind_hardware!`,
-exactly as the tests do, so the velocity estimators, the angle wrapping, the swing-up /
-MPC switch and the MPC itself all run as compiled.
+exactly as the tests do, so the velocity estimators, the angle wrapping and the MPC itself all
+run as compiled.
 
 Initial conditions are drawn uniformly from the operating space
     arm angle        ±1.5 rad         (inside the ±1.92 rad end stops)
@@ -20,16 +20,19 @@ A rollout succeeds if the pendulum is within 0.1 rad of upright for the whole la
 of the 10 s run; the catch time is the instant from which it stays there. The arm's
 excursion is compared with the end stops as well, since that is the MPC's constraint.
 
-The plant is the MPC's own model by default; `plant = nominal` simulates the datasheet
-parameter set instead while the MPC keeps predicting with the identified one, a model-mismatch
-check in the direction the hardware will exercise.
+The plant is the MPC's own model by default. `plant = perturbed` simulates the identified
+model with the motor constant 15 % lower, the arm 20 % heavier, the pendulum inertia 15 %
+larger and twice the pendulum damping, while the MPC keeps predicting with the identified
+parameters -- a model-mismatch check in the direction the hardware will exercise. `plant =
+nominal` uses the datasheet set, which is far off (a third of the identified acceleration per
+volt) and is not expected to work.
 
 Writes the plots and a summary to `outdir` (default `mpc_rollouts/` in the current directory)
-and prints the statistics. Runtime is dominated by the MPC solves: about a millisecond per
-tick, some 2000 ticks per rollout, so roughly half an hour for the default 1000 rollouts.
+and prints the statistics. Runtime is dominated by the MPC solves (SQP over a 60-interval
+horizon), a few milliseconds per tick, 1000 ticks per rollout.
 
 ENVIRONMENT: as for test/hardware_mpc.jl (see the README's "Nonlinear MPC" section):
-  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | nominal]
+  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | perturbed | nominal]
 =#
 
 using QuanserComponents
@@ -37,7 +40,7 @@ import QuanserComponents as QC
 using Statistics, Random, Printf
 using Plots
 
-const Ts = 0.005
+const Ts = 0.01
 const Tf = 10.0
 const NROLL = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1000
 const OUTDIR = length(ARGS) >= 2 ? ARGS[2] : "mpc_rollouts"
@@ -88,15 +91,15 @@ function rollout!(ctrl, s::FurutaSim, x0; Tf = Tf)
     QC.bind_hardware!(measure = () -> measure(s), control = u -> (applied[] = u))
     QC.SynchToolkit.reset!(ctrl)
     N = round(Int, Tf / s.Ts)
-    X = zeros(4, N); U = zeros(N); flag = zeros(N); stab = falses(N); texec = zeros(N)
+    X = zeros(4, N); U = zeros(N); flag = zeros(N); texec = zeros(N)
     for i in 1:N
         t0 = time_ns()
         out = ctrl()
         texec[i] = (time_ns() - t0) / 1e9
-        X[:, i] .= s.x; U[i] = applied[]; flag[i] = out.exitflag; stab[i] = out.stabilizing > 0.5
+        X[:, i] .= s.x; U[i] = applied[]; flag[i] = out.exitflag
         step!(s, applied[])
     end
-    return (; X, U, flag, stab, texec)
+    return (; X, U, flag, texec)
 end
 
 "Time from which the pendulum stays within `tol` of upright to the end (NaN if it does not hold for `hold` s)."
@@ -125,50 +128,53 @@ rng = Xoshiro(1)
 sample_x0(rng) = [1.5 * (2rand(rng) - 1), 2pi * rand(rng), 3.0 * (2rand(rng) - 1), 10.0 * (2rand(rng) - 1)]
 x0s = [sample_x0(rng) for _ in 1:NROLL]
 
-tcatch = fill(NaN, NROLL); armmax = zeros(NROLL); armmax_mpc = zeros(NROLL); umax = zeros(NROLL)
-nbadflag = zeros(Int, NROLL); nmpc = zeros(Int, NROLL)
-exec_mpc = Float64[]; exec_swing = Float64[]
+tcatch = fill(NaN, NROLL); armmax = zeros(NROLL); umax = zeros(NROLL)
+nbadflag = zeros(Int, NROLL); nmaxiter = zeros(Int, NROLL)
+exec = Float64[]
 NKEEP = min(NROLL, 100)                    # trajectories kept for the overlay plot
 kept = Vector{Any}(undef, NKEEP)
 twall = @elapsed for (i, x0) in enumerate(x0s)
     r = rollout!(ctrl, sim, x0)
     tcatch[i] = catch_time(r.X)
     armmax[i] = maximum(abs, r.X[1, :])
-    armmax_mpc[i] = maximum(abs, r.X[1, r.stab]; init = 0.0)     # while the MPC was in command
     umax[i] = maximum(abs, r.U)
-    nbadflag[i] = count(!=(0), r.flag[r.stab]); nmpc[i] = count(r.stab)
-    append!(exec_mpc, r.texec[r.stab]); append!(exec_swing, r.texec[.!r.stab])
+    nbadflag[i] = count(!=(0), r.flag); nmaxiter[i] = count(==(2), r.flag)
+    append!(exec, r.texec)
     i <= NKEEP && (kept[i] = r)
-    i % 50 == 0 && @printf("%4d/%d rollouts, %d successes so far\n", i, NROLL, count(!isnan, tcatch[1:i]))
+    i % 50 == 0 && (@printf("%4d/%d rollouts, %d successes so far\n", i, NROLL, count(!isnan, tcatch[1:i])); flush(stdout))
 end
 
 success = .!isnan.(tcatch)
+q(v, p) = isempty(v) ? NaN : quantile(v, p)
+med(v) = isempty(v) ? NaN : median(v)
+mx(v) = isempty(v) ? NaN : maximum(v)
 summary = @sprintf("""
-    MPC swing-up Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 30, plant = %s
+    MPC Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 60, plant = %s
     successes (upright within %.2f rad for the last %.1f s): %d / %d = %.1f%%
     catch time [s]: median %.2f, 90%% %.2f, max %.2f
     arm excursion max |phi| [rad]: median %.2f, max %.2f (end stops at %.2f); rollouts beyond the stops: %d
-    arm excursion while the MPC is in command [rad]: median %.2f, max %.2f; rollouts beyond the stops with the MPC in command: %d
     |u| max over all rollouts: %.2f V
-    acados exitflag != 0 on %d of %d MPC ticks
-    tick execution time, MPC in command  [ms]: median %.3f, 99%% %.3f, max %.3f
-    tick execution time, energy swing-up [ms]: median %.3f, 99%% %.3f, max %.3f
+    acados exitflag != 0 on %d of %d ticks (status 2, iteration limit, on %d)
+    tick execution time [ms]: median %.3f, 99%% %.3f, max %.3f
     wall time %.1f min (%.2f ms per tick incl. the plant simulation)
     """, NROLL, Tf, Ts, PLANT, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
-    median(tcatch[success]), quantile(tcatch[success], 0.9), maximum(tcatch[success]),
-    median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax),
-    median(armmax_mpc), maximum(armmax_mpc), count(>(ARM_LIMIT), armmax_mpc), maximum(umax),
-    sum(nbadflag), sum(nmpc),
-    1e3median(exec_mpc), 1e3quantile(exec_mpc, 0.99), 1e3maximum(exec_mpc),
-    1e3median(exec_swing), 1e3quantile(exec_swing, 0.99), 1e3maximum(exec_swing),
+    med(tcatch[success]), q(tcatch[success], 0.9), mx(tcatch[success]),
+    median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax), maximum(umax),
+    sum(nbadflag), NROLL * round(Int, Tf / Ts), sum(nmaxiter),
+    1e3med(exec), 1e3q(exec, 0.99), 1e3mx(exec),
     twall / 60, 1e3twall / (NROLL * Tf / Ts))
 println(summary)
 write(joinpath(OUTDIR, "summary.txt"), summary)
 open(joinpath(OUTDIR, "rollouts.csv"), "w") do io
-    println(io, "shoulder0\telbow0\tshoulder_vel0\telbow_vel0\tcatch_time\tarm_max\tarm_max_mpc\tu_max\tbad_exitflags\tmpc_ticks")
+    println(io, "shoulder0\telbow0\tshoulder_vel0\telbow_vel0\tcatch_time\tarm_max\tu_max\tbad_exitflags\tmaxiter_ticks")
     for i in 1:NROLL
-        println(io, join(string.([x0s[i]; tcatch[i]; armmax[i]; armmax_mpc[i]; umax[i]; nbadflag[i]; nmpc[i]]), '\t'))
+        println(io, join(string.([x0s[i]; tcatch[i]; armmax[i]; umax[i]; nbadflag[i]; nmaxiter[i]]), '\t'))
     end
+end
+# Raw tick times, for re-plotting without re-running.
+open(joinpath(OUTDIR, "exec_times.tsv"), "w") do io
+    println(io, "exec_ms")
+    for v in exec; println(io, 1e3v); end
 end
 
 # ---------------------------------------------------------------------------
@@ -208,30 +214,19 @@ any(!, success) && scatter!(p3, [x[2] for x in x0s[.!success]], [x[1] for x in x
                             color = ORANGE, markersize = 6, markershape = :x, label = "failed")
 savefig(p3, joinpath(OUTDIR, "initial_conditions.png"))
 
-# 4. Per-tick execution time, MPC in command versus swing-up (the MPC is solved in both phases; the
-#    swing-up phase is where it is fed states far from upright). Ticks beyond the axis are counted in
-#    the title: those are the collection pauses of the ~2 MB the acados callbacks allocate per tick.
-tmax = 5.0
-nover = count(>(tmax), 1e3exec_mpc) + count(>(tmax), 1e3exec_swing)
-p4 = histogram(1e3exec_swing, bins = 0:0.05:tmax, color = GRAY, linecolor = :white, alpha = 0.7,
-               label = "energy swing-up", xlabel = "controller execution time per tick [ms]", ylabel = "ticks",
-               title = @sprintf("Tick execution time; %d of %d ticks beyond the 5 ms clock period", nover, length(exec_mpc) + length(exec_swing)))
-histogram!(p4, 1e3exec_mpc, bins = 0:0.05:tmax, color = BLUE, linecolor = :white, alpha = 0.7, label = "MPC in command")
+# 4. Per-tick execution time. Ticks beyond the axis are counted in the title.
+tmax = 1e3Ts
+nover = count(>(tmax), 1e3exec)
+p4 = histogram(1e3exec, bins = 0:(tmax / 100):tmax, color = BLUE, linecolor = :white, label = "",
+               xlabel = "controller execution time per tick [ms]", ylabel = "ticks",
+               title = @sprintf("Tick execution time; %d of %d ticks beyond the %.0f ms clock period", nover, length(exec), tmax))
 savefig(p4, joinpath(OUTDIR, "exec_times.png"))
-# Raw tick times, for re-plotting without re-running.
-open(joinpath(OUTDIR, "exec_times.tsv"), "w") do io
-    println(io, "phase\texec_ms")
-    for v in exec_mpc; println(io, "mpc\t", 1e3v); end
-    for v in exec_swing; println(io, "swingup\t", 1e3v); end
-end
 
-# 5. Arm excursion against the end stops: over the whole rollout (swing-up included) and while the
-#    MPC, which carries the constraint, is in command.
+# 5. Arm excursion against the end stops, the MPC's constraint.
 bmax = max(2.2, ceil(maximum(armmax); digits = 1))
-p5 = histogram(armmax, bins = 0:0.05:bmax, color = GRAY, linecolor = :white, alpha = 0.8, label = "whole rollout",
-               xlabel = "largest |arm angle| [rad]", ylabel = "rollouts",
+p5 = histogram(armmax, bins = 0:0.05:bmax, color = BLUE, linecolor = :white, label = "",
+               xlabel = "largest |arm angle| during the rollout [rad]", ylabel = "rollouts",
                title = "Arm excursion versus the end stops")
-histogram!(p5, armmax_mpc, bins = 0:0.05:bmax, color = BLUE, linecolor = :white, alpha = 0.8, label = "MPC in command")
 vline!(p5, [ARM_LIMIT], color = ORANGE, ls = :dash, lw = 2, label = "end stops")
 savefig(p5, joinpath(OUTDIR, "arm_excursion.png"))
 println("plots written to ", abspath(OUTDIR))

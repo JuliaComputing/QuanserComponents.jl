@@ -1,12 +1,11 @@
-# The MPC swing-up controller as a synchronous program: what is specific to it.
+# The MPC controller as a synchronous program: what is specific to it.
 #
 # `FurutaMPCHardware` (dyad/furuta_mpc.dyad) is `FurutaHardware` with the swing-up state
-# machine replaced by `FurutaMPC`: the energy swing-up pumps the pendulum up, and an
-# `MPCComponents.ACADOSMPC` balances it, solving a constrained nonlinear optimal control
-# problem over the multibody `QubePendulum` model every tick. Everything about compiling it,
-# instantiating it and ticking it against the rig is shared with the other programs and lives
-# in program.jl; this file supplies the prediction model, the log layout, the tunables and
-# the outputs.
+# machine replaced by `FurutaMPC`: an `MPCComponents.ACADOSMPC` that swings the pendulum up and
+# balances it, solving a constrained nonlinear optimal control problem over the multibody
+# `QubePendulum` model every tick. Everything about compiling it, instantiating it and ticking
+# it against the rig is shared with the other programs and lives in program.jl; this file
+# supplies the prediction model, the log layout, the tunable and the outputs.
 #
 # The prediction model is the point of the exercise. `ACADOSMPC` normally rebuilds the
 # model's Jacobian symbolically, which a `multibody`-compiled model defeats: its right-hand
@@ -64,43 +63,39 @@ const _MPC_DYNAMICS_CACHE = Dict{Any, ContinuousDynamics}()
 "The log `FurutaMPCHardware` writes, in `MPC_LOG_COLUMNS` order. `file` defaults to `MPC_LOG_FILE`."
 mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 
-# The runtime-settable parameters: the swing-up phase's knobs, root parameters of `FurutaMPCHardware` bound down
-# into `FurutaMPC` with `final` (see `resolve_tunables` for why the root is the right place).
-# The MPC's own weights are tunable parameters of `ACADOSMPC` too, but arrays of a shape
-# `ParametersStruct` has no field type for; they are set at construction with `overrides`
-# instead (`control_system__Q1 = ...`).
+# The one runtime-settable parameter: the command clamp before the amplifier, a root parameter
+# of `FurutaMPCHardware` bound down into `HardwareCommand` with `final` (see `resolve_tunables`
+# for why the root is the right place). The MPC's own weights are tunable parameters of
+# `ACADOSMPC` too, but arrays of a shape `ParametersStruct` has no field type for; they are set
+# at construction with `overrides` instead (`control_system__Q1 = ...`).
 const MPC_TUNABLES = OrderedDict{Any, Symbol}(
-    (nsys -> nsys.catch_angle) => :catch_angle,
-    (nsys -> nsys.swingup_umax) => :swingup_umax,
-    (nsys -> nsys.arm_centering) => :arm_centering,
+    (nsys -> nsys.command_umax) => :command_umax,
 )
 
 # Node outputs, in the order the runtime reports them: the swing-up program's four, then
-# acados' status and whether the MPC was in command.
+# acados' status.
 _mpc_outputs(nsys) = [nsys.logger.row, nsys.measurement.shoulder_angle,
                       nsys.measurement.elbow_angle, nsys.command.u_applied,
-                      nsys.control_system.exitflag, nsys.control_system.stabilizing]
-const MPC_OUTPUT_NAMES = (:row, :shoulder, :elbow, :u, :exitflag, :stabilizing)
+                      nsys.control_system.exitflag]
+const MPC_OUTPUT_NAMES = (:row, :shoulder, :elbow, :u, :exitflag)
 
 """
-    generate_mpc_controller(; Ts=0.005, Np=30, log_file=MPC_LOG_FILE, dynamics=furuta_mpc_dynamics(), overrides...)
+    generate_mpc_controller(; Ts=0.01, Np=60, log_file=MPC_LOG_FILE, dynamics=furuta_mpc_dynamics(), overrides...)
 
-Compile the MPC swing-up controller to a SynchJulia node: build `FurutaMPCHardware` -- the
-energy swing-up and the `ACADOSMPC` balancing controller wired between `HardwareMeasurement`
-and `HardwareCommand`, with a `DataLogger`, on a `PeriodicClock` at sample time `Ts` -- and
-`stkcompile` it.
+Compile the MPC controller to a SynchJulia node: build `FurutaMPCHardware` -- the `ACADOSMPC`
+swing-up and balancing controller wired between `HardwareMeasurement` and `HardwareCommand`,
+with a `DataLogger`, on a `PeriodicClock` at sample time `Ts` -- and `stkcompile` it.
 
 Returns what [`compile_program`](@ref) returns. The node's argument order is
 `(tick::Bool, gains::TuningGains, auto::AutoPars)` and the outputs are `(row, shoulder_angle,
-elbow_angle, u_applied, exitflag, stabilizing)`. The catch angle and the swing-up saturation
-are the runtime-settable `TuningGains` fields; the MPC's weights and structure are set here,
-with Dyad's `__`-separated override paths, e.g. `control_system__Q1 = diagm([10, 20, 0.1, 0.1])`
-or `umax = 8.0`.
+elbow_angle, u_applied, exitflag)`. The command clamp `command_umax` is the runtime-settable
+`TuningGains` field; the MPC's weights and structure are set here, with Dyad's `__`-separated
+override paths, e.g. `control_system__Q1 = diagm([100, 100, 1, 1])` or `umax = 8.0`.
 
 `Ts` is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals.
 `dynamics` is the prediction model; the default is the identified `QubePendulum`.
 """
-function generate_mpc_controller(; Ts = 0.005, Np = 30, log_file = MPC_LOG_FILE,
+function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
                                   dynamics = furuta_mpc_dynamics(), param_overrides = nothing,
                                   overrides...)
     return compile_program(FurutaMPCHardware; name = :mpc_controller, Ts, Np, dynamics,
@@ -109,31 +104,29 @@ function generate_mpc_controller(; Ts = 0.005, Np = 30, log_file = MPC_LOG_FILE,
 end
 
 """
-    MPCController(; Ts=0.005, Np=30, backend=:julia, log_file=MPC_LOG_FILE, catch_angle=nothing, swingup_umax=nothing, arm_centering=nothing, overrides...)
+    MPCController(; Ts=0.01, Np=60, backend=:julia, log_file=MPC_LOG_FILE, command_umax=nothing, overrides...)
 
-A ready-to-call runtime wrapper around the generated MPC swing-up controller, the
-counterpart of [`SwingupController`](@ref). Compiles the controller, builds a
-`SynchExecutable` and populates the parameter structs.
+A ready-to-call runtime wrapper around the generated MPC controller, the counterpart of
+[`SwingupController`](@ref). Compiles the controller, builds a `SynchExecutable` and populates
+the parameter structs.
 
-Advance one control step with `out = controller()`, which reads the encoders, runs the
-swing-up or the MPC, writes the motor voltage, logs a row and returns `(; row, shoulder,
-elbow, u, exitflag, stabilizing)`. Point it at a device with [`open_hardware!`](@ref) or at
-a simulator with [`bind_hardware!`](@ref) first; [`run_program!`](@ref) does the opening, the
-timing and the closing for a real run.
+Advance one control step with `out = controller()`, which reads the encoders, solves the MPC,
+writes the motor voltage, logs a row and returns `(; row, shoulder, elbow, u, exitflag)`. Point
+it at a device with [`open_hardware!`](@ref) or at a simulator with [`bind_hardware!`](@ref)
+first; [`run_program!`](@ref) does the opening, the timing and the closing for a real run.
 
 Only `backend = :julia` is available: the AD Jacobian backend the multibody prediction model
-needs has no symbolic form for SynchCompiler to render. `catch_angle` and `swingup_umax`
-override the model's values at instantiation; the rest of the model, the MPC included, is set
-with `overrides` at compile time (see [`generate_mpc_controller`](@ref)).
+needs has no symbolic form for SynchCompiler to render. `command_umax` (the clamp on the
+command before the amplifier) overrides the model's value at instantiation; the rest of the
+model, the MPC included, is set with `overrides` at compile time (see
+[`generate_mpc_controller`](@ref)).
 """
-function MPCController(; Ts = 0.005, Np = 30, backend::Symbol = :julia,
-                        log_file = MPC_LOG_FILE, catch_angle = nothing, swingup_umax = nothing,
-                        arm_centering = nothing, kwargs...)
+function MPCController(; Ts = 0.01, Np = 60, backend::Symbol = :julia,
+                        log_file = MPC_LOG_FILE, command_umax = nothing, kwargs...)
     backend === :julia ||
         throw(ArgumentError("MPCController runs on the :julia backend only: the multibody \
                              prediction model needs the AD Jacobian backend, which cannot be \
                              exported to C"))
     gen = generate_mpc_controller(; Ts, Np, log_file, kwargs...)
-    return make_runtime(gen, MPC_OUTPUT_NAMES; backend,
-                        gains = (; catch_angle, swingup_umax, arm_centering))
+    return make_runtime(gen, MPC_OUTPUT_NAMES; backend, gains = (; command_umax))
 end
