@@ -28,8 +28,8 @@ nominal` uses the datasheet set, which is far off (a third of the identified acc
 volt) and is not expected to work.
 
 Writes the plots and a summary to `outdir` (default `mpc_rollouts/` in the current directory)
-and prints the statistics. Runtime is dominated by the MPC solves (SQP over a 60-interval
-horizon), a few milliseconds per tick, 1000 ticks per rollout.
+and prints the statistics. Runtime is dominated by the MPC solves (one real-time iteration
+over a 60-interval horizon), about a millisecond per tick, 1000 ticks per rollout.
 
 ENVIRONMENT: as for test/hardware_mpc.jl (see the README's "Nonlinear MPC" section):
   julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | perturbed | nominal]

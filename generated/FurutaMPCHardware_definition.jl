@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, realtime, output_trajectories, command_umax)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, realtime, output_trajectories, command_umax, velocity_filter, blend_lower, blend_upper)
 
 The MPC controller closed around the physical QUBE, with the hardware I/O inside the
 synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
@@ -37,16 +37,19 @@ src/mpc.jl does the run.
 | `Ts`         | Controller sample time                         | --  |   0.01 |
 | `Np`         | Prediction horizon in shooting intervals                         | --  |   60 |
 | `dynamics`         | Prediction model of the MPC (see `furuta_mpc_dynamics`)                         | --  |   furuta_mpc_dynamics() |
-| `umax`         | Motor saturation [V]: the MPC's control bound                         | --  |   4 |
-| `arm_limit`         | Arm angle of the end stops [rad], the MPC's constraint on the arm                         | --  |   deg2rad(90) |
+| `umax`         | Motor voltage bound of the MPC [V]; the swing-up needs 10. `command_umax` clamps what reaches the amplifier                         | --  |   10.0 |
+| `arm_limit`         | Arm angle the MPC keeps the arm within [rad], inside the end stops at ±1.92                         | --  |   1.7 |
 | `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...r.SQP_RTI() |
 | `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...art.Shift() |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   MPC_LOG_FILE |
 | `realtime`         | Pace the ticks in real time from inside the program: for running this model as a *simulation* (an ODE solver stepping it) against the device, see `run_mpc_hardware_model`. Off when `run_program!`'s loop keeps time                         | --  |   false |
 | `output_trajectories`         | Record the MPC's predicted trajectories and solver residuals at every tick, for `MPCComponents.mpc_gui`                         | --  |   false |
-| `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field                         | V  |   umax |
+| `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field                         | V  |   umax |
+| `velocity_filter`         | Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field                         | --  |   0.8 |
+| `blend_lower`         | Angle from upright below which the MPC uses the LQR weighting alone [rad]. Runtime-settable, a `TuningGains` field                         | --  |   0.3 |
+| `blend_upper`         | Angle from upright above which the MPC uses the swing-up weighting alone [rad]. Runtime-settable, a `TuningGains` field                         | --  |   0.8 |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(4), arm_limit=deg2rad(90), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, command_umax=umax, kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_filter=0.8, blend_lower=0.3, blend_upper=0.8, command_umax=umax, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -78,8 +81,17 @@ src/mpc.jl does the run.
 
   ### Symbolic Parameters
   __local__command_umax = command_umax
-  append!(__params, @parameters (command_umax::Real), [description = "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field"])
+  append!(__params, @parameters (command_umax::Real), [description = "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field"])
   __initial_conditions[command_umax] = __local__command_umax
+  __local__velocity_filter = velocity_filter
+  append!(__params, @parameters (velocity_filter::Real), [description = "Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field"])
+  __initial_conditions[velocity_filter] = __local__velocity_filter
+  __local__blend_lower = blend_lower
+  append!(__params, @parameters (blend_lower::Real), [description = "Angle from upright below which the MPC uses the LQR weighting alone [rad]. Runtime-settable, a `TuningGains` field"])
+  __initial_conditions[blend_lower] = __local__blend_lower
+  __local__blend_upper = blend_upper
+  append!(__params, @parameters (blend_upper::Real), [description = "Angle from upright above which the MPC uses the swing-up weighting alone [rad]. Runtime-settable, a `TuningGains` field"])
+  __initial_conditions[blend_upper] = __local__blend_upper
 
   ### Final Parameters (assignments)
 
@@ -98,7 +110,19 @@ src/mpc.jl does the run.
   push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
   # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, output_trajectories=output_trajectories, Q2=diagonal([100000.0]), Q1=diagonal([1000.0, 10, 1, 1]), max_iter=3, arm_soft_weight=Float64(10000.0), levenberg_marquardt=0.1, control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, output_trajectories=output_trajectories, control_system_overrides...))
+  __bindings[control_system.velocity_filter] = velocity_filter
+  __bindings[control_system.blend_lower] = blend_lower
+  __bindings[control_system.blend_upper] = blend_upper
+  # Now remove initial conditions in control_system that correspond to the bindings just added
+  __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
+  __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
+  __control_system_velocity_filter = Symbolics.unwrap(__no_namespace_control_system.velocity_filter)::Symbolics.SymbolicT
+  delete!(__control_system_ics, __control_system_velocity_filter)
+  __control_system_blend_lower = Symbolics.unwrap(__no_namespace_control_system.blend_lower)::Symbolics.SymbolicT
+  delete!(__control_system_ics, __control_system_blend_lower)
+  __control_system_blend_upper = Symbolics.unwrap(__no_namespace_control_system.blend_upper)::Symbolics.SymbolicT
+  delete!(__control_system_ics, __control_system_blend_upper)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
   push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))

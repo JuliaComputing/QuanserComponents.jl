@@ -88,23 +88,27 @@ built, stepped and compared across backends without a device attached.
 
 `FurutaMPC` (dyad/furuta_mpc.dyad) replaces the whole swing-up state machine by one nonlinear
 model-predictive controller, `MPCComponents.ACADOSMPC`: it swings the pendulum up and balances
-it, solving every 10 ms a constrained optimal control problem over a horizon of 60 samples with
-the motor voltage bounded to ±10 V, the arm bounded to the end stops (a soft state constraint),
-the upright state as reference and the infinite-horizon LQR cost-to-go about upright as terminal
-cost. The prediction model is the multibody `QubePendulum` itself: `furuta_mpc_dynamics()`
-compiles it with `multibody` and hands it to `continuous_dynamics` with the `ForwardDiff`
-Jacobian backend, which differentiates a numeric evaluation of the model. That backend exists
-because a multibody model's compiled form contains cached linear solves that the default
-symbolic Jacobian cannot reconstruct; the same fact rules out C export, so this controller runs
-on SynchJulia's Julia backend only.
+it, with one real-time iteration per 10 ms tick over a horizon of 60 samples, the motor voltage
+bounded to ±10 V and the arm angle and the velocities bounded softly. The prediction model is the
+multibody `QubePendulum` itself: `furuta_mpc_dynamics()` compiles it with `multibody` and hands
+it to `continuous_dynamics` with the `ForwardDiff` Jacobian backend, which differentiates a
+numeric evaluation of the model. That backend exists because a multibody model's compiled form
+contains cached linear solves that the default symbolic Jacobian cannot reconstruct; the same
+fact rules out C export, so this controller runs on SynchJulia's Julia backend only.
 
-The velocities the MPC is fed are filtered first differences of the encoder angles, half a sample
-behind, so the control penalty must not be small relative to the state weights (a penalty a
-thousand times smaller than the defaults destabilized the balancing in earlier tests). The slack
-weight of the arm constraint is a moderate 1e3: with acados' default of 1e6 the constraint
-dominates the cost whenever the arm is past the limit and the MPC sacrifices the pendulum to
-haul the arm back. The measured elbow angle is wrapped to `[0, 2π)`, with the cut at the hanging
-position where the model is periodic and the cost symmetric.
+One controller does both jobs through its weighting. Within 0.3 rad of upright the stage cost is
+`design_lqr`'s (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`) and the terminal cost is that design's
+LQR cost-to-go (`furuta_mpc_terminal_weight`), so the balancing is the well-tried LQR, constraints
+aside. Beyond 0.8 rad the stage cost is a swing-up weighting (`Q1_swing = diag(10, 300, 1, 1)`,
+`Q2_swing = 10`) that makes pumping the pendulum up pay off within the horizon; in between the two
+are blended (`SwingupBlend`, `ACADOSMPC`'s `blend_weights`). Three further details were found
+necessary by simulating the loop with quantized angles and the discrete velocity estimators, and
+are documented on the components: the MPC is fed the continuous encoder angle with the reference
+at the nearest upright (`NearestUpright`) rather than a wrapped angle; soft velocity bounds and
+`ACADOSMPC`'s `reset_on_failure` keep a shifted real-time iteration from derailing; and the
+velocity estimate must be nearly unfiltered (`velocity_filter = 0.8`; the old default of 0.5 makes
+even the balancing unstable at 10 ms). HPIPM condenses the QP to 5 stages, which halves the
+worst-case solve time.
 
 `FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
 hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
@@ -121,20 +125,21 @@ sol = solve(prob; dt = 0.01)
 ctrl = MPCController(; Ts = 0.01, Np = 60)     # the hardware program, see test/hardware_mpc.jl
 ```
 
-`test/hardware_mpc.jl` runs it on the rig; `command_umax` clamps the command before the
-amplifier and is the one runtime-settable parameter, for a first run at reduced voltage. The
-script then runs the same model against the device a second way, as a simulation
-(`run_mpc_hardware_model`: `HardwareDiagnostics(realtime = true)` paces the ODE solver's ticks
-on the wall clock, `output_trajectories = true` makes the MPC record its predictions) and opens
+`test/hardware_mpc.jl` runs it on the rig. Four parameters are runtime-settable (`TuningGains`):
+`command_umax`, a clamp on the command before the amplifier for a first run at reduced voltage,
+`velocity_filter`, and the blend angles `blend_lower`/`blend_upper`. The script then runs the
+same model against the device a second way, as a simulation (`run_mpc_hardware_model`:
+`HardwareDiagnostics(realtime = true)` paces the ODE solver's ticks on the wall clock,
+`output_trajectories = true` makes the MPC record its predictions) and opens
 `MPCComponents.mpc_gui` on the solution to inspect the predicted trajectories and the solver
 residuals tick by tick.
+
 `test/mpc_rollouts.jl` ticks the compiled hardware program -- the very node the rig runs --
 against a simulated pendulum (the multibody model with encoder quantization, RK4 at five
-sub-steps per period, optionally with perturbed parameters) from a thousand random initial
-conditions and reports success statistics, catch times and tick timings. The MPC-only
-configuration has not been run through it yet; assets/mpc/ holds the results of the earlier
-configuration, in which an energy-based swing-up handed over to the MPC for balancing
-(978 of 1000 rollouts balanced within 10 s, no failed solves).
+sub-steps per period, optionally with perturbed parameters) from random initial conditions (arm
+within ±1.5 rad, pendulum anywhere, arm velocity within ±3 rad/s, pendulum velocity within
+±10 rad/s) and counts the rollouts in which the pendulum stays within 0.1 rad of upright for the
+last second of 10 s. MONTECARLO_RESULTS
 
 ### Environment
 
