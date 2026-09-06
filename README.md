@@ -149,15 +149,17 @@ pendulum stays within 0.1 rad of upright for the last second of 10 s. The summar
 
 | rollouts | plant | starts | balanced within 10 s | catch time median / 90 % | arm past the stops |
 |---|---|---|---|---|---|
-| 1000 | identified | random | 989 | 1.16 s / 3.90 s | 563 |
-| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 198 | 1.73 s / 5.34 s | 109 |
-| 200 | identified | at rest near hanging, as on the rig | 196 | 1.96 s / 4.67 s | 118 (median 2.15 rad, max 8.35) |
-| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 198 | 2.37 s / 5.11 s | 110 |
+| 1000 | identified | random | 995 | 1.18 s / 3.86 s | 558 |
+| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 197 | 1.67 s / 5.33 s | 121 |
+| 200 | identified | at rest near hanging, as on the rig | 195 | 2.19 s / 5.25 s | 126 (median 2.23 rad, max 6.29) |
+| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 197 | 2.23 s / 4.51 s | 107 |
 
-Solve time was 0.94 to 1.23 ms per tick at the median and 2.3 to 2.8 ms at the 99th percentile;
-about one solve in two thousand failed and was retried. The arm column is the caveat of this
+Solve time was 0.96 to 1.23 ms per tick at the median and 2.3 to 2.8 ms at the 99th percentile;
+about one solve in a thousand failed and was retried. The arm column is the caveat of this
 design: in more than half of the rollouts, rest starts included, the swing-up carries the arm
-past the ±1.92 rad end stops.
+past the ±1.92 rad end stops. The rest starts split in two kinds: about a third go straight up
+in 1.2 s with the arm inside the stops, the rest hesitate for several swings and wander. The
+few rollouts not balanced at 10 s were still swinging, none had derailed.
 
 ### Environment
 
