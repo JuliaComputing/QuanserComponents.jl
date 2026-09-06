@@ -156,6 +156,7 @@ end
 @register_symbolic hw_exec(dep::Real)::Real
 @register_symbolic hw_count_shoulder(dep::Real)::Real
 @register_symbolic hw_count_elbow(dep::Real)::Real
+@register_symbolic hw_realtime_wait(Ts::Real, dep::Real)::Real
 
 """
     hw_measure(dep) -> shoulder
@@ -211,6 +212,20 @@ hw_count_shoulder(dep::Real)::Float64 =
 @doc (@doc hw_time)
 hw_count_elbow(dep::Real)::Float64 =
     ccall((:qube_hw_count_elbow, QUBE_HW_LIB), Cdouble, (Cdouble,), dep)
+
+"""
+    hw_realtime_wait(Ts, dep) -> late
+
+Pace the program from the inside: the n-th call sleeps until `n * Ts` seconds after the
+first one and returns 0, or returns by how many seconds it was late. This is what makes a
+program that is *simulated* -- an ODE solver stepping the clocked partition as fast as it
+can, as `run_mpc_hardware_model` does to record the MPC's predictions -- tick in real time
+against the device; a program driven by [`run_program!`](@ref)'s timing loop does not need
+it. `dep` orders the call after the motor write (see `HardwareDiagnostics`); the anchor is
+reset with the other timing by `reset_hardware_counters!`.
+"""
+hw_realtime_wait(Ts::Real, dep::Real)::Float64 =
+    ccall((:qube_hw_realtime_wait, QUBE_HW_LIB), Cdouble, (Cdouble, Cdouble), Ts, dep)
 
 # ---------------------------------------------------------------------------
 ## Driver-side API

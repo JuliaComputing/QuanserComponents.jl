@@ -99,6 +99,14 @@ The elapsed-time port is `elapsed` and not `time` because `time` is Dyad's conti
 variable: an output of that name makes the component's clocked equation a continuous one and
 the model fails to compile with `invalid-clock-usage`. The log column is still called `time`.
 
+With `realtime = true` the component also paces the program: after the motor write it waits
+until the wall clock reaches the next tick's time (`hw_realtime_wait`, the n-th tick ending
+`n` sample times after the first), and reports how late it was in `late`. That is for a
+program that is not driven by a timing loop but *simulated* -- an ODE solver stepping the
+clocked partition as fast as it can, as `run_mpc_hardware_model` does so that the MPC's
+predicted trajectories are recorded for `mpc_gui` -- yet has to talk to the real device at
+its real rate. A program run by `run_program!`, whose loop keeps time, leaves it off.
+
 Clock-agnostic.
 """
 component HardwareDiagnostics@[input clk extends Discrete]
@@ -114,17 +122,31 @@ component HardwareDiagnostics@[input clk extends Discrete]
   count_shoulder = Dyad.RealOutput@[clk]() {^count_shoulder}
   "Raw elbow encoder count of the most recent read"
   count_elbow = Dyad.RealOutput@[clk]() {^count_elbow}
+  "Seconds this tick overran its slot when pacing in real time; 0 when it waited (only with realtime)"
+  late = Dyad.RealOutput@[clk]() if realtime {^late}
+  sampletimesource = DiscreteComponents.SampleTimeSource() {^sampletimesource}
+  "Pace the program in real time from the inside (for a simulated program driving the device); off for a program run by a timing loop"
+  structural parameter realtime::Boolean = false
 relations
   elapsed@clk = hw_time(dep)
   dt@clk = hw_dt(dep)
   exec@clk = hw_exec(dep)
   count_shoulder@clk = hw_count_shoulder(dep)
   count_elbow@clk = hw_count_elbow(dep)
+  if realtime
+    late@clk = hw_realtime_wait(sampletimesource.y@clk, dep)
+  end
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/HardwareDiagnostics.svg"}},
   "_links": {
     "dep": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
+    },
+    "late": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 950, "y2": 1050}}}
+    },
+    "sampletimesource": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 750, "y2": 850}}}
     },
     "elapsed": {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 100, "y2": 200}}}
@@ -170,8 +192,8 @@ component FurutaHardware
   control_system = SwingupWithHoming(final umax = umax) {^control_system}
   command = HardwareCommand(final umax = umax) {^command}
   diagnostics = HardwareDiagnostics() {^diagnostics}
-  logger = DataLogger(n = SWINGUP_LOG_NCOLS, filename = log_file, header = SWINGUP_LOG_HEADER) {^logger}
-  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+  logger = DataLogger(final n = SWINGUP_LOG_NCOLS, final filename = log_file, final header = SWINGUP_LOG_HEADER) {^logger}
+  periodicclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^periodicclock}
   "Controller sample time"
   structural parameter Ts::Real = 0.005
   "File the log is written to; the driver opens it with this name"

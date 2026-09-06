@@ -36,9 +36,9 @@ component FurutaMPC
   velocityestimator_shoulder = QuanserComponents.VelocityEstimator() {^velocityestimator_shoulder}
   velocityestimator_elbow = QuanserComponents.VelocityEstimator() {^velocityestimator_elbow}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
-  mpc = MPCComponents.ACADOSMPC(dynamics = dynamics, states = FURUTA_MPC_STATES, outputs = FURUTA_MPC_STATES, final Ts = Ts, final Np = Np, final Q1 = Q1, final Q2 = Q2, final umin = [-umax], final umax = [umax], constrained = FURUTA_MPC_ARM_SIGNAL, constrained_min = [-arm_limit], final constrained_max = [arm_limit], final soft_weight = arm_soft_weight, terminal_lqr_cost = true, operating_point = [0, pi, 0, 0], nlp_solver = MPCComponents.ACADOSSolver.SQP_RTI(), warm_start = warm_start, integrator = MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend = MPCComponents.ACADOSBackend.Julia(), max_iter = max_iter, levenberg_marquardt = levenberg_marquardt, terminal_constraints_soft = false, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), integrator_stages = 2, penalize_increments = false) {^mpc}
-  zero = BlockComponents.Sources.Constant(k = 0) {^zero}
-  upright = BlockComponents.Sources.Constant(k = pi) {^upright}
+  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final states = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_STATES, final Ts = Ts, final Np = Np, final Q1 = Q1, final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_ARM_SIGNAL, final constrained_min = [-arm_limit], final constrained_max = [arm_limit], final soft_weight = arm_soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nlp_solver = nlp_solver, final warm_start = warm_start, integrator = MPCComponents.ACADOSIntegrator.ERK(), final jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final output_trajectories = output_trajectories, terminal_constraints_soft = false, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), integrator_stages = 2, penalize_increments = false) {^mpc}
+  zero = BlockComponents.Sources.Constant(final k = 0) {^zero}
+  upright = BlockComponents.Sources.Constant(final k = pi) {^upright}
   """
   Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an
   AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with
@@ -73,6 +73,8 @@ component FurutaMPC
   structural parameter max_iter::Integer = 30
   "Levenberg-Marquardt regularization of the Gauss-Newton Hessian"
   structural parameter levenberg_marquardt::Real = 1e-3
+  "Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick (`mpc.x_pred`, `mpc.u_pred`, `mpc.residuals`, `mpc.iterations`), what `MPCComponents.mpc_gui` shows"
+  structural parameter output_trajectories::Boolean = false
   """
   State weight of the MPC, on the deviation from upright in the order [shoulder_angle,
   elbow_angle, shoulder_velocity, elbow_velocity]. The ratio to `Q2` matters, since the
@@ -155,14 +157,21 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
 `arm_deg` says where that is). `command_umax` clamps the command before the amplifier and is
 runtime-settable, the one `TuningGains` field, so a first run can be made with less voltage
 than the MPC is allowed to plan with.
+
+The model can also be run against the device as a *simulation*, i.e. stepped by an ODE solver
+rather than compiled to a program -- that is how the MPC's predicted trajectories and solver
+residuals end up in a solution object for `MPCComponents.mpc_gui`. Two options exist for
+that: `realtime = true` makes `HardwareDiagnostics` pace the ticks on the wall clock, and
+`output_trajectories = true` makes the MPC record them. `run_mpc_hardware_model` in
+src/mpc.jl does the run.
 """
 component FurutaMPCHardware
   measurement = HardwareMeasurement() {^measurement}
-  control_system = FurutaMPC(dynamics = dynamics, final Ts = Ts, final Np = Np, final umax = umax, arm_limit = arm_limit, final nlp_solver = nlp_solver, warm_start = MPCComponents.ACADOSWarmStart.Shift(), Q2 = diagonal([100000.0]), Q1 = diagonal([1000.0, 10, 1, 1]), max_iter = 3, arm_soft_weight = 1e4, levenberg_marquardt = 0.1) {^control_system}
+  control_system = FurutaMPC(final dynamics = dynamics, final Ts = Ts, final Np = Np, final umax = umax, final arm_limit = arm_limit, final nlp_solver = nlp_solver, final warm_start = warm_start, final output_trajectories = output_trajectories, Q2 = diagonal([100000.0]), Q1 = diagonal([1000.0, 10, 1, 1]), max_iter = 3, arm_soft_weight = 1e4, levenberg_marquardt = 0.1) {^control_system}
   command = HardwareCommand(final umax = command_umax) {^command}
-  diagnostics = HardwareDiagnostics() {^diagnostics}
-  logger = DataLogger(n = MPC_LOG_NCOLS, filename = log_file, header = MPC_LOG_HEADER) {^logger}
-  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+  diagnostics = HardwareDiagnostics(final realtime = realtime) {^diagnostics}
+  logger = DataLogger(final n = MPC_LOG_NCOLS, final filename = log_file, final header = MPC_LOG_HEADER) {^logger}
+  periodicclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^periodicclock}
   "Controller sample time"
   structural parameter Ts::Real = 0.01
   "Prediction horizon in shooting intervals"
@@ -179,6 +188,10 @@ component FurutaMPCHardware
   structural parameter warm_start::MPCComponents.ACADOSWarmStart = MPCComponents.ACADOSWarmStart.Shift()
   "File the log is written to; the driver opens it with this name"
   structural parameter log_file::String = MPC_LOG_FILE
+  "Pace the ticks in real time from inside the program: for running this model as a *simulation* (an ODE solver stepping it) against the device, see `run_mpc_hardware_model`. Off when `run_program!`'s loop keeps time"
+  structural parameter realtime::Boolean = false
+  "Record the MPC's predicted trajectories and solver residuals at every tick, for `MPCComponents.mpc_gui`"
+  structural parameter output_trajectories::Boolean = false
   "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field"
   parameter command_umax::Dyad.Voltage = umax
 relations
@@ -232,12 +245,12 @@ Compile with `multibody(model, additional_passes = [SynchToolkit.compile_lustre]
 simulate with `dt = Ts`, as in the README.
 """
 component FurutaMPCSwingup
-  control_system = FurutaMPC(Ts = Ts) {^control_system}
+  control_system = FurutaMPC(final Ts = Ts) {^control_system}
   qubependulum = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified) {^qubependulum}
   zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
   elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
   shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^shoulder_sampler}
-  periodicclock = DiscreteComponents.PeriodicClock(dt = Ts) {^periodicclock}
+  periodicclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^periodicclock}
   world = MultibodyComponents.World(default_body_color = gray, default_rod_color = gray, default_joint_color = gray, nominal_length = 0.1, render = false) {^world}
   parameter gray::Real[4] = [0.9, 0.9, 0.9, 1]
   "Controller sample time"

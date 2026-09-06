@@ -10,6 +10,12 @@ Like `SwingupController`, the program does its own I/O and its own logging, so t
 nothing for this script to do but hand the program to `run_program!`. The log has the
 swing-up log's first six columns plus acados' `exitflag` of every solve.
 
+The second part runs the same model against the device as a simulation instead
+(`run_mpc_hardware_model`: the model paces itself in real time and records the MPC's
+predicted trajectories and solver residuals) and opens `MPCComponents.mpc_gui` on the
+result -- one panel per state and control with the history up to a slider time and the
+prediction from that tick, and a solver panel. That needs GLMakie in the environment.
+
 There is no homing: the arm starts wherever it is. Before starting, let the pendulum hang
 straight down and pass how far the arm is from centre as `arm_deg`.
 
@@ -78,3 +84,18 @@ plotD(D)
 
 cnt = hardware_counters()
 @info "hardware calls" cnt.n_measure cnt.n_write ticks=r.ticks rows=r.rows log=r.log_file
+
+# --- the MPC debug GUI ---------------------------------------------------------------------
+# The same model, run against the device as a simulation: an ODE solver steps the clocked
+# partition, `HardwareDiagnostics(realtime = true)` holds each tick to the wall clock, and the
+# MPC records what it predicted at every tick (`output_trajectories = true`). Pendulum hanging,
+# arm where it is, as above. Overrides reach the model the same way as for `MPCController`.
+using GLMakie
+using MPCComponents: mpc_gui
+gui = run_mpc_hardware_model(; Tf = 10, Ts, Np = 60, arm_deg = 0, log_file = "run_mpc_gui.csv")
+fig, tslider = mpc_gui(gui.model, gui.sol)   # drag the slider, or set tslider[] = 2.0
+display(fig)
+# The solution also carries the pacing diagnostics: how late each tick was, in seconds.
+late = gui.sol[gui.sol.prob.f.sys.diagnostics.late]
+@printf("simulated run: %d ticks, late ticks %d, max lateness %.2f ms\n",
+        length(late), count(>(0), late), 1e3maximum(late))

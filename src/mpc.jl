@@ -20,7 +20,8 @@
 using MPCComponents
 using MPCComponents: continuous_dynamics, ContinuousDynamics
 
-export furuta_mpc_dynamics, generate_mpc_controller, MPCController, mpc_log
+export furuta_mpc_dynamics, generate_mpc_controller, MPCController, mpc_log,
+       run_mpc_hardware_model
 
 # ---------------------------------------------------------------------------
 ## The prediction model
@@ -139,4 +140,67 @@ function MPCController(; Ts = 0.01, Np = 60, backend::Symbol = :julia,
                              exported to C"))
     gen = generate_mpc_controller(; Ts, Np, log_file, kwargs...)
     return make_runtime(gen, MPC_OUTPUT_NAMES; backend, gains = (; command_umax))
+end
+
+# ---------------------------------------------------------------------------
+## The hardware model as a simulation, for the MPC debug GUI
+# ---------------------------------------------------------------------------
+"""
+    run_mpc_hardware_model(; Tf, Ts=0.01, Np=60, arm_deg=0.0, card_options=nothing, mode=:hil, log_file=MPC_LOG_FILE, warmup=0.2, disable_gc=true, overrides...)
+
+Run `FurutaMPCHardware` against the device as a *simulation* and return `(; model, sol)`, ready
+for `MPCComponents.mpc_gui(model, sol)`.
+
+The program route ([`MPCController`](@ref) + [`run_program!`](@ref)) compiles the model to a
+synchronous node that keeps nothing but its outputs; the MPC's predicted trajectories and
+solver residuals, which `mpc_gui` shows, are clocked variables that only a solution object
+records. So this builds the model with `output_trajectories = true`, compiles it with
+`compile_lustre` and lets an ODE solver step the clocked partition -- with `realtime = true`,
+so `HardwareDiagnostics` paces the ticks on the wall clock instead of letting the solver run
+ahead (the hardware I/O happens inside the ticks exactly as in the program). Warm, a tick
+costs what the program's does; cold, the first solve compiles for tens of seconds, which
+would leave every tick of a paced run behind schedule. So the problem is first solved for
+`warmup` seconds with the command clamped to 0 V (`command_umax = 0`: the encoders are read,
+nothing is written to the motor), the timing is reset, and only then is the real run made
+and logged. The device and the log are opened and closed around it as `run_program!` does.
+`mode = :callback` runs against whatever [`bind_hardware!`](@ref) installed.
+
+As in [`run_program!`](@ref), the garbage collector is off during the run unless
+`disable_gc = false` (the acados callbacks allocate a few MB per tick; a collection pause is
+longer than a period). `overrides` are Dyad `__`-paths into the model, e.g.
+`control_system__Q2 = diagm([1e5])`. The solution's `diagnostics.late` says by how much each
+tick overran its slot.
+"""
+function run_mpc_hardware_model(; Tf, Ts = 0.01, Np = 60, arm_deg = 0.0,
+                                 card_options::Union{Nothing, AbstractString} = nothing,
+                                 mode::Symbol = :hil, log_file = MPC_LOG_FILE, warmup = 0.2,
+                                 disable_gc::Bool = true, overrides...)
+    ensure_qube_hw()
+    ensure_qube_log()
+    model = FurutaMPCHardware(; name = :mpc_hardware, Ts, Np, log_file, realtime = true,
+                              output_trajectories = true, overrides...)
+    ssys = mtkcompile(model; additional_passes = [SynchToolkit.compile_lustre])
+    # The model is purely discrete (no continuous unknowns), and ModelingToolkit's initialization
+    # problem cannot be built for its array-valued clocked variables; nothing needs initializing
+    # here, so it is skipped.
+    prob = ODEProblem(ssys, Pair[], (0.0, Float64(Tf)); build_initializeprob = false)
+    open_hardware!(mode; arm_deg, card_options)
+    sol = try
+        if warmup > 0
+            # Compile everything the solve touches while the motor command is clamped to zero.
+            warm = ODEProblem(ssys, Pair[ssys.command_umax => 0.0], (0.0, Float64(warmup));
+                              build_initializeprob = false)
+            solve(warm; dt = Ts)
+        end
+        reset_hardware_counters!()
+        open_log!(mpc_log(log_file))
+        GC.gc()
+        disable_gc && GC.enable(false)
+        solve(prob; dt = Ts)
+    finally
+        GC.enable(true)
+        close_hardware!()
+        close_log!()
+    end
+    return (; model, sol)
 end

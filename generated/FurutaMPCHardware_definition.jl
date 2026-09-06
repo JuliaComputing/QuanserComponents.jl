@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, command_umax)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, realtime, output_trajectories, command_umax)
 
 The MPC controller closed around the physical QUBE, with the hardware I/O inside the
 synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
@@ -23,6 +23,13 @@ constraint of the MPC instead, and the arm starts from wherever it is (`open_har
 runtime-settable, the one `TuningGains` field, so a first run can be made with less voltage
 than the MPC is allowed to plan with.
 
+The model can also be run against the device as a *simulation*, i.e. stepped by an ODE solver
+rather than compiled to a program -- that is how the MPC's predicted trajectories and solver
+residuals end up in a solution object for `MPCComponents.mpc_gui`. Two options exist for
+that: `realtime = true` makes `HardwareDiagnostics` pace the ticks on the wall clock, and
+`output_trajectories = true` makes the MPC record them. `run_mpc_hardware_model` in
+src/mpc.jl does the run.
+
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
@@ -30,14 +37,16 @@ than the MPC is allowed to plan with.
 | `Ts`         | Controller sample time                         | --  |   0.01 |
 | `Np`         | Prediction horizon in shooting intervals                         | --  |   60 |
 | `dynamics`         | Prediction model of the MPC (see `furuta_mpc_dynamics`)                         | --  |   furuta_mpc_dynamics() |
-| `umax`         | Motor saturation [V]: the MPC's control bound                         | --  |   10.0 |
-| `arm_limit`         | Arm angle of the end stops [rad], the MPC's constraint on the arm                         | --  |   1.9198621771937625 |
-| `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...olver.SQP() |
+| `umax`         | Motor saturation [V]: the MPC's control bound                         | --  |   4 |
+| `arm_limit`         | Arm angle of the end stops [rad], the MPC's constraint on the arm                         | --  |   deg2rad(90) |
+| `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...r.SQP_RTI() |
 | `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...art.Shift() |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   MPC_LOG_FILE |
-| `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field                         | V  |   10.0 |
+| `realtime`         | Pace the ticks in real time from inside the program: for running this model as a *simulation* (an ODE solver stepping it) against the device, see `run_mpc_hardware_model`. Off when `run_program!`'s loop keeps time                         | --  |   false |
+| `output_trajectories`         | Record the MPC's predicted trajectories and solver residuals at every tick, for `MPCComponents.mpc_gui`                         | --  |   false |
+| `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field                         | V  |   umax |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.9198621771937625, nlp_solver=MPCComponents.ACADOSSolver.SQP(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, command_umax=Float64(10.0), kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(4), arm_limit=deg2rad(90), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, command_umax=umax, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -89,7 +98,7 @@ than the MPC is allowed to plan with.
   push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
   # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, output_trajectories=output_trajectories, Q2=diagonal([100000.0]), Q1=diagonal([1000.0, 10, 1, 1]), max_iter=3, arm_soft_weight=Float64(10000.0), levenberg_marquardt=0.1, control_system_overrides...))
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
   push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
@@ -101,7 +110,7 @@ than the MPC is allowed to plan with.
   delete!(__command_ics, __command_umax)
   # Subcomponent diagnostics of type QuanserComponents.HardwareDiagnostics
   diagnostics_overrides = __pop_subcomponent_overrides!(__overrides, "diagnostics")
-  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; diagnostics_overrides...))
+  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; realtime=realtime, diagnostics_overrides...))
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
   push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, logger_overrides...))

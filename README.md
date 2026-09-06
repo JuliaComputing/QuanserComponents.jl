@@ -122,7 +122,12 @@ ctrl = MPCController(; Ts = 0.01, Np = 60)     # the hardware program, see test/
 ```
 
 `test/hardware_mpc.jl` runs it on the rig; `command_umax` clamps the command before the
-amplifier and is the one runtime-settable parameter, for a first run at reduced voltage.
+amplifier and is the one runtime-settable parameter, for a first run at reduced voltage. The
+script then runs the same model against the device a second way, as a simulation
+(`run_mpc_hardware_model`: `HardwareDiagnostics(realtime = true)` paces the ODE solver's ticks
+on the wall clock, `output_trajectories = true` makes the MPC record its predictions) and opens
+`MPCComponents.mpc_gui` on the solution to inspect the predicted trajectories and the solver
+residuals tick by tick.
 `test/mpc_rollouts.jl` ticks the compiled hardware program -- the very node the rig runs --
 against a simulated pendulum (the multibody model with encoder quantization, RK4 at five
 sub-steps per period, optionally with perturbed parameters) from a thousand random initial

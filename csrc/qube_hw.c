@@ -39,6 +39,8 @@ static double s_time      = 0.0;
 static double s_dt        = 0.0;
 static double s_exec      = 0.0;
 static int    s_have_prev = 0;
+static long   s_rt_n      = 0;     /* real-time pacing: calls so far ... */
+static double s_rt_t0     = 0.0;   /* ... and CLOCK_MONOTONIC at the first of them */
 
 static double qube_now(void) {
     struct timespec ts;
@@ -168,6 +170,24 @@ void qube_hw_reset_timing(void) {
     s_time = 0.0;
     s_dt = 0.0;
     s_exec = 0.0;
+    s_rt_n = 0;
+    s_rt_t0 = 0.0;
+}
+
+double qube_hw_realtime_wait(double Ts, double dep) {
+    (void)dep;
+    double now = qube_now();
+    if (s_rt_n == 0) s_rt_t0 = now;
+    s_rt_n++;
+    double target = s_rt_t0 + (double)s_rt_n * Ts;
+    double late = now - target;
+    if (late > 0.0) return late;
+    struct timespec req;
+    double wait = -late;
+    req.tv_sec = (time_t)wait;
+    req.tv_nsec = (long)((wait - (double)req.tv_sec) * 1e9);
+    while (nanosleep(&req, &req) != 0) { /* interrupted: sleep the remainder */ }
+    return 0.0;
 }
 
 void qube_hw_close(void) {
