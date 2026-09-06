@@ -96,26 +96,30 @@ numeric evaluation of the model. That backend exists because a multibody model's
 contains cached linear solves that the default symbolic Jacobian cannot reconstruct; the same
 fact rules out C export, so this controller runs on SynchJulia's Julia backend only.
 
-The weighting is `design_lqr`'s throughout (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`, terminal
-cost the LQR cost-to-go about upright), so near upright the MPC is the well-tried LQR. The
-swing-up comes from a *terminal set on the pendulum's energy*, the quantity the energy swing-up
-controller pumps: the prediction model carries the signal `pendulum_energy_ratio` (kinetic energy
-of the rotation about the elbow plus the height of the centre of mass, normalized so that rest
-upright is 1 and hanging at rest is 0), and the MPC constrains it at the end of the horizon to
-within 0.2 of 1, softened with a slack penalty so the problem stays solvable while the level is
-out of reach (`ACADOSMPC`'s `nl_terminal_constraints_soft`); the slack is what pays for the
-swing-up. Being periodic in the angle, the set needs no unwrapping of the pendulum angle and
-holds after any number of turns. Under LQR weights the swing-up still throws the arm well past
-the end stops (2 to 7 rad from a rest start, see below): the LQR arm weight forbids the gentler
-pumping, a hard arm bound removes the swing-up altogether at every horizon tried (60 to 200
-steps), and a scaled terminal weight without any set does nothing. Three further details were
-found necessary by simulating the loop with quantized angles and the discrete velocity
-estimators, and are documented on the components: the pendulum angle fed to the LQR part is
-wrapped to [0, 2π) about the reference π (the 2π jump at the bottom costs a failed solve that
-`reset_on_failure` recovers), soft velocity bounds and `ACADOSMPC`'s `reset_on_failure` keep a
-shifted real-time iteration from derailing, and the velocity estimate must be nearly unfiltered
-(`velocity_filter = 0.8`; the old default of 0.5 makes even the balancing unstable at 10 ms).
-HPIPM condenses the QP to 5 stages, which halves the worst-case solve time.
+The weighting is `design_lqr`'s (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`, terminal cost the LQR
+cost-to-go about upright) plus one term that makes it swing up: *energy shaping in the stage
+cost*. The prediction model carries the signal `pendulum_energy_ratio` (kinetic energy of the
+rotation about the elbow plus the height of the centre of mass, normalized so that rest upright
+is 1 and hanging at rest is 0, the quantity the energy swing-up controller pumps), and the MPC
+weights it as a fifth controlled output with the reference 1 and the weight `energy_weight`
+(1e5). The cost is then a nonlinear least squares, which `ACADOSMPC` gained for this (nonlinear
+`outputs`, JuliaComputing/MPCComponents.jl#16). From rest the term gives the solver a gradient
+towards pumping from the first tick; a soft *terminal set* on the energy, the previous design,
+could not while the set was out of reach, and swung up in one to five seconds with a hesitant
+first swing. Near upright the term vanishes quartically in the deviation (the energy error is
+quadratic in the angle and in the velocity), and the closed loop from kicks up to 0.3 rad or
+4 rad/s is identical to the LQR's, to the voltage. What the term does not change is the arm: under
+LQR weights the swing-up still throws it past the end stops in 60 % of the rest starts (2.4 rad
+median, up to 8.6 rad, see below), the same distribution as with the terminal set. The LQR arm
+weight forbids the gentler pumping, a hard arm bound removes the swing-up altogether (the
+real-time iteration fails), and a terminal set on the arm angle does not help either.
+Three further details were found necessary by simulating the loop with quantized angles and the
+discrete velocity estimators, and are documented on the components: the pendulum angle fed to the
+LQR part is wrapped to [0, 2π) about the reference π (the 2π jump at the bottom costs a failed
+solve that `reset_on_failure` recovers), soft velocity bounds and `ACADOSMPC`'s `reset_on_failure`
+keep a shifted real-time iteration from derailing, and the velocity estimate must be nearly
+unfiltered (`velocity_filter = 0.8`; the old default of 0.5 makes even the balancing unstable at
+10 ms). HPIPM condenses the QP to 5 stages, which halves the worst-case solve time.
 
 `FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
 hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
@@ -149,17 +153,18 @@ pendulum stays within 0.1 rad of upright for the last second of 10 s. The summar
 
 | rollouts | plant | starts | balanced within 10 s | catch time median / 90 % | arm past the stops |
 |---|---|---|---|---|---|
-| 1000 | identified | random | 995 | 1.18 s / 3.86 s | 558 |
-| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 197 | 1.67 s / 5.33 s | 121 |
-| 200 | identified | at rest near hanging, as on the rig | 195 | 2.19 s / 5.25 s | 126 (median 2.23 rad, max 6.29) |
-| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 197 | 2.23 s / 4.51 s | 107 |
+| 1000 | identified | random | 1000 | 0.94 s / 1.92 s | 714 (median 2.68 rad, max 12.3) |
+| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 199 | 1.36 s / 3.89 s | 159 (median 3.21 rad, max 12.8) |
+| 200 | identified | at rest near hanging, as on the rig | 200 | 1.08 s / 1.82 s | 120 (median 2.38 rad, max 8.58) |
+| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 200 | 1.08 s / 2.42 s | 128 (median 2.35 rad, max 8.95) |
 
-Solve time was 0.96 to 1.23 ms per tick at the median and 2.3 to 2.8 ms at the 99th percentile;
-about one solve in a thousand failed and was retried. The arm column is the caveat of this
-design: in more than half of the rollouts, rest starts included, the swing-up carries the arm
-past the ±1.92 rad end stops. The rest starts split in two kinds: about a third go straight up
-in 1.2 s with the arm inside the stops, the rest hesitate for several swings and wander. The
-few rollouts not balanced at 10 s were still swinging, none had derailed.
+Solve time was 0.98 to 1.26 ms per tick at the median and 2.2 to 2.6 ms at the 99th percentile;
+about one solve in a thousand failed and was retried. Every rest start swings up within 2.5 s
+at the 90th percentile and 5.7 s at worst; the one rollout not balanced at 10 s (perturbed plant,
+random start) was still swinging. The arm column is the caveat of this design: in 60 % of the
+rest starts and 70 % of the random ones the swing-up carries the arm past the ±1.92 rad end stops,
+the same distribution the terminal-set design had (its summaries: 195 to 197 of 200 rest starts
+balanced, catch median 2.2 s, 90 % 5 s, arm median 2.2 rad).
 
 ### Environment
 
