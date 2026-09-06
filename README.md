@@ -141,7 +141,19 @@ against a simulated pendulum (the multibody model with encoder quantization, RK4
 sub-steps per period, optionally with perturbed parameters) from random initial conditions (arm
 within ±1.5 rad, pendulum anywhere, arm velocity within ±3 rad/s, pendulum velocity within
 ±10 rad/s) or from rest near hanging as the rig starts, and counts the rollouts in which the
-pendulum stays within 0.1 rad of upright for the last second of 10 s. MONTECARLO_RESULTS
+pendulum stays within 0.1 rad of upright for the last second of 10 s. The summaries of four such runs are in assets/mpc/ (the compiled program at the defaults above):
+
+| rollouts | plant | starts | balanced within 10 s | catch time median / 90 % | arm past the stops |
+|---|---|---|---|---|---|
+| 1000 | identified | random | 989 | 1.16 s / 3.90 s | 563 |
+| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 198 | 1.73 s / 5.34 s | 109 |
+| 200 | identified | at rest near hanging, as on the rig | 196 | 1.96 s / 4.67 s | 118 (median 2.15 rad, max 8.35) |
+| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 198 | 2.37 s / 5.11 s | 110 |
+
+Solve time was 0.94 to 1.23 ms per tick at the median and 2.3 to 2.8 ms at the 99th percentile;
+about one solve in two thousand failed and was retried. The arm column is the caveat of this
+design: in more than half of the rollouts, rest starts included, the swing-up carries the arm
+past the ±1.92 rad end stops.
 
 ### Environment
 
