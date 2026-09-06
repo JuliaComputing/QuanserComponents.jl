@@ -36,7 +36,7 @@ component FurutaMPC
   velocityestimator_shoulder = QuanserComponents.VelocityEstimator() {^velocityestimator_shoulder}
   velocityestimator_elbow = QuanserComponents.VelocityEstimator() {^velocityestimator_elbow}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
-  mpc = MPCComponents.ACADOSMPC(dynamics = dynamics, states = FURUTA_MPC_STATES, outputs = FURUTA_MPC_STATES, Ts = Ts, Np = Np, Q1 = Q1, Q2 = Q2, umin = [-umax], umax = [umax], constrained = FURUTA_MPC_ARM_SIGNAL, constrained_min = [-arm_limit], constrained_max = [arm_limit], soft_weight = arm_soft_weight, terminal_lqr_cost = true, operating_point = [0, pi, 0, 0], nlp_solver = MPCComponents.ACADOSSolver.SQP_RTI(), warm_start = warm_start, integrator = MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend = MPCComponents.ACADOSBackend.Julia(), max_iter = max_iter, levenberg_marquardt = levenberg_marquardt, terminal_constrained = ["qube₊elbow_joint₊phi"], terminal_constrained_min = [pi]) {^mpc}
+  mpc = MPCComponents.ACADOSMPC(dynamics = dynamics, states = FURUTA_MPC_STATES, outputs = FURUTA_MPC_STATES, final Ts = Ts, final Np = Np, final Q1 = Q1, final Q2 = Q2, final umin = [-umax], final umax = [umax], constrained = FURUTA_MPC_ARM_SIGNAL, constrained_min = [-arm_limit], final constrained_max = [arm_limit], final soft_weight = arm_soft_weight, terminal_lqr_cost = true, operating_point = [0, pi, 0, 0], nlp_solver = MPCComponents.ACADOSSolver.SQP_RTI(), warm_start = warm_start, integrator = MPCComponents.ACADOSIntegrator.ERK(), jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend = MPCComponents.ACADOSBackend.Julia(), max_iter = max_iter, levenberg_marquardt = levenberg_marquardt, terminal_constraints_soft = false, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), integrator_stages = 2, penalize_increments = false) {^mpc}
   zero = BlockComponents.Sources.Constant(k = 0) {^zero}
   upright = BlockComponents.Sources.Constant(k = pi) {^upright}
   """
@@ -158,7 +158,7 @@ than the MPC is allowed to plan with.
 """
 component FurutaMPCHardware
   measurement = HardwareMeasurement() {^measurement}
-  control_system = FurutaMPC(dynamics = dynamics, Ts = Ts, Np = Np, umax = umax, arm_limit = arm_limit, nlp_solver = nlp_solver, warm_start = warm_start, Q2 = diagonal([100.0]), Q1 = diagonal([1000.0, 10, 1, 1]), levenberg_marquardt = 5.0) {^control_system}
+  control_system = FurutaMPC(dynamics = dynamics, final Ts = Ts, final Np = Np, final umax = umax, arm_limit = arm_limit, final nlp_solver = nlp_solver, warm_start = MPCComponents.ACADOSWarmStart.Shift(), Q2 = diagonal([100000.0]), Q1 = diagonal([1000.0, 10, 1, 1]), max_iter = 3, arm_soft_weight = 1e4, levenberg_marquardt = 0.1) {^control_system}
   command = HardwareCommand(final umax = command_umax) {^command}
   diagnostics = HardwareDiagnostics() {^diagnostics}
   logger = DataLogger(n = MPC_LOG_NCOLS, filename = log_file, header = MPC_LOG_HEADER) {^logger}
@@ -170,7 +170,7 @@ component FurutaMPCHardware
   "Prediction model of the MPC (see `furuta_mpc_dynamics`)"
   structural parameter dynamics::Native = furuta_mpc_dynamics()
   "Motor saturation [V]: the MPC's control bound"
-  structural parameter umax::Real = 5
+  structural parameter umax::Real = 4
   "Arm angle of the end stops [rad], the MPC's constraint on the arm"
   structural parameter arm_limit::Real = deg2rad(90)
   "NLP solver of the MPC"
@@ -180,7 +180,7 @@ component FurutaMPCHardware
   "File the log is written to; the driver opens it with this name"
   structural parameter log_file::String = MPC_LOG_FILE
   "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, being the compiled program's `TuningGains` field"
-  parameter command_umax::Dyad.Voltage = 5
+  parameter command_umax::Dyad.Voltage = umax
 relations
   connect(measurement.shoulder_angle, control_system.shoulder_angle, logger.u[2], periodicclock.y) {^id7}
   connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3]) {^id8}
