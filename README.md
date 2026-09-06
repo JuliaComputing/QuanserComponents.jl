@@ -98,20 +98,24 @@ fact rules out C export, so this controller runs on SynchJulia's Julia backend o
 
 The weighting is `design_lqr`'s throughout (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`, terminal
 cost the LQR cost-to-go about upright), so near upright the MPC is the well-tried LQR. The
-swing-up comes from a *soft terminal set*: the pendulum angle at the end of the horizon is
-constrained to within 0.6 rad of upright, softened with a slack penalty so the problem stays
-solvable while the set is out of reach; the slack is what pays for the swing-up. Under LQR
-weights it does so by throwing the arm well past the end stops (2 to 6 rad from a rest start,
-see below): the LQR arm weight forbids the gentler pumping, a hard arm bound removes the swing-up
-altogether at every horizon tried (60 to 200 steps), and a scaled terminal weight without the set
-does nothing. Three further details were found necessary by simulating the loop with quantized
-angles and the discrete velocity estimators, and are documented on the components: the pendulum
-angle is wrapped to [0, 2π) (the fixed terminal set needs it; the 2π jump at the bottom costs a
-failed solve that `reset_on_failure` recovers), soft velocity bounds and `ACADOSMPC`'s
-`reset_on_failure` keep a shifted real-time iteration from derailing, and the velocity estimate
-must be nearly unfiltered (`velocity_filter = 0.8`; the old default of 0.5 makes even the
-balancing unstable at 10 ms). HPIPM condenses the QP to 5 stages, which halves the worst-case
-solve time.
+swing-up comes from a *terminal set on the pendulum's energy*, the quantity the energy swing-up
+controller pumps: the prediction model carries the signal `pendulum_energy_ratio` (kinetic energy
+of the rotation about the elbow plus the height of the centre of mass, normalized so that rest
+upright is 1 and hanging at rest is 0), and the MPC constrains it at the end of the horizon to
+within 0.2 of 1, softened with a slack penalty so the problem stays solvable while the level is
+out of reach (`ACADOSMPC`'s `nl_terminal_constraints_soft`); the slack is what pays for the
+swing-up. Being periodic in the angle, the set needs no unwrapping of the pendulum angle and
+holds after any number of turns. Under LQR weights the swing-up still throws the arm well past
+the end stops (2 to 7 rad from a rest start, see below): the LQR arm weight forbids the gentler
+pumping, a hard arm bound removes the swing-up altogether at every horizon tried (60 to 200
+steps), and a scaled terminal weight without any set does nothing. Three further details were
+found necessary by simulating the loop with quantized angles and the discrete velocity
+estimators, and are documented on the components: the pendulum angle fed to the LQR part is
+wrapped to [0, 2π) about the reference π (the 2π jump at the bottom costs a failed solve that
+`reset_on_failure` recovers), soft velocity bounds and `ACADOSMPC`'s `reset_on_failure` keep a
+shifted real-time iteration from derailing, and the velocity estimate must be nearly unfiltered
+(`velocity_filter = 0.8`; the old default of 0.5 makes even the balancing unstable at 10 ms).
+HPIPM condenses the QP to 5 stages, which halves the worst-case solve time.
 
 `FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
 hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
@@ -157,8 +161,10 @@ past the ±1.92 rad end stops.
 
 ### Environment
 
-MPCComponents is not registered, and the AD Jacobian backend lives on its
-`feat/acados-ad-jacobian-backend` branch, which pins branch builds of its own dependencies:
+MPCComponents is not registered; its `main` has the AD Jacobian backend and its branch
+`fix/acados-single-solve` (JuliaComputing/MPCComponents.jl#16) the one-solve-per-tick step,
+`reset_on_failure` and the soft nonlinear terminal constraints this controller uses. It pins
+branch builds of its own dependencies:
 SynchJulia/SynchCompiler 0.6, a SynchToolkit that supports array clocked variables in
 `stkcompile` (JuliaComputing/SynchToolkit.jl#185), a DiscreteComponents branch, a LinearMPC
 fork and unregistered acados JLLs. **Registry SynchToolkit 0.5.0 does not have the array
@@ -171,7 +177,7 @@ KeyError: key (control_system₊mpc₊u(t))[1] not found
 (`MPCController` checks for this and says so). This branch therefore checks in `Manifest.toml`
 and `test/Manifest.toml`, resolved against the pinned stack, with the two packages that have to
 come from local checkouts recorded relative to this repository: `../MPCComponents` (at
-`feat/acados-ad-jacobian-backend`) and `../MultibodyComponents` (the `~/.julia/dev` checkout;
+`fix/acados-single-solve`) and `../MultibodyComponents` (the `~/.julia/dev` checkout;
 the registered release does not resolve against these pins). With both next to the repo,
 
 ```

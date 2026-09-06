@@ -52,7 +52,7 @@ const NROLL = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1000
 const OUTDIR = length(ARGS) >= 2 ? ARGS[2] : "mpc_rollouts"
 const PLANT = length(ARGS) >= 3 ? Symbol(ARGS[3]) : :identified
 const STARTS = length(ARGS) >= 4 ? Symbol(ARGS[4]) : :random
-const ARM_LIMIT = 1.9198621771937625        # FurutaMPC's default arm_limit (110 deg)
+X
 const CATCH_TOL = 0.1                       # rad from upright counted as balanced
 const HOLD = 1.0                            # s the pendulum must stay balanced at the end
 mkpath(OUTDIR)

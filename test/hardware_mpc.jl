@@ -19,11 +19,12 @@ prediction from that tick, and a solver panel. That needs GLMakie in the environ
 There is no homing: the arm starts wherever it is. Before starting, let the pendulum hang
 straight down and pass how far the arm is from centre as `arm_deg`.
 
-ENVIRONMENT: MPCComponents is unregistered and the AD Jacobian backend lives on its
-`feat/acados-ad-jacobian-backend` branch, so the environment has to be assembled by hand;
-see the "Nonlinear MPC" section of the README for the recipe. Then
+ENVIRONMENT: the branch checks in a Manifest.toml that resolves the whole stack, with
+MPCComponents (branch fix/acados-single-solve) and MultibodyComponents expected as
+`../MPCComponents` and `../MultibodyComponents` next to this repository; see the "Nonlinear
+MPC" section of the README. Then
 
-  julia --project=<that env> test/hardware_mpc.jl
+  julia --project=. test/hardware_mpc.jl
 =#
 
 using QuanserComponents
