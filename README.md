@@ -96,19 +96,22 @@ numeric evaluation of the model. That backend exists because a multibody model's
 contains cached linear solves that the default symbolic Jacobian cannot reconstruct; the same
 fact rules out C export, so this controller runs on SynchJulia's Julia backend only.
 
-One controller does both jobs through its weighting. Within 0.3 rad of upright the stage cost is
-`design_lqr`'s (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`) and the terminal cost is that design's
-LQR cost-to-go (`furuta_mpc_terminal_weight`), so the balancing is the well-tried LQR, constraints
-aside. Beyond 0.8 rad the stage cost is a swing-up weighting (`Q1_swing = diag(10, 300, 1, 1)`,
-`Q2_swing = 10`) that makes pumping the pendulum up pay off within the horizon; in between the two
-are blended (`SwingupBlend`, `ACADOSMPC`'s `blend_weights`). Three further details were found
-necessary by simulating the loop with quantized angles and the discrete velocity estimators, and
-are documented on the components: the MPC is fed the continuous encoder angle with the reference
-at the nearest upright (`NearestUpright`) rather than a wrapped angle; soft velocity bounds and
-`ACADOSMPC`'s `reset_on_failure` keep a shifted real-time iteration from derailing; and the
-velocity estimate must be nearly unfiltered (`velocity_filter = 0.8`; the old default of 0.5 makes
-even the balancing unstable at 10 ms). HPIPM condenses the QP to 5 stages, which halves the
-worst-case solve time.
+The weighting is `design_lqr`'s throughout (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`, terminal
+cost the LQR cost-to-go about upright), so near upright the MPC is the well-tried LQR. The
+swing-up comes from a *soft terminal set*: the pendulum angle at the end of the horizon is
+constrained to within 0.6 rad of upright, softened with a slack penalty so the problem stays
+solvable while the set is out of reach; the slack is what pays for the swing-up. Under LQR
+weights it does so by throwing the arm well past the end stops (2 to 6 rad from a rest start,
+see below): the LQR arm weight forbids the gentler pumping, a hard arm bound removes the swing-up
+altogether at every horizon tried (60 to 200 steps), and a scaled terminal weight without the set
+does nothing. Three further details were found necessary by simulating the loop with quantized
+angles and the discrete velocity estimators, and are documented on the components: the pendulum
+angle is wrapped to [0, 2π) (the fixed terminal set needs it; the 2π jump at the bottom costs a
+failed solve that `reset_on_failure` recovers), soft velocity bounds and `ACADOSMPC`'s
+`reset_on_failure` keep a shifted real-time iteration from derailing, and the velocity estimate
+must be nearly unfiltered (`velocity_filter = 0.8`; the old default of 0.5 makes even the
+balancing unstable at 10 ms). HPIPM condenses the QP to 5 stages, which halves the worst-case
+solve time.
 
 `FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
 hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
@@ -125,34 +128,20 @@ sol = solve(prob; dt = 0.01)
 ctrl = MPCController(; Ts = 0.01, Np = 60)     # the hardware program, see test/hardware_mpc.jl
 ```
 
-`test/hardware_mpc.jl` runs it on the rig. Four parameters are runtime-settable (`TuningGains`):
+`test/hardware_mpc.jl` runs it on the rig. Two parameters are runtime-settable (`TuningGains`):
 `command_umax`, a clamp on the command before the amplifier for a first run at reduced voltage,
-`velocity_filter`, and the blend angles `blend_lower`/`blend_upper`. The script then runs the
-same model against the device a second way, as a simulation (`run_mpc_hardware_model`:
-`HardwareDiagnostics(realtime = true)` paces the ODE solver's ticks on the wall clock,
-`output_trajectories = true` makes the MPC record its predictions) and opens
-`MPCComponents.mpc_gui` on the solution to inspect the predicted trajectories and the solver
-residuals tick by tick.
+and `velocity_filter`. The script then runs the same model against the device a second way, as a
+simulation (`run_mpc_hardware_model`: `HardwareDiagnostics(realtime = true)` paces the ODE
+solver's ticks on the wall clock, `output_trajectories = true` makes the MPC record its
+predictions) and opens `MPCComponents.mpc_gui` on the solution to inspect the predicted
+trajectories and the solver residuals tick by tick.
 
 `test/mpc_rollouts.jl` ticks the compiled hardware program -- the very node the rig runs --
 against a simulated pendulum (the multibody model with encoder quantization, RK4 at five
 sub-steps per period, optionally with perturbed parameters) from random initial conditions (arm
 within ±1.5 rad, pendulum anywhere, arm velocity within ±3 rad/s, pendulum velocity within
-±10 rad/s) and counts the rollouts in which the pendulum stays within 0.1 rad of upright for the
-last second of 10 s. The summaries of four such runs are in assets/mpc/ (the compiled program at the defaults above):
-
-| rollouts | plant | starts | balanced within 10 s | catch time median / 90 % | arm past the stops |
-|---|---|---|---|---|---|
-| 1000 | identified | random | 1000 | 0.82 s / 1.20 s | 277 (see below) |
-| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 199 | 1.18 s / 3.62 s | 100 |
-| 200 | identified | at rest near hanging, as on the rig | 200 | 0.96 s / 1.11 s | 1 (2.31 rad) |
-| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 200 | 0.98 s / 1.16 s | 7 (at most 2.10 rad) |
-
-Solve time was 0.93 ms per tick at the median and 1.4 to 1.9 ms at the 99th percentile in all
-four, with no failed solve in the rest-start runs. The arm excursions of the random-start runs
-come from the starts themselves: a pendulum already spinning at 10 rad/s and, above all, the
-velocity estimators starting cold from a nonzero angle, which reports a spike of tens of rad/s on
-the first tick that the rig, whose encoders are zeroed when the device is opened, never produces.
+±10 rad/s) or from rest near hanging as the rig starts, and counts the rollouts in which the
+pendulum stays within 0.1 rad of upright for the last second of 10 s. MONTECARLO_RESULTS
 
 ### Environment
 

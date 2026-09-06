@@ -198,3 +198,5 @@ const FURUTA_MPC_ARM_SIGNAL = ["qube₊shoulder_joint₊phi"]
 # The signals `FurutaMPC` bounds softly over its horizon: the arm angle (the end stops) and the two
 # velocities (where the model is trusted; keeps the real-time iterates sane), in this order.
 const FURUTA_MPC_CONSTRAINED = ["qube₊shoulder_joint₊phi", "qube₊shoulder_joint₊phiˍt", "qube₊elbow_joint₊phiˍt"]
+# The pendulum angle, the signal the terminal set is placed on.
+const FURUTA_MPC_ELBOW_SIGNAL = ["qube₊elbow_joint₊phi"]

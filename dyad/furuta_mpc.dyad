@@ -1,38 +1,4 @@
 """
-The upright position nearest to an angle: `y = π + 2πk` with `k` the integer that brings it closest
-to `u` (`floor(z + 1/2)` is the rounding, `round` having no symbolic form). The reference for the pendulum angle of `FurutaMPC`, which is fed the continuous encoder
-angle rather than a wrapped one: the reference then moves by 2π when the pendulum passes through
-the bottom, where the cost is symmetric between the two uprights, and the MPC's predicted
-trajectory never has to jump.
-"""
-component NearestUpright
-  extends BlockComponents.Interfaces.SISO
-relations
-  y = pi + 2 * pi * floor((u - pi) / (2 * pi) + 0.5)
-metadata {
-  "Dyad": {"icons": {"default": "dyad://QuanserComponents/AngleNormalization.svg"}}
-}
-end
-
-"""
-The blend factor between the two weightings of `FurutaMPC`: 0 within `lower` of upright (the
-LQR weighting), 1 beyond `upper` (the swing-up weighting), linear in between. `u` is the pendulum
-angle, 0 hanging down.
-"""
-component SwingupBlend
-  extends BlockComponents.Interfaces.SISO
-  "Angle from upright below which the LQR weighting applies alone [rad]"
-  parameter lower::Real = 0.3
-  "Angle from upright above which the swing-up weighting applies alone [rad]"
-  parameter upper::Real = 0.8
-relations
-  y = clamp((abs(mod(u, 2 * pi) - pi) - lower) / (upper - lower), 0, 1)
-metadata {
-  "Dyad": {"icons": {"default": "dyad://QuanserComponents/NearTop.svg"}}
-}
-end
-
-"""
 Swing-up and balancing of the Furuta pendulum by a nonlinear MPC alone.
 
 An `MPCComponents.ACADOSMPC` solves, every tick, a finite-horizon optimal control problem over
@@ -42,20 +8,22 @@ angle bounded to the end stops and the velocities bounded to what the model is t
 soft state bounds). There is no separate swing-up law and no switching: the same controller
 swings the pendulum up from hanging and balances it.
 
-What makes one controller do both is the weighting. Near upright (within `blend_lower` of it)
-the stage cost is `design_lqr`'s -- `Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100` -- and the terminal
-cost is the discrete-time LQR cost-to-go of that design about upright (`furuta_mpc_terminal_weight`),
-so the MPC is the well-tried LQR there, constraints aside. Far from upright (beyond `blend_upper`)
-the stage cost is the swing-up weighting `Q1_swing`, `Q2_swing`, which weights the pendulum angle
-more and the arm and the control less so that pumping the pendulum up pays off within the
-horizon; in between the two are blended (`SwingupBlend`, `ACADOSMPC`'s `blend_weights`).
+The weighting is `design_lqr`'s throughout -- stage cost `Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`,
+terminal cost the LQR cost-to-go of that design about upright (`terminal_lqr_cost`) -- so near
+upright the MPC is the well-tried LQR, constraints aside. What makes it swing up is a *soft
+terminal set*: the pendulum angle at the end of the horizon is constrained to within
+`terminal_set` of upright (`terminal_constrained`, softened with the slack weight `soft_weight` so
+the problem stays solvable while the set is out of reach). The slack penalty is what pays for the
+swing-up under LQR weights; in simulation it does so by swinging the arm well past the end stops
+(2 to 6 rad from a rest start, see the README), since the LQR arm weight forbids the gentler
+pumping and a hard arm bound removes the swing-up altogether.
 
 Three details of the formulation matter for robustness, all found by simulating the loop with
 quantized angles and the discrete velocity estimators:
 
-  - The MPC is fed the *continuous* encoder angle and a reference that is the upright nearest
-    to it (`NearestUpright`), never a wrapped angle: a wrap puts a 2π jump into the state at
-    the bottom, exactly where the swing-up spends its time.
+  - The pendulum angle is wrapped to `[0, 2π)` (`AngleNormalization`), which the fixed terminal
+    set needs. The wrap puts a 2π jump into the state at the bottom; a shifted warm start then
+    fails once and `reset_on_failure` recovers it, a few extra solves per swing-up.
   - A single real-time iteration can produce an iterate the linearization no longer describes,
     after which every shifted warm start fails. Soft velocity bounds keep the iterates where
     the model is meaningful, and `reset_on_failure` retries a failed solve from a fresh guess.
@@ -76,7 +44,7 @@ discrete `VelocityEstimator`s produce from the angles.
 component FurutaMPC
   "Measured arm (shoulder) angle"
   shoulder_angle = Dyad.RealInput() {^shoulder_angle}
-  "Measured pendulum (elbow) angle, 0 hanging down, continuous (not wrapped)"
+  "Measured pendulum (elbow) angle, 0 hanging down"
   elbow_angle = Dyad.RealInput() {^elbow_angle}
   "Control command"
   u = Dyad.RealOutput() {^u}
@@ -84,10 +52,10 @@ component FurutaMPC
   exitflag = Dyad.RealOutput() {^exitflag}
   velocityestimator_shoulder = QuanserComponents.VelocityEstimator(final filter_param = velocity_filter) {^velocityestimator_shoulder}
   velocityestimator_elbow = QuanserComponents.VelocityEstimator(final filter_param = velocity_filter) {^velocityestimator_elbow}
-  nearestupright = QuanserComponents.NearestUpright() {^nearestupright}
-  swingupblend = QuanserComponents.SwingupBlend(final lower = blend_lower, final upper = blend_upper) {^swingupblend}
-  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final states = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_STATES, final Ts = Ts, final Np = Np, final Q1 = Q1, final Q2 = Q2, final Qf = furuta_mpc_terminal_weight(dynamics, Ts, Q1, Q2), final blend_weights = true, final Q1_alt = Q1_swing, final Q2_alt = Q2_swing, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = arm_soft_weight, final terminal_lqr_cost = false, final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), integrator_stages = 2, final jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, terminal_constraints_soft = false, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
+  anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
+  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final states = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_STATES, final Ts = Ts, final Np = Np, final Q1 = Q1, final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final terminal_constrained = FURUTA_MPC_ELBOW_SIGNAL, final terminal_constrained_min = [pi - terminal_set], final terminal_constrained_max = [pi + terminal_set], final terminal_constraints_soft = true, final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), integrator_stages = 2, final jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
   zero = BlockComponents.Sources.Constant(final k = 0) {^zero}
+  upright = BlockComponents.Sources.Constant(final k = pi) {^upright}
   """
   Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an
   AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with
@@ -98,16 +66,18 @@ component FurutaMPC
   structural parameter Ts::Real = 0.01
   "Prediction horizon in shooting intervals; the horizon is Np * Ts"
   structural parameter Np::Integer = 60
-  "Motor voltage bound of the MPC [V]. The swing-up needs 10; with 8 the pendulum does not always come up (clamp the command with `command_umax` instead of lowering this)"
+  "Motor voltage bound of the MPC [V]. The swing-up needs 10 (clamp the command with `command_umax` instead of lowering this)"
   structural parameter umax::Real = 10.0
-  "Arm angle the MPC keeps the arm within (softly, over its horizon) [rad]; inside the end stops at ±1.92"
+  "Arm angle the MPC keeps the arm within (softly, over its horizon) [rad]; inside the end stops at ±1.92. The swing-up under LQR weights violates it, see the component documentation"
   structural parameter arm_limit::Real = 1.7
   "Arm velocity the MPC keeps its predictions within [rad/s]; a soft bound that keeps the real-time iterates where the linearization is meaningful"
   structural parameter velocity_limit_shoulder::Real = 20.0
   "Pendulum velocity the MPC keeps its predictions within [rad/s]; see velocity_limit_shoulder"
   structural parameter velocity_limit_elbow::Real = 30.0
-  "Quadratic penalty on the slack of the soft state bounds (arm angle and velocities)"
-  structural parameter arm_soft_weight::Real = 1e4
+  "Half-width of the terminal set around upright the pendulum angle at the end of the horizon is confined to [rad]"
+  structural parameter terminal_set::Real = 0.6
+  "Quadratic penalty on the slacks of the soft constraints: the state bounds and the terminal set. The terminal slack is what drives the swing-up"
+  structural parameter soft_weight::Real = 1e3
   "NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence"
   structural parameter nlp_solver::MPCComponents.ACADOSSolver = MPCComponents.ACADOSSolver.SQP_RTI()
   "Initial guess of the NLP at every tick: Shift continues from the previous solution, which the swing-up over the horizon needs (with reset_on_failure protecting it); None restarts from the current state and cannot swing up"
@@ -120,29 +90,21 @@ component FurutaMPC
   structural parameter qp_cond_N::Integer = 5
   "Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick (`mpc.x_pred`, `mpc.u_pred`, `mpc.residuals`, `mpc.iterations`), what `MPCComponents.mpc_gui` shows"
   structural parameter output_trajectories::Boolean = false
-  "Stage weight near upright, on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go"
+  "Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go"
   structural parameter Q1::Real[4, 4] = diagonal([1000.0, 10.0, 1.0, 1.0])
-  "Control weight near upright: `design_lqr`'s"
+  "Control weight: `design_lqr`'s"
   structural parameter Q2::Real[1, 1] = diagonal([100.0])
-  "Stage weight far from upright (the swing-up): the pendulum angle counts, the arm little"
-  parameter Q1_swing::Real[4, 4] = diagonal([10.0, 300.0, 1.0, 1.0])
-  "Control weight far from upright (the swing-up)"
-  parameter Q2_swing::Real[1, 1] = diagonal([10.0])
-  "Angle from upright below which the LQR weighting applies alone [rad]"
-  parameter blend_lower::Real = 0.3
-  "Angle from upright above which the swing-up weighting applies alone [rad]"
-  parameter blend_upper::Real = 0.8
   "Exponential filter constant of the velocity estimators (1 = unfiltered first difference). 0.5 makes the balancing unstable at 10 ms; 0.8 leaves some smoothing of the encoder quantization"
   parameter velocity_filter::Real = 0.8
 relations
-  connect(elbow_angle, velocityestimator_elbow.pos, mpc.x[2], nearestupright.u, swingupblend.u) {^id1}
+  connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u) {^id1}
+  connect(anglenormalization.y, mpc.x[2]) {^id2}
   connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]) {^id3}
   connect(velocityestimator_shoulder.vel, mpc.x[3]) {^id4}
   connect(velocityestimator_elbow.vel, mpc.x[4]) {^id5}
-  # The reference is the upright state: arm centred, pendulum at the nearest upright, at rest.
+  # The reference is the upright state: arm centred, pendulum at π, at rest.
   connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id6}
-  connect(nearestupright.y, mpc.r[2]) {^id7}
-  connect(swingupblend.y, mpc.blend) {^id10}
+  connect(upright.y, mpc.r[2]) {^id7}
   connect(mpc.u[1], u) {^id8}
   connect(mpc.exitflag, exitflag) {^id9}
 metadata {
@@ -164,14 +126,14 @@ metadata {
     "velocityestimator_elbow": {
       "Dyad": {"placement": {"diagram": {"x1": 100, "x2": 200, "y1": 550, "y2": 650}}}
     },
-    "nearestupright": {
-      "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 150, "y2": 250}}}
-    },
-    "swingupblend": {
-      "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 700, "y2": 800}}}
+    "anglenormalization": {
+      "Dyad": {"placement": {"diagram": {"x1": 100, "x2": 200, "y1": 400, "y2": 500}}}
     },
     "mpc": {"Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 300, "y2": 400}}}},
-    "zero": {"Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 50, "y2": 150}}}}
+    "zero": {"Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 50, "y2": 150}}}},
+    "upright": {
+      "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 150, "y2": 250}}}
+    }
   }
 }
 end
@@ -202,7 +164,7 @@ src/mpc.jl does the run.
 """
 component FurutaMPCHardware
   measurement = HardwareMeasurement() {^measurement}
-  control_system = FurutaMPC(final dynamics = dynamics, final Ts = Ts, final Np = Np, final umax = umax, final arm_limit = arm_limit, final nlp_solver = nlp_solver, final warm_start = warm_start, final output_trajectories = output_trajectories, final velocity_filter = velocity_filter, final blend_lower = blend_lower, final blend_upper = blend_upper) {^control_system}
+  control_system = FurutaMPC(final dynamics = dynamics, final Ts = Ts, final Np = Np, final umax = umax, final arm_limit = arm_limit, final nlp_solver = nlp_solver, final warm_start = warm_start, final output_trajectories = output_trajectories, final velocity_filter = velocity_filter) {^control_system}
   command = HardwareCommand(final umax = command_umax) {^command}
   diagnostics = HardwareDiagnostics(final realtime = realtime) {^diagnostics}
   logger = DataLogger(final n = MPC_LOG_NCOLS, final filename = log_file, final header = MPC_LOG_HEADER) {^logger}
@@ -231,10 +193,6 @@ component FurutaMPCHardware
   parameter command_umax::Dyad.Voltage = umax
   "Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field"
   parameter velocity_filter::Real = 0.8
-  "Angle from upright below which the MPC uses the LQR weighting alone [rad]. Runtime-settable, a `TuningGains` field"
-  parameter blend_lower::Real = 0.3
-  "Angle from upright above which the MPC uses the swing-up weighting alone [rad]. Runtime-settable, a `TuningGains` field"
-  parameter blend_upper::Real = 0.8
 relations
   connect(measurement.shoulder_angle, control_system.shoulder_angle, logger.u[2], periodicclock.y) {^id7}
   connect(measurement.elbow_angle, control_system.elbow_angle, logger.u[3]) {^id8}

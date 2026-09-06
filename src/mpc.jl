@@ -19,12 +19,9 @@
 
 using MPCComponents
 using MPCComponents: continuous_dynamics, ContinuousDynamics
-import ControlSystemsBase
-using ControlSystemsBase: c2d, ss
-using LinearAlgebra: I
 
-export furuta_mpc_dynamics, furuta_mpc_terminal_weight, generate_mpc_controller, MPCController,
-       mpc_log, run_mpc_hardware_model
+export furuta_mpc_dynamics, generate_mpc_controller, MPCController, mpc_log,
+       run_mpc_hardware_model
 
 # ---------------------------------------------------------------------------
 ## The prediction model
@@ -61,41 +58,19 @@ function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol =
 end
 const _MPC_DYNAMICS_CACHE = Dict{Any, ContinuousDynamics}()
 
-"""
-    furuta_mpc_terminal_weight(dyn, Ts, Q1, Q2) -> P::Matrix
-
-The terminal weight of `FurutaMPC`: the infinite-horizon cost-to-go of the discrete-time LQR
-problem with weights `Q1`, `Q2` for the prediction model `dyn` linearized about upright and
-discretized at `Ts` -- what `design_lqr` solves for its gain. As the MPC's `Qf` (on the outputs,
-which are the states) it is centred on the reference, so it follows the reference to the nearest
-upright, unlike `ACADOSMPC`'s `terminal_lqr_cost`, which is centred on a fixed operating point.
-"""
-function furuta_mpc_terminal_weight(dyn::ContinuousDynamics, Ts, Q1, Q2)
-    nx, nu = dyn.nx, dyn.nu
-    J = zeros(nx, nx + nu)
-    dyn.J!(J, [0.0, pi, 0.0, 0.0], zeros(nu), dyn.p_default, 0.0)
-    sysd = c2d(ss(J[:, 1:nx], J[:, nx+1:end], Matrix{Float64}(I, nx, nx), zeros(nx, nu)), Ts)
-    P = ControlSystemsBase.are(ControlSystemsBase.Discrete, Matrix(sysd.A), Matrix(sysd.B),
-                               Matrix{Float64}(Q1), Matrix{Float64}(Q2))
-    return Matrix{Float64}((P + P') / 2)
-end
-
 # ---------------------------------------------------------------------------
 ## The program
 # ---------------------------------------------------------------------------
 "The log `FurutaMPCHardware` writes, in `MPC_LOG_COLUMNS` order. `file` defaults to `MPC_LOG_FILE`."
 mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 
-# The runtime-settable parameters: the command clamp before the amplifier, the velocity filter
-# constant and the two blend angles, root parameters of `FurutaMPCHardware` bound down with
-# `final` (see `resolve_tunables` for why the root is the right place). The MPC's weights are
-# structural (the terminal cost-to-go is computed from them at build time) and are set with
-# `overrides` (`control_system__Q1_swing = ...`).
+# The runtime-settable parameters: the command clamp before the amplifier and the velocity filter
+# constant, root parameters of `FurutaMPCHardware` bound down with `final` (see `resolve_tunables`
+# for why the root is the right place). The MPC's weights and constraints are structural and are
+# set with `overrides` (`control_system__terminal_set = 0.4`).
 const MPC_TUNABLES = OrderedDict{Any, Symbol}(
     (nsys -> nsys.command_umax) => :command_umax,
     (nsys -> nsys.velocity_filter) => :velocity_filter,
-    (nsys -> nsys.blend_lower) => :blend_lower,
-    (nsys -> nsys.blend_upper) => :blend_upper,
 )
 
 # Node outputs, in the order the runtime reports them: the swing-up program's four, then
@@ -114,10 +89,10 @@ with a `DataLogger`, on a `PeriodicClock` at sample time `Ts` -- and `stkcompile
 
 Returns what [`compile_program`](@ref) returns. The node's argument order is
 `(tick::Bool, gains::TuningGains, auto::AutoPars)` and the outputs are `(row, shoulder_angle,
-elbow_angle, u_applied, exitflag)`. The command clamp `command_umax`, the velocity filter constant
-and the blend angles are the runtime-settable `TuningGains` fields; the MPC's weights and
-structure are set here, with Dyad's `__`-separated override paths, e.g.
-`control_system__Q1_swing = diagm([10, 300, 1, 1])` or `umax = 8.0`.
+elbow_angle, u_applied, exitflag)`. The command clamp `command_umax` and the velocity filter
+constant are the runtime-settable `TuningGains` fields; the MPC's weights and structure are set
+here, with Dyad's `__`-separated override paths, e.g. `control_system__terminal_set = 0.4` or
+`umax = 8.0`.
 
 `Ts` is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals.
 `dynamics` is the prediction model; the default is the identified `QubePendulum`.
@@ -141,7 +116,7 @@ function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
 end
 
 """
-    MPCController(; Ts=0.01, Np=60, backend=:julia, log_file=MPC_LOG_FILE, command_umax=nothing, velocity_filter=nothing, blend_lower=nothing, blend_upper=nothing, overrides...)
+    MPCController(; Ts=0.01, Np=60, backend=:julia, log_file=MPC_LOG_FILE, command_umax=nothing, velocity_filter=nothing, overrides...)
 
 A ready-to-call runtime wrapper around the generated MPC controller, the counterpart of
 [`SwingupController`](@ref). Compiles the controller, builds a `SynchExecutable` and populates
@@ -154,20 +129,19 @@ first; [`run_program!`](@ref) does the opening, the timing and the closing for a
 
 Only `backend = :julia` is available: the AD Jacobian backend the multibody prediction model
 needs has no symbolic form for SynchCompiler to render. `command_umax` (the clamp on the
-command before the amplifier), `velocity_filter` and the blend angles override the model's
-values at instantiation; the rest of the model, the MPC included, is set with `overrides` at
+command before the amplifier) and `velocity_filter` override the model's values at
+instantiation; the rest of the model, the MPC included, is set with `overrides` at
 compile time (see [`generate_mpc_controller`](@ref)).
 """
 function MPCController(; Ts = 0.01, Np = 60, backend::Symbol = :julia,
                         log_file = MPC_LOG_FILE, command_umax = nothing, velocity_filter = nothing,
-                        blend_lower = nothing, blend_upper = nothing, kwargs...)
+                        kwargs...)
     backend === :julia ||
         throw(ArgumentError("MPCController runs on the :julia backend only: the multibody \
                              prediction model needs the AD Jacobian backend, which cannot be \
                              exported to C"))
     gen = generate_mpc_controller(; Ts, Np, log_file, kwargs...)
-    return make_runtime(gen, MPC_OUTPUT_NAMES; backend,
-                        gains = (; command_umax, velocity_filter, blend_lower, blend_upper))
+    return make_runtime(gen, MPC_OUTPUT_NAMES; backend, gains = (; command_umax, velocity_filter))
 end
 
 # ---------------------------------------------------------------------------

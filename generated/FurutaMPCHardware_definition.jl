@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, realtime, output_trajectories, command_umax, velocity_filter, blend_lower, blend_upper)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, realtime, output_trajectories, command_umax, velocity_filter)
 
 The MPC controller closed around the physical QUBE, with the hardware I/O inside the
 synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
@@ -46,10 +46,8 @@ src/mpc.jl does the run.
 | `output_trajectories`         | Record the MPC's predicted trajectories and solver residuals at every tick, for `MPCComponents.mpc_gui`                         | --  |   false |
 | `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field                         | V  |   umax |
 | `velocity_filter`         | Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field                         | --  |   0.8 |
-| `blend_lower`         | Angle from upright below which the MPC uses the LQR weighting alone [rad]. Runtime-settable, a `TuningGains` field                         | --  |   0.3 |
-| `blend_upper`         | Angle from upright above which the MPC uses the swing-up weighting alone [rad]. Runtime-settable, a `TuningGains` field                         | --  |   0.8 |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_filter=0.8, blend_lower=0.3, blend_upper=0.8, command_umax=umax, kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_filter=0.8, command_umax=umax, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -86,12 +84,6 @@ src/mpc.jl does the run.
   __local__velocity_filter = velocity_filter
   append!(__params, @parameters (velocity_filter::Real), [description = "Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field"])
   __initial_conditions[velocity_filter] = __local__velocity_filter
-  __local__blend_lower = blend_lower
-  append!(__params, @parameters (blend_lower::Real), [description = "Angle from upright below which the MPC uses the LQR weighting alone [rad]. Runtime-settable, a `TuningGains` field"])
-  __initial_conditions[blend_lower] = __local__blend_lower
-  __local__blend_upper = blend_upper
-  append!(__params, @parameters (blend_upper::Real), [description = "Angle from upright above which the MPC uses the swing-up weighting alone [rad]. Runtime-settable, a `TuningGains` field"])
-  __initial_conditions[blend_upper] = __local__blend_upper
 
   ### Final Parameters (assignments)
 
@@ -112,17 +104,11 @@ src/mpc.jl does the run.
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
   push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, output_trajectories=output_trajectories, control_system_overrides...))
   __bindings[control_system.velocity_filter] = velocity_filter
-  __bindings[control_system.blend_lower] = blend_lower
-  __bindings[control_system.blend_upper] = blend_upper
   # Now remove initial conditions in control_system that correspond to the bindings just added
   __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
   __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
   __control_system_velocity_filter = Symbolics.unwrap(__no_namespace_control_system.velocity_filter)::Symbolics.SymbolicT
   delete!(__control_system_ics, __control_system_velocity_filter)
-  __control_system_blend_lower = Symbolics.unwrap(__no_namespace_control_system.blend_lower)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_blend_lower)
-  __control_system_blend_upper = Symbolics.unwrap(__no_namespace_control_system.blend_upper)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_blend_upper)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
   push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))

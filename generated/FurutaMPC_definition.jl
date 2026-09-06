@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, arm_soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, Q1_swing, Q2_swing, blend_lower, blend_upper, velocity_filter)
+   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, terminal_set, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_filter)
 
 Swing-up and balancing of the Furuta pendulum by a nonlinear MPC alone.
 
@@ -16,20 +16,22 @@ angle bounded to the end stops and the velocities bounded to what the model is t
 soft state bounds). There is no separate swing-up law and no switching: the same controller
 swings the pendulum up from hanging and balances it.
 
-What makes one controller do both is the weighting. Near upright (within `blend_lower` of it)
-the stage cost is `design_lqr`'s -- `Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100` -- and the terminal
-cost is the discrete-time LQR cost-to-go of that design about upright (`furuta_mpc_terminal_weight`),
-so the MPC is the well-tried LQR there, constraints aside. Far from upright (beyond `blend_upper`)
-the stage cost is the swing-up weighting `Q1_swing`, `Q2_swing`, which weights the pendulum angle
-more and the arm and the control less so that pumping the pendulum up pays off within the
-horizon; in between the two are blended (`SwingupBlend`, `ACADOSMPC`'s `blend_weights`).
+The weighting is `design_lqr`'s throughout -- stage cost `Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`,
+terminal cost the LQR cost-to-go of that design about upright (`terminal_lqr_cost`) -- so near
+upright the MPC is the well-tried LQR, constraints aside. What makes it swing up is a *soft
+terminal set*: the pendulum angle at the end of the horizon is constrained to within
+`terminal_set` of upright (`terminal_constrained`, softened with the slack weight `soft_weight` so
+the problem stays solvable while the set is out of reach). The slack penalty is what pays for the
+swing-up under LQR weights; in simulation it does so by swinging the arm well past the end stops
+(2 to 6 rad from a rest start, see the README), since the LQR arm weight forbids the gentler
+pumping and a hard arm bound removes the swing-up altogether.
 
 Three details of the formulation matter for robustness, all found by simulating the loop with
 quantized angles and the discrete velocity estimators:
 
-  - The MPC is fed the *continuous* encoder angle and a reference that is the upright nearest
-    to it (`NearestUpright`), never a wrapped angle: a wrap puts a 2π jump into the state at
-    the bottom, exactly where the swing-up spends its time.
+  - The pendulum angle is wrapped to `[0, 2π)` (`AngleNormalization`), which the fixed terminal
+    set needs. The wrap puts a 2π jump into the state at the bottom; a shifted warm start then
+    fails once and `reset_on_failure` recovers it, a few extra solves per swing-up.
   - A single real-time iteration can produce an iterate the linearization no longer describes,
     after which every shifted warm start fails. Soft velocity bounds keep the iterates where
     the model is meaningful, and `reset_on_failure` retries a failed solve from a fresh guess.
@@ -54,23 +56,20 @@ discrete `VelocityEstimator`s produce from the angles.
 | `dynamics`         | Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with the identified parameters                         | --  |   furuta_mpc_dynamics() |
 | `Ts`         | Sample time of the controller; the MPC's shooting interval, so it must equal the clock period                         | --  |   0.01 |
 | `Np`         | Prediction horizon in shooting intervals; the horizon is Np * Ts                         | --  |   60 |
-| `umax`         | Motor voltage bound of the MPC [V]. The swing-up needs 10; with 8 the pendulum does not always come up (clamp the command with `command_umax` instead of lowering this)                         | --  |   10.0 |
-| `arm_limit`         | Arm angle the MPC keeps the arm within (softly, over its horizon) [rad]; inside the end stops at ±1.92                         | --  |   1.7 |
+| `umax`         | Motor voltage bound of the MPC [V]. The swing-up needs 10 (clamp the command with `command_umax` instead of lowering this)                         | --  |   10.0 |
+| `arm_limit`         | Arm angle the MPC keeps the arm within (softly, over its horizon) [rad]; inside the end stops at ±1.92. The swing-up under LQR weights violates it, see the component documentation                         | --  |   1.7 |
 | `velocity_limit_shoulder`         | Arm velocity the MPC keeps its predictions within [rad/s]; a soft bound that keeps the real-time iterates where the linearization is meaningful                         | --  |   20.0 |
 | `velocity_limit_elbow`         | Pendulum velocity the MPC keeps its predictions within [rad/s]; see velocity_limit_shoulder                         | --  |   30.0 |
-| `arm_soft_weight`         | Quadratic penalty on the slack of the soft state bounds (arm angle and velocities)                         | --  |   1e4 |
+| `terminal_set`         | Half-width of the terminal set around upright the pendulum angle at the end of the horizon is confined to [rad]                         | --  |   0.6 |
+| `soft_weight`         | Quadratic penalty on the slacks of the soft constraints: the state bounds and the terminal set. The terminal slack is what drives the swing-up                         | --  |   1e3 |
 | `nlp_solver`         | NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence                         | --  |   MPCComponen...r.SQP_RTI() |
 | `warm_start`         | Initial guess of the NLP at every tick: Shift continues from the previous solution, which the swing-up over the horizon needs (with reset_on_failure protecting it); None restarts from the current state and cannot swing up                         | --  |   MPCComponen...art.Shift() |
 | `max_iter`         | Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it                         | --  |   30 |
 | `levenberg_marquardt`         | Levenberg-Marquardt regularization of the Gauss-Newton Hessian                         | --  |   1.0 |
 | `qp_cond_N`         | Horizon of HPIPM's partially condensed QP; 5 halves the worst-case solve time of the full horizon (-1) and keeps the iterates tamer                         | --  |   5 |
 | `output_trajectories`         | Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick (`mpc.x_pred`, `mpc.u_pred`, `mpc.residuals`, `mpc.iterations`), what `MPCComponents.mpc_gui` shows                         | --  |   false |
-| `Q1`         | Stage weight near upright, on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go                         | --  |   diagonal([1... 1.0, 1.0]) |
-| `Q2`         | Control weight near upright: `design_lqr`'s                         | --  |   diagonal([100.0]) |
-| `Q1_swing`         | Stage weight far from upright (the swing-up): the pendulum angle counts, the arm little                         | --  |   diagonal([1... 1.0, 1.0]) |
-| `Q2_swing`         | Control weight far from upright (the swing-up)                         | --  |   diagonal([10.0]) |
-| `blend_lower`         | Angle from upright below which the LQR weighting applies alone [rad]                         | --  |   0.3 |
-| `blend_upper`         | Angle from upright above which the swing-up weighting applies alone [rad]                         | --  |   0.8 |
+| `Q1`         | Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go                         | --  |   diagonal([1... 1.0, 1.0]) |
+| `Q2`         | Control weight: `design_lqr`'s                         | --  |   diagonal([100.0]) |
 | `velocity_filter`         | Exponential filter constant of the velocity estimators (1 = unfiltered first difference). 0.5 makes the balancing unstable at 10 ms; 0.8 leaves some smoothing of the encoder quantization                         | --  |   0.8 |
 
 ## Connectors
@@ -80,7 +79,7 @@ discrete `VelocityEstimator`s produce from the angles.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `exitflag` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.01, Np=60, umax=Float64(10.0), arm_limit=1.7, velocity_limit_shoulder=Float64(20.0), velocity_limit_elbow=Float64(30.0), arm_soft_weight=Float64(10000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=Float64(1.0), qp_cond_N=5, output_trajectories=false, Q1=diagonal([1000.0, 10.0, 1.0, 1.0]), Q2=diagonal([100.0]), Q1_swing=diagonal([10.0, 300.0, 1.0, 1.0]), Q2_swing=diagonal([10.0]), blend_lower=0.3, blend_upper=0.8, velocity_filter=0.8, kwargs...)
+@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.01, Np=60, umax=Float64(10.0), arm_limit=1.7, velocity_limit_shoulder=Float64(20.0), velocity_limit_elbow=Float64(30.0), terminal_set=0.6, soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=Float64(1.0), qp_cond_N=5, output_trajectories=false, Q1=diagonal([1000.0, 10.0, 1.0, 1.0]), Q2=diagonal([100.0]), velocity_filter=0.8, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -111,18 +110,6 @@ discrete `VelocityEstimator`s produce from the angles.
   ### Deferred assignment (default values that depend on final parameters)
 
   ### Symbolic Parameters
-  __local__Q1_swing = Q1_swing
-  append!(__params, @parameters (Q1_swing[1:4, 1:4]::Real), [description = "Stage weight far from upright (the swing-up): the pendulum angle counts, the arm little"])
-  __initial_conditions[Q1_swing] = __local__Q1_swing
-  __local__Q2_swing = Q2_swing
-  append!(__params, @parameters (Q2_swing[1:1, 1:1]::Real), [description = "Control weight far from upright (the swing-up)"])
-  __initial_conditions[Q2_swing] = __local__Q2_swing
-  __local__blend_lower = blend_lower
-  append!(__params, @parameters (blend_lower::Real), [description = "Angle from upright below which the LQR weighting applies alone [rad]"])
-  __initial_conditions[blend_lower] = __local__blend_lower
-  __local__blend_upper = blend_upper
-  append!(__params, @parameters (blend_upper::Real), [description = "Angle from upright above which the swing-up weighting applies alone [rad]"])
-  __initial_conditions[blend_upper] = __local__blend_upper
   __local__velocity_filter = velocity_filter
   append!(__params, @parameters (velocity_filter::Real), [description = "Exponential filter constant of the velocity estimators (1 = unfiltered first difference). 0.5 makes the balancing unstable at 10 ms; 0.8 leaves some smoothing of the encoder quantization"])
   __initial_conditions[velocity_filter] = __local__velocity_filter
@@ -161,29 +148,15 @@ discrete `VelocityEstimator`s produce from the angles.
   __no_namespace_velocityestimator_elbow = ModelingToolkit.toggle_namespacing(velocityestimator_elbow, false)
   __velocityestimator_elbow_filter_param = Symbolics.unwrap(__no_namespace_velocityestimator_elbow.filter_param)::Symbolics.SymbolicT
   delete!(__velocityestimator_elbow_ics, __velocityestimator_elbow_filter_param)
-  # Subcomponent nearestupright of type QuanserComponents.NearestUpright
-  nearestupright_overrides = __pop_subcomponent_overrides!(__overrides, "nearestupright")
-  push!(__systems, @named nearestupright = QuanserComponents.NearestUpright(; nearestupright_overrides...))
-  # Subcomponent swingupblend of type QuanserComponents.SwingupBlend
-  swingupblend_overrides = __pop_subcomponent_overrides!(__overrides, "swingupblend")
-  push!(__systems, @named swingupblend = QuanserComponents.SwingupBlend(; swingupblend_overrides...))
-  __bindings[swingupblend.lower] = blend_lower
-  __bindings[swingupblend.upper] = blend_upper
-  # Now remove initial conditions in swingupblend that correspond to the bindings just added
-  __swingupblend_ics = ModelingToolkit.get_initial_conditions(swingupblend)
-  __no_namespace_swingupblend = ModelingToolkit.toggle_namespacing(swingupblend, false)
-  __swingupblend_lower = Symbolics.unwrap(__no_namespace_swingupblend.lower)::Symbolics.SymbolicT
-  delete!(__swingupblend_ics, __swingupblend_lower)
-  __swingupblend_upper = Symbolics.unwrap(__no_namespace_swingupblend.upper)::Symbolics.SymbolicT
-  delete!(__swingupblend_ics, __swingupblend_upper)
+  # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
+  anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
+  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
-  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, states=FURUTA_MPC_STATES, outputs=FURUTA_MPC_STATES, Ts=Ts, Np=Np, blend_weights=true, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=arm_soft_weight, terminal_lqr_cost=false, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, jacobian_backend=MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, terminal_constraints_soft=false, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
+  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, states=FURUTA_MPC_STATES, outputs=FURUTA_MPC_STATES, Ts=Ts, Np=Np, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, terminal_constrained=FURUTA_MPC_ELBOW_SIGNAL, terminal_constrained_min=[pi - terminal_set], terminal_constrained_max=[pi + terminal_set], terminal_constraints_soft=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, jacobian_backend=MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
   __bindings[mpc.Q1] = Q1
   __bindings[mpc.Q2] = Q2
-  __bindings[mpc.Qf] = furuta_mpc_terminal_weight(dynamics, Ts, Q1, Q2)
-  __bindings[mpc.Q1_alt] = Q1_swing
-  __bindings[mpc.Q2_alt] = Q2_swing
+  __bindings[mpc.operating_point] = [Float64(0), pi, Float64(0), Float64(0)]
   __bindings[mpc.max_iter] = max_iter
   __bindings[mpc.levenberg_marquardt] = levenberg_marquardt
   # Now remove initial conditions in mpc that correspond to the bindings just added
@@ -193,12 +166,8 @@ discrete `VelocityEstimator`s produce from the angles.
   delete!(__mpc_ics, __mpc_Q1)
   __mpc_Q2 = Symbolics.unwrap(__no_namespace_mpc.Q2)::Symbolics.SymbolicT
   delete!(__mpc_ics, __mpc_Q2)
-  __mpc_Qf = Symbolics.unwrap(__no_namespace_mpc.Qf)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Qf)
-  __mpc_Q1_alt = Symbolics.unwrap(__no_namespace_mpc.Q1_alt)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Q1_alt)
-  __mpc_Q2_alt = Symbolics.unwrap(__no_namespace_mpc.Q2_alt)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Q2_alt)
+  __mpc_operating_point = Symbolics.unwrap(__no_namespace_mpc.operating_point)::Symbolics.SymbolicT
+  delete!(__mpc_ics, __mpc_operating_point)
   __mpc_max_iter = Symbolics.unwrap(__no_namespace_mpc.max_iter)::Symbolics.SymbolicT
   delete!(__mpc_ics, __mpc_max_iter)
   __mpc_levenberg_marquardt = Symbolics.unwrap(__no_namespace_mpc.levenberg_marquardt)::Symbolics.SymbolicT
@@ -212,6 +181,15 @@ discrete `VelocityEstimator`s produce from the angles.
   __no_namespace_zero = ModelingToolkit.toggle_namespacing(zero, false)
   __zero_k = Symbolics.unwrap(__no_namespace_zero.k)::Symbolics.SymbolicT
   delete!(__zero_ics, __zero_k)
+  # Subcomponent upright of type BlockComponents.Sources.Constant
+  upright_overrides = __pop_subcomponent_overrides!(__overrides, "upright")
+  push!(__systems, @named upright = BlockComponents.Sources.Constant(; upright_overrides...))
+  __bindings[upright.k] = pi
+  # Now remove initial conditions in upright that correspond to the bindings just added
+  __upright_ics = ModelingToolkit.get_initial_conditions(upright)
+  __no_namespace_upright = ModelingToolkit.toggle_namespacing(upright, false)
+  __upright_k = Symbolics.unwrap(__no_namespace_upright.k)::Symbolics.SymbolicT
+  delete!(__upright_ics, __upright_k)
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -224,13 +202,13 @@ discrete `VelocityEstimator`s produce from the angles.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(elbow_angle, velocityestimator_elbow.pos, mpc.x[2], nearestupright.u, swingupblend.u))
+  push!(__eqs, connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u))
+  push!(__eqs, connect(anglenormalization.y, mpc.x[2]))
   push!(__eqs, connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]))
   push!(__eqs, connect(velocityestimator_shoulder.vel, mpc.x[3]))
   push!(__eqs, connect(velocityestimator_elbow.vel, mpc.x[4]))
   push!(__eqs, connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]))
-  push!(__eqs, connect(nearestupright.y, mpc.r[2]))
-  push!(__eqs, connect(swingupblend.y, mpc.blend))
+  push!(__eqs, connect(upright.y, mpc.r[2]))
   push!(__eqs, connect(mpc.u[1], u))
   push!(__eqs, connect(mpc.exitflag, exitflag))
 
