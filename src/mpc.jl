@@ -37,7 +37,11 @@ The result is a pure ODE with the four states `FURUTA_MPC_STATES` -- the joint a
 `shoulder_joint.phi`, `elbow_joint.phi` and their derivatives -- and the motor voltage as
 its one input, in `qube₊`-prefixed signal names. The plant's `shoulder_angle`/`elbow_angle`
 outputs are those joint angles exactly, so the hardware measurements map onto the model
-states one to one.
+states one to one. One signal is added to the plant's: `pendulum_energy_ratio`, the
+pendulum's mechanical energy relative to the bottom -- rotation about the elbow plus the
+height of its centre of mass, the same quantity the energy swing-up (`Energy`) pumps -- divided
+by its value at rest upright, so that 1 is the energy of the upright position. `FurutaMPC`
+constrains it at the end of the horizon.
 
 `jacobian_backend` must be an AD backend (`:forwarddiff` or `:finitediff`): the compiled
 multibody model references cached linear solves that the `:symbolic` backend cannot
@@ -51,7 +55,12 @@ function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol =
         @info "Compiling the Furuta prediction model for the MPC" jacobian_backend
         @named world = MultibodyComponents.World(render = false)
         @named qube = QubePendulum(; idparams)
-        model = System(Equation[], t; systems = [world, qube], name = :furuta)
+        # The pendulum's energy relative to hanging, normalized by the upright's: kinetic energy of
+        # the rotation about the elbow (inertia about the pivot Jp + mp l^2) plus mp g l (1 - cos phi).
+        @variables pendulum_energy_ratio(t)
+        mp, l, Jp, g = idparams.mp, idparams.l, idparams.Jp, 9.81
+        energy = 0.5 * (Jp + mp * l^2) * qube.elbow_joint.w^2 + mp * g * l * (1 - cos(qube.elbow_joint.phi))
+        model = System([pendulum_energy_ratio ~ energy / (2 * mp * g * l)], t; systems = [world, qube], name = :furuta)
         ssys = MultibodyComponents.multibody(model; inputs = [qube.voltage])
         continuous_dynamics(ssys; inputs = [qube.voltage], jacobian_backend)
     end
@@ -67,7 +76,7 @@ mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 # The runtime-settable parameters: the command clamp before the amplifier and the velocity filter
 # constant, root parameters of `FurutaMPCHardware` bound down with `final` (see `resolve_tunables`
 # for why the root is the right place). The MPC's weights and constraints are structural and are
-# set with `overrides` (`control_system__terminal_set = 0.4`).
+# set with `overrides` (`control_system__energy_set = 0.1`).
 const MPC_TUNABLES = OrderedDict{Any, Symbol}(
     (nsys -> nsys.command_umax) => :command_umax,
     (nsys -> nsys.velocity_filter) => :velocity_filter,
@@ -91,7 +100,7 @@ Returns what [`compile_program`](@ref) returns. The node's argument order is
 `(tick::Bool, gains::TuningGains, auto::AutoPars)` and the outputs are `(row, shoulder_angle,
 elbow_angle, u_applied, exitflag)`. The command clamp `command_umax` and the velocity filter
 constant are the runtime-settable `TuningGains` fields; the MPC's weights and structure are set
-here, with Dyad's `__`-separated override paths, e.g. `control_system__terminal_set = 0.4` or
+here, with Dyad's `__`-separated override paths, e.g. `control_system__energy_set = 0.1` or
 `umax = 8.0`.
 
 `Ts` is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals.
