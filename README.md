@@ -139,7 +139,20 @@ against a simulated pendulum (the multibody model with encoder quantization, RK4
 sub-steps per period, optionally with perturbed parameters) from random initial conditions (arm
 within ±1.5 rad, pendulum anywhere, arm velocity within ±3 rad/s, pendulum velocity within
 ±10 rad/s) and counts the rollouts in which the pendulum stays within 0.1 rad of upright for the
-last second of 10 s. MONTECARLO_RESULTS
+last second of 10 s. The summaries of four such runs are in assets/mpc/ (the compiled program at the defaults above):
+
+| rollouts | plant | starts | balanced within 10 s | catch time median / 90 % | arm past the stops |
+|---|---|---|---|---|---|
+| 1000 | identified | random | 1000 | 0.82 s / 1.20 s | 277 (see below) |
+| 200 | motor −15 %, arm +20 %, Jp +15 %, damping ×2 | random | 199 | 1.18 s / 3.62 s | 100 |
+| 200 | identified | at rest near hanging, as on the rig | 200 | 0.96 s / 1.11 s | 1 (2.31 rad) |
+| 200 | randomly perturbed per rollout (±15 % kt, ±20 % arm mass, ±15 % Jp, damping ½ to 2) | at rest near hanging | 200 | 0.98 s / 1.16 s | 7 (at most 2.10 rad) |
+
+Solve time was 0.93 ms per tick at the median and 1.4 to 1.9 ms at the 99th percentile in all
+four, with no failed solve in the rest-start runs. The arm excursions of the random-start runs
+come from the starts themselves: a pendulum already spinning at 10 rad/s and, above all, the
+velocity estimators starting cold from a nonzero angle, which reports a spike of tens of rad/s on
+the first tick that the rig, whose encoders are zeroed when the device is opened, never produces.
 
 ### Environment
 
