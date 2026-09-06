@@ -11,11 +11,15 @@ applied to the measured angles. The program reads the simulator through `bind_ha
 exactly as the tests do, so the velocity estimators, the angle wrapping and the MPC itself all
 run as compiled.
 
-Initial conditions are drawn uniformly from the operating space
+Initial conditions (`starts = random`, the default) are drawn uniformly from the operating space
     arm angle        ±1.5 rad         (inside the ±1.92 rad end stops)
     pendulum angle   [0, 2π)          (anywhere, including near upright)
     arm velocity     ±3 rad/s
     pendulum velocity ±10 rad/s
+or (`starts = hanging`) from rest near the bottom as the rig starts -- arm within ±0.05 rad, pendulum
+within ±0.1 rad of hanging, at rest -- which is also the case in which the velocity estimators start
+warm: from a nonzero angle they report a spurious spike on the first tick (the encoders are zeroed on
+the rig, so that does not happen there).
 A rollout succeeds if the pendulum is within 0.1 rad of upright for the whole last second
 of the 10 s run; the catch time is the instant from which it stays there. The arm's
 excursion is compared with the end stops as well, since that is the MPC's constraint.
@@ -23,16 +27,18 @@ excursion is compared with the end stops as well, since that is the MPC's constr
 The plant is the MPC's own model by default. `plant = perturbed` simulates the identified
 model with the motor constant 15 % lower, the arm 20 % heavier, the pendulum inertia 15 %
 larger and twice the pendulum damping, while the MPC keeps predicting with the identified
-parameters -- a model-mismatch check in the direction the hardware will exercise. `plant =
-nominal` uses the datasheet set, which is far off (a third of the identified acceleration per
-volt) and is not expected to work.
+parameters -- a model-mismatch check in the direction the hardware will exercise. `plant = random`
+draws such a perturbation per rollout (motor constant ±15 %, arm mass ±20 %, pendulum inertia
+±15 %, damping between half and double), the robustness statistic. `plant = nominal` uses the
+datasheet set, which is far off (a third of the identified acceleration per volt) and is not
+expected to work.
 
 Writes the plots and a summary to `outdir` (default `mpc_rollouts/` in the current directory)
 and prints the statistics. Runtime is dominated by the MPC solves (one real-time iteration
 over a 60-interval horizon), about a millisecond per tick, 1000 ticks per rollout.
 
 ENVIRONMENT: as for test/hardware_mpc.jl (see the README's "Nonlinear MPC" section):
-  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | perturbed | nominal]
+  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | perturbed | random | nominal] [starts = random | hanging]
 =#
 
 using QuanserComponents
@@ -45,6 +51,7 @@ const Tf = 10.0
 const NROLL = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1000
 const OUTDIR = length(ARGS) >= 2 ? ARGS[2] : "mpc_rollouts"
 const PLANT = length(ARGS) >= 3 ? Symbol(ARGS[3]) : :identified
+const STARTS = length(ARGS) >= 4 ? Symbol(ARGS[4]) : :random
 const ARM_LIMIT = 1.9198621771937625        # FurutaMPC's default arm_limit (110 deg)
 const CATCH_TOL = 0.1                       # rad from upright counted as balanced
 const HOLD = 1.0                            # s the pendulum must stay balanced at the end
@@ -120,13 +127,22 @@ plant_params = PLANT === :identified ? nothing :
                PLANT === :nominal ? QC.nominal :
                PLANT === :perturbed ? QC.withparams(QC.identified; kt = 0.85 * QC.identified.kt, mr = 1.2 * QC.identified.mr,
                                                     Jp = 1.15 * QC.identified.Jp, bp = 2 * QC.identified.bp) :
-               error("plant must be identified, perturbed or nominal")
-plant = plant_params === nothing ? dyn : QC.furuta_mpc_dynamics(; idparams = plant_params)
-sim = FurutaSim(plant; Ts)
-
+               PLANT === :random ? :random :
+               error("plant must be identified, perturbed, random or nominal")
 rng = Xoshiro(1)
-sample_x0(rng) = [1.5 * (2rand(rng) - 1), 2pi * rand(rng), 3.0 * (2rand(rng) - 1), 10.0 * (2rand(rng) - 1)]
+u(rng, lo, hi) = lo + (hi - lo) * rand(rng)
+# One plant per rollout: the prediction model itself, a fixed perturbation of it, or a random one.
+function plant_for_rollout(rng)
+    plant_params === nothing && return dyn
+    plant_params === :random && return QC.furuta_mpc_dynamics(; idparams = QC.withparams(QC.identified;
+        kt = u(rng, 0.85, 1.15) * QC.identified.kt, mr = u(rng, 0.8, 1.2) * QC.identified.mr,
+        Jp = u(rng, 0.85, 1.15) * QC.identified.Jp, bp = exp(u(rng, log(0.5), log(2.0))) * QC.identified.bp))
+    return QC.furuta_mpc_dynamics(; idparams = plant_params)
+end
+sample_x0(rng) = STARTS === :hanging ? [0.05 * (2rand(rng) - 1), 0.1 * (2rand(rng) - 1), 0.0, 0.0] :
+                 [1.5 * (2rand(rng) - 1), 2pi * rand(rng), 3.0 * (2rand(rng) - 1), 10.0 * (2rand(rng) - 1)]
 x0s = [sample_x0(rng) for _ in 1:NROLL]
+plants = [plant_for_rollout(rng) for _ in 1:NROLL]
 
 tcatch = fill(NaN, NROLL); armmax = zeros(NROLL); umax = zeros(NROLL)
 nbadflag = zeros(Int, NROLL); nmaxiter = zeros(Int, NROLL)
@@ -134,6 +150,7 @@ exec = Float64[]
 NKEEP = min(NROLL, 100)                    # trajectories kept for the overlay plot
 kept = Vector{Any}(undef, NKEEP)
 twall = @elapsed for (i, x0) in enumerate(x0s)
+    sim = FurutaSim(plants[i]; Ts)
     r = rollout!(ctrl, sim, x0)
     tcatch[i] = catch_time(r.X)
     armmax[i] = maximum(abs, r.X[1, :])
@@ -149,7 +166,7 @@ q(v, p) = isempty(v) ? NaN : quantile(v, p)
 med(v) = isempty(v) ? NaN : median(v)
 mx(v) = isempty(v) ? NaN : maximum(v)
 summary = @sprintf("""
-    MPC Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 60, plant = %s
+    MPC Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 60, plant = %s, starts = %s
     successes (upright within %.2f rad for the last %.1f s): %d / %d = %.1f%%
     catch time [s]: median %.2f, 90%% %.2f, max %.2f
     arm excursion max |phi| [rad]: median %.2f, max %.2f (end stops at %.2f); rollouts beyond the stops: %d
@@ -157,7 +174,7 @@ summary = @sprintf("""
     acados exitflag != 0 on %d of %d ticks (status 2, iteration limit, on %d)
     tick execution time [ms]: median %.3f, 99%% %.3f, max %.3f
     wall time %.1f min (%.2f ms per tick incl. the plant simulation)
-    """, NROLL, Tf, Ts, PLANT, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
+    """, NROLL, Tf, Ts, PLANT, STARTS, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
     med(tcatch[success]), q(tcatch[success], 0.9), mx(tcatch[success]),
     median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax), maximum(umax),
     sum(nbadflag), NROLL * round(Int, Tf / Ts), sum(nmaxiter),
