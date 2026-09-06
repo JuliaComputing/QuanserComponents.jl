@@ -199,5 +199,11 @@ const FURUTA_MPC_ARM_SIGNAL = ["qube₊shoulder_joint₊phi"]
 # velocities (where the model is trusted; keeps the real-time iterates sane), in this order.
 const FURUTA_MPC_CONSTRAINED = ["qube₊shoulder_joint₊phi", "qube₊shoulder_joint₊phiˍt", "qube₊elbow_joint₊phiˍt"]
 # The pendulum's energy relative to the upright's (a signal `furuta_mpc_dynamics` adds to the plant
-# model), the signal the terminal set is placed on.
+# model): 0 hanging at rest, 1 at rest upright. The swing-up MPC weights it as a fifth output with the
+# reference 1 (energy shaping in the stage cost), which makes the cost a nonlinear least squares.
 const FURUTA_MPC_ENERGY_SIGNAL = ["pendulum_energy_ratio"]
+# The controlled outputs of the swing-up MPC: the four states followed by the energy ratio.
+const FURUTA_MPC_OUTPUTS = [FURUTA_MPC_STATES; FURUTA_MPC_ENERGY_SIGNAL]
+# The MPC's stage weight over those outputs: the state weight `Q1` (design_lqr's, 4 × 4) extended with
+# the weight on the energy error, so that the LQR matrices stay a separate, recognizable knob.
+furuta_mpc_weight(Q1::AbstractMatrix, energy_weight::Real) = [Q1 zeros(4, 1); zeros(1, 4) energy_weight]

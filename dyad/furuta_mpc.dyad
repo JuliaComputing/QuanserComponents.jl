@@ -8,18 +8,21 @@ angle bounded to the end stops and the velocities bounded to what the model is t
 soft state bounds). There is no separate swing-up law and no switching: the same controller
 swings the pendulum up from hanging and balances it.
 
-The weighting is `design_lqr`'s throughout -- stage cost `Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`,
-terminal cost the LQR cost-to-go of that design about upright (`terminal_lqr_cost`) -- so near
-upright the MPC is the well-tried LQR, constraints aside. What makes it swing up is a *soft
-terminal set on the pendulum's energy*: the same quantity the energy swing-up pumps (rotation
-about the elbow plus the height of the centre of mass, `pendulum_energy_ratio` of the prediction
-model, 1 at rest upright) is constrained at the end of the horizon to within `energy_set` of the
-upright's (`nl_terminal_constrained`, softened with the slack weight `soft_weight` so the problem
-stays solvable while the level is out of reach). Being periodic in the angle the set needs no
-wrap of its own, and the slack penalty is what pays for the swing-up under LQR weights. In
-simulation it swings up from every rest start but by swinging the arm well past the end stops
-(2 to 7 rad, see the README): the LQR arm weight forbids the gentler pumping, a hard arm bound
-removes the swing-up altogether, and the arm bound's slack shares its weight with the set's.
+The weighting is `design_lqr`'s -- state weight `Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`, terminal
+cost the LQR cost-to-go of that design about upright (`terminal_lqr_cost`) -- plus one term that
+makes it swing up: *energy shaping in the stage cost*. The pendulum's energy relative to the
+upright's (rotation about the elbow plus the height of the centre of mass, the quantity the energy
+swing-up pumps; `pendulum_energy_ratio` of the prediction model, 0 hanging at rest, 1 at rest
+upright) is a fifth controlled output with the reference 1 and the weight `energy_weight`, which
+makes the cost a nonlinear least squares (`ACADOSMPC`'s nonlinear outputs). From rest the term
+gives the solver a gradient towards pumping from the first tick, which a terminal *set* on the
+energy could not while the set was out of reach. Near upright the term vanishes quartically in the
+deviation (the energy error is quadratic in the angle and the velocity), so the balancing is the
+well-tried LQR: in simulation the closed loop from kicks up to 0.3 rad or 4 rad/s is identical to
+the one without the term, to the voltage. The LQR weight on the arm still forbids the gentle
+pumping, so the swing-up throws the arm past the end stops in 60 % of the rest starts (2.4 rad
+median, up to 8.6 rad over 200 starts, see the README), as the terminal set did; a hard arm bound
+removes the swing-up altogether.
 
 Three details of the formulation matter for robustness, all found by simulating the loop with
 quantized angles and the discrete velocity estimators:
@@ -56,9 +59,10 @@ component FurutaMPC
   velocityestimator_shoulder = QuanserComponents.VelocityEstimator(final filter_param = velocity_filter) {^velocityestimator_shoulder}
   velocityestimator_elbow = QuanserComponents.VelocityEstimator(final filter_param = velocity_filter) {^velocityestimator_elbow}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
-  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final states = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_STATES, final Ts = Ts, final Np = Np, final Q1 = Q1, final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nl_terminal_constrained = FURUTA_MPC_ENERGY_SIGNAL, final nl_terminal_constrained_min = [1 - energy_set], final nl_terminal_constrained_max = [1 + energy_set], final nl_terminal_constraints_soft = true, final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), integrator_stages = 2, final jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
+  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final states = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_OUTPUTS, final Ts = Ts, final Np = Np, final Q1 = furuta_mpc_weight(Q1, energy_weight), final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), integrator_stages = 2, final jacobian_backend = MPCComponents.ACADOSJacobianBackend.ForwardDiff(), final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
   zero = BlockComponents.Sources.Constant(final k = 0) {^zero}
   upright = BlockComponents.Sources.Constant(final k = pi) {^upright}
+  level = BlockComponents.Sources.Constant(final k = 1) {^level}
   """
   Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an
   AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with
@@ -77,9 +81,9 @@ component FurutaMPC
   structural parameter velocity_limit_shoulder::Real = 20.0
   "Pendulum velocity the MPC keeps its predictions within [rad/s]; see velocity_limit_shoulder"
   structural parameter velocity_limit_elbow::Real = 30.0
-  "Half-width of the terminal set on the pendulum's energy, as a fraction of the upright's: the energy at the end of the horizon is confined to 1 ± energy_set"
-  structural parameter energy_set::Real = 0.2
-  "Quadratic penalty on the slacks of the soft constraints: the state bounds and the energy set. The terminal slack is what drives the swing-up"
+  "Stage weight on the pendulum's energy error (energy relative to the upright's minus 1), the swing-up term. Below 1e4 the swing-up is slow and wandering; 1e5 swings up from rest in about a second, and near upright the term is negligible (quartic in the deviation)"
+  structural parameter energy_weight::Real = 1e5
+  "Quadratic penalty on the slacks of the soft state bounds (arm angle and velocities)"
   structural parameter soft_weight::Real = 1e3
   "NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence"
   structural parameter nlp_solver::MPCComponents.ACADOSSolver = MPCComponents.ACADOSSolver.SQP_RTI()
@@ -93,7 +97,7 @@ component FurutaMPC
   structural parameter qp_cond_N::Integer = 5
   "Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick (`mpc.x_pred`, `mpc.u_pred`, `mpc.residuals`, `mpc.iterations`), what `MPCComponents.mpc_gui` shows"
   structural parameter output_trajectories::Boolean = false
-  "Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go"
+  "Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go. The MPC's stage weight is this matrix extended with `energy_weight` (see `furuta_mpc_weight`)"
   structural parameter Q1::Real[4, 4] = diagonal([1000.0, 10.0, 1.0, 1.0])
   "Control weight: `design_lqr`'s"
   structural parameter Q2::Real[1, 1] = diagonal([100.0])
@@ -105,9 +109,10 @@ relations
   connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]) {^id3}
   connect(velocityestimator_shoulder.vel, mpc.x[3]) {^id4}
   connect(velocityestimator_elbow.vel, mpc.x[4]) {^id5}
-  # The reference is the upright state: arm centred, pendulum at π, at rest.
+  # The reference is the upright state: arm centred, pendulum at π, at rest, and the energy of rest upright.
   connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id6}
   connect(upright.y, mpc.r[2]) {^id7}
+  connect(level.y, mpc.r[5]) {^id10}
   connect(mpc.u[1], u) {^id8}
   connect(mpc.exitflag, exitflag) {^id9}
 metadata {

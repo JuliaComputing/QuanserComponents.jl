@@ -76,7 +76,7 @@ mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 # The runtime-settable parameters: the command clamp before the amplifier and the velocity filter
 # constant, root parameters of `FurutaMPCHardware` bound down with `final` (see `resolve_tunables`
 # for why the root is the right place). The MPC's weights and constraints are structural and are
-# set with `overrides` (`control_system__energy_set = 0.1`).
+# set with `overrides` (`control_system__energy_weight = 3e4`).
 const MPC_TUNABLES = OrderedDict{Any, Symbol}(
     (nsys -> nsys.command_umax) => :command_umax,
     (nsys -> nsys.velocity_filter) => :velocity_filter,
@@ -100,7 +100,7 @@ Returns what [`compile_program`](@ref) returns. The node's argument order is
 `(tick::Bool, gains::TuningGains, auto::AutoPars)` and the outputs are `(row, shoulder_angle,
 elbow_angle, u_applied, exitflag)`. The command clamp `command_umax` and the velocity filter
 constant are the runtime-settable `TuningGains` fields; the MPC's weights and structure are set
-here, with Dyad's `__`-separated override paths, e.g. `control_system__energy_set = 0.1` or
+here, with Dyad's `__`-separated override paths, e.g. `control_system__energy_weight = 3e4` or
 `umax = 8.0`.
 
 `Ts` is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals.
