@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "96849c7e23bce68b2f912a4ec19794cc157a260b"
+project_hash = "4c0fb3da23fdd47934281193ccb70b0376fd0d6e"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1989,10 +1989,14 @@ uuid = "d8e11817-5142-5d16-987a-aa16d5891078"
 version = "0.4.17"
 
 [[deps.MPCComponents]]
-deps = ["ADTypes", "BlockComponents", "ControlSystemsBase", "DifferentiationInterface", "DiscreteComponents", "Downloads", "DyadData", "DyadInterface", "FiniteDiff", "ForwardDiff", "JSON", "Libdl", "LinearAlgebra", "LinearMPC", "Logging", "Markdown", "ModelingToolkit", "Moshi", "OrdinaryDiffEqDefault", "PrecompileTools", "RuntimeGeneratedFunctions", "SHA", "Scratch", "SymbolicUtils", "Symbolics", "SynchCompiler", "SynchJulia", "SynchToolkit", "acados_jll", "tera_renderer_jll"]
+deps = ["ADTypes", "BlockComponents", "ControlSystemsBase", "DifferentiationInterface", "DiscreteComponents", "Downloads", "DyadData", "DyadInterface", "FiniteDiff", "ForwardDiff", "JSON", "Libdl", "LinearAlgebra", "LinearMPC", "Logging", "Markdown", "ModelingToolkit", "Moshi", "OrdinaryDiffEqDefault", "PrecompileTools", "RuntimeGeneratedFunctions", "SHA", "Scratch", "SparseConnectivityTracer", "SparseMatrixColorings", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "SynchCompiler", "SynchJulia", "SynchToolkit", "acados_jll", "tera_renderer_jll"]
 path = "../../MPCComponents"
 uuid = "aba2bcdf-b216-4bf2-af71-aceb9999ebd9"
 version = "0.1.0"
+weakdeps = ["Makie"]
+
+    [deps.MPCComponents.extensions]
+    MPCComponentsMakieExt = ["Makie"]
 
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
@@ -3303,6 +3307,26 @@ weakdeps = ["AMD"]
 
     [deps.SparseColumnPivotedQR.extensions]
     SparseColumnPivotedQRAMDExt = "AMD"
+
+[[deps.SparseConnectivityTracer]]
+deps = ["ADTypes", "DocStringExtensions", "FillArrays", "LinearAlgebra", "Random", "SparseArrays"]
+git-tree-sha1 = "5c127b6b5e36e1ba38556b578c6346b2375ec0b4"
+uuid = "9f842d2f-2579-4b1d-911e-f412cf18a3f5"
+version = "1.2.3"
+
+    [deps.SparseConnectivityTracer.extensions]
+    SparseConnectivityTracerChainRulesCoreExt = "ChainRulesCore"
+    SparseConnectivityTracerLogExpFunctionsExt = "LogExpFunctions"
+    SparseConnectivityTracerNNlibExt = "NNlib"
+    SparseConnectivityTracerNaNMathExt = "NaNMath"
+    SparseConnectivityTracerSpecialFunctionsExt = "SpecialFunctions"
+
+    [deps.SparseConnectivityTracer.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
+    NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
+    NaNMath = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
+    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [[deps.SparseMatrixColorings]]
 deps = ["ADTypes", "DocStringExtensions", "LinearAlgebra", "PrecompileTools", "Random", "SparseArrays"]
