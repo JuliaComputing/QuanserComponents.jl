@@ -1,0 +1,8 @@
+MPC Monte Carlo: 200 rollouts of 10 s, Ts = 0.010 s, Np = 60, plant = perturbed, starts = random
+successes (upright within 0.10 rad for the last 1.0 s): 199 / 200 = 99.5%
+catch time [s]: median 1.36, 90% 3.89, max 8.16
+arm excursion max |phi| [rad]: median 3.21, max 12.79 (end stops at 1.92); rollouts beyond the stops: 159
+|u| max over all rollouts: 10.00 V
+acados exitflag != 0 on 164 of 200000 ticks (status 2, iteration limit, on 0)
+tick execution time [ms]: median 0.996, 99% 2.637, max 623.534
+wall time 4.1 min (1.22 ms per tick incl. the plant simulation)

@@ -979,3 +979,6 @@ import DyadCompilerPasses
 
 
 end
+
+# The MPC swing-up program; needs MPCComponents (see test/Project.toml).
+include("mpc_tests.jl")

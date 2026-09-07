@@ -269,7 +269,7 @@ end
 ## Running it in this process
 # ---------------------------------------------------------------------------
 """
-    run_program!(ctrl; Tf, arm_deg=0.0, card_options=nothing, mode=:hil)
+    run_program!(ctrl; Tf, arm_deg=0.0, card_options=nothing, mode=:hil, disable_gc=true)
 
 Tick `ctrl` against the device every `Ts` for `Tf` seconds and return
 `(; rows, ticks, log_file, timing)`.
@@ -282,10 +282,16 @@ back equal to `ticks` is the check that the program wrote one row per tick. `tim
 `card_options` overrides the driver's card options (`nothing` keeps `qube_hw.c`'s own
 default, `""` leaves the driver on its own). `mode = :callback` runs against whatever
 [`bind_hardware!`](@ref) installed, which is how this is exercised without a rig.
+
+The garbage collector is switched off for the duration of the run so that no collection
+pause lands inside a period; the programs here allocate next to nothing per tick, so that
+costs no memory to speak of. The MPC program is the exception -- its acados callbacks
+allocate about 2 MB per tick, some 0.4 GB per second of run -- so for long runs of it pass
+`disable_gc = false` and accept an occasional overrun instead.
 """
 function run_program!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
                       card_options::Union{Nothing, AbstractString} = nothing,
-                      mode::Symbol = :hil)
+                      mode::Symbol = :hil, disable_gc::Bool = true)
     Ts = ctrl.Ts
     N = round(Int, Tf / Ts)
     tstamp = Vector{Float64}(undef, N)     # preallocated: GC is disabled below
@@ -296,7 +302,7 @@ function run_program!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
     open_hardware!(mode; arm_deg, card_options)
     try
         GC.gc()
-        GC.enable(false)
+        disable_gc && GC.enable(false)
         t0 = time()
         t_next = t0 + Ts
         for i in 1:N

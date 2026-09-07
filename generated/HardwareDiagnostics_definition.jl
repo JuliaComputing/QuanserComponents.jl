@@ -4,10 +4,8 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
-import Moshi as __Ext__Moshi
-
 @doc Markdown.doc"""
-   HardwareDiagnostics(; name)
+   HardwareDiagnostics(; name, realtime)
 
 Reports what the control loop itself did this tick: elapsed time, achieved period,
 read-to-write duration and the raw encoder counts.
@@ -31,7 +29,21 @@ The elapsed-time port is `elapsed` and not `time` because `time` is Dyad's conti
 variable: an output of that name makes the component's clocked equation a continuous one and
 the model fails to compile with `invalid-clock-usage`. The log column is still called `time`.
 
+With `realtime = true` the component also paces the program: after the motor write it waits
+until the wall clock reaches the next tick's time (`hw_realtime_wait`, the n-th tick ending
+`n` sample times after the first), and reports how late it was in `late`. That is for a
+program that is not driven by a timing loop but *simulated* -- an ODE solver stepping the
+clocked partition as fast as it can, as `run_mpc_hardware_model` does so that the MPC's
+predicted trajectories are recorded for `mpc_gui` -- yet has to talk to the real device at
+its real rate. A program run by `run_program!`, whose loop keeps time, leaves it off.
+
 Clock-agnostic.
+
+## Parameters:
+
+| Name         | Description                         | Units  |   Default value |
+| ------------ | ----------------------------------- | ------ | --------------- |
+| `realtime`         | Pace the program in real time from the inside (for a simulated program driving the device); off for a program run by a timing loop                         | --  |   false |
 
 ## Connectors
 
@@ -41,8 +53,9 @@ Clock-agnostic.
  * `exec` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `count_shoulder` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `count_elbow` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
+ * `late` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function HardwareDiagnostics(; name = nothing, kwargs...)
+@component function HardwareDiagnostics(; name = nothing, realtime=false, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -83,6 +96,7 @@ Clock-agnostic.
   append!(__vars, @variables (exec(t)::Real), [output = true])
   append!(__vars, @variables (count_shoulder(t)::Real), [output = true])
   append!(__vars, @variables (count_elbow(t)::Real), [output = true])
+  append!(__vars, @variables (late(t)::Real), [output = true])
 
   ### Variables (declarations)
 
@@ -92,6 +106,9 @@ Clock-agnostic.
   __constants = Any[]
 
   ### Components
+  # Subcomponent sampletimesource of type DiscreteComponents.SampleTimeSource
+  sampletimesource_overrides = __pop_subcomponent_overrides!(__overrides, "sampletimesource")
+  push!(__systems, @named sampletimesource = DiscreteComponents.SampleTimeSource(; sampletimesource_overrides...))
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
@@ -109,6 +126,12 @@ Clock-agnostic.
   push!(__eqs, exec ~ hw_exec(dep))
   push!(__eqs, count_shoulder ~ hw_count_shoulder(dep))
   push!(__eqs, count_elbow ~ hw_count_elbow(dep))
+
+  ### Control Structures
+  if realtime
+    push!(__eqs, late ~ hw_realtime_wait(sampletimesource.y, dep))
+  else
+  end
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

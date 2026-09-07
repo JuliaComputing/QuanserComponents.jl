@@ -90,6 +90,15 @@ double qube_hw_exec(double dep);
 double qube_hw_count_shoulder(double dep);
 double qube_hw_count_elbow(double dep);
 
+/* Real-time pacing from inside the program, for when the program is not driven by a
+ * timing loop but by a simulation (an ODE solver stepping the clocked partition as fast as
+ * it can). The n-th call sleeps until `Ts * n` seconds after the first call, so the tick
+ * that follows starts on the wall-clock grid; place it after the motor write (`dep` orders
+ * it there and is otherwise ignored) so the wait separates one tick's write from the next
+ * tick's read. Returns how late the call was, in seconds (0 when it had to wait). The
+ * anchor is reset together with the timing by `qube_hw_reset_timing`. */
+double qube_hw_realtime_wait(double Ts, double dep);
+
 /* ---- called by the driver, around the control loop ----------------------- */
 
 /* Open `mode`. Returns 0 on success, negative on failure (including

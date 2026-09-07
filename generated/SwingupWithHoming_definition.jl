@@ -4,8 +4,6 @@
 ### Instead, update the Dyad source code and regenerate this file
 
 
-import Moshi as __Ext__Moshi
-
 @doc Markdown.doc"""
    SwingupWithHoming(; name, arm_limit, oob_increment, oob_threshold, umax)
 
