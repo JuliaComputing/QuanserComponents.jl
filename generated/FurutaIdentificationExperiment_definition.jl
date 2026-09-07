@@ -53,7 +53,7 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # next to the exported C so a deployed run replays the same samples
   var"traj_file"::String = "input_design.csv"
   # Column of `traj_file` holding the voltage, 1-based
-  var"traj_column"::Int = 2
+  var"traj_column"::Int = 1
   # Arm angle [deg] beyond which the command is replaced by a pull-back
   var"warn_deg"::Float64 = 95.0
   # Arm angle [deg] beyond which the supervisor latches and commands 0
