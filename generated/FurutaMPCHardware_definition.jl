@@ -36,7 +36,7 @@ src/mpc.jl does the run.
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `Ts`         | Controller sample time                         | --  |   0.01 |
 | `Np`         | Prediction horizon in shooting intervals                         | --  |   60 |
-| `dynamics`         | Prediction model of the MPC (see `furuta_mpc_dynamics`)                         | --  |   furuta_mpc_dynamics() |
+| `dynamics`         | Prediction model of the MPC: `FurutaPredictionModel` compiled by `furuta_mpc_dynamics`                         | --  |   furuta_mpc_dynamics() |
 | `umax`         | Motor voltage bound of the MPC [V]; the swing-up needs 10. `command_umax` clamps what reaches the amplifier                         | --  |   10.0 |
 | `arm_limit`         | Arm angle the MPC keeps the arm within [rad], inside the end stops at ±1.92                         | --  |   1.7 |
 | `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...r.SQP_RTI() |

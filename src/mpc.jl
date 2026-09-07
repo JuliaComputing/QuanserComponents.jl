@@ -5,7 +5,9 @@
 # balances it, solving a constrained nonlinear optimal control problem over the multibody
 # `QubePendulum` model every tick. Everything about compiling it, instantiating it and ticking
 # it against the rig is shared with the other programs and lives in program.jl; this file
-# supplies the prediction model, the log layout, the tunable and the outputs.
+# supplies the log layout, the tunables, the outputs and the one step of building the
+# prediction model that is not itself a Dyad component -- the model is
+# `FurutaPredictionModel`, and all that happens here is compiling it.
 #
 # The prediction model is the point of the exercise. `ACADOSMPC` normally rebuilds the
 # model's Jacobian symbolically, which a `multibody`-compiled model defeats: its right-hand
@@ -13,10 +15,15 @@
 # `Symbolics.build_function` cannot reconstruct. The `ForwardDiff` Jacobian backend instead
 # evaluates the model numerically through MTK's `generate_control_function` -- whose caches
 # are `PreallocationTools.DiffCache`s, hence dual-number safe -- and differentiates that. So
-# the very plant model serves as the prediction model, with no hand-written equations and no
-# DAE reformulation. The price is that there is no symbolic form to render to C: this
-# controller runs on SynchJulia's Julia backend only.
+# the very plant model serves as the prediction model, written as a Dyad component like any
+# other, with no hand-written equations and no DAE reformulation. The price is that there is
+# no symbolic form to render to C: this controller runs on SynchJulia's Julia backend only.
 
+# `using`, not `import`, and deliberately un-narrowed: the Dyad-generated components call
+# MPCComponents' exported helpers *unqualified* (`diagonal`, in `FurutaMPC`'s `Q1` default),
+# and `generated/definitions.jl` only does `import MPCComponents`, which binds the module
+# name and nothing in it. Narrowing this to the names used below leaves `diagonal`
+# unresolvable in this module and `FurutaMPC` fails to build.
 using MPCComponents
 using MPCComponents: continuous_dynamics, ContinuousDynamics
 
@@ -29,40 +36,43 @@ export furuta_mpc_dynamics, generate_mpc_controller, MPCController, mpc_log,
 """
     furuta_mpc_dynamics(; idparams = identified, jacobian_backend = :forwarddiff) -> ContinuousDynamics
 
-The prediction model of `FurutaMPC`: the `QubePendulum` with parameter set `idparams`,
+The prediction model of `FurutaMPC`: `FurutaPredictionModel` with parameter set `idparams`,
 compiled with `MultibodyComponents.multibody` (input: the motor voltage) and wrapped by
 `MPCComponents.continuous_dynamics` with an AD Jacobian backend.
 
+The model itself is Dyad's -- the `QubePendulum` plus the `pendulum_energy_ratio` signal the
+swing-up term weights -- so what happens here is only the compilation, which is the part no
+component can express. See `FurutaPredictionModel` (dyad/furuta_mpc.dyad) for the equations.
+
 The result is a pure ODE with the four states `FURUTA_MPC_STATES` -- the joint angles
 `shoulder_joint.phi`, `elbow_joint.phi` and their derivatives -- and the motor voltage as
-its one input, in `qube₊`-prefixed signal names. The plant's `shoulder_angle`/`elbow_angle`
-outputs are those joint angles exactly, so the hardware measurements map onto the model
-states one to one. One signal is added to the plant's: `pendulum_energy_ratio`, the
-pendulum's mechanical energy relative to the bottom -- rotation about the elbow plus the
-height of its centre of mass, the same quantity the energy swing-up (`Energy`) pumps -- divided
-by its value at rest upright, so that 1 is the energy of the upright position. `FurutaMPC`
-constrains it at the end of the horizon.
+its one input, in `qube₊`-prefixed signal names, plus `pendulum_energy_ratio`.
 
 `jacobian_backend` must be an AD backend (`:forwarddiff` or `:finitediff`): the compiled
 multibody model references cached linear solves that the `:symbolic` backend cannot
-reconstruct (it throws). The model is built once per argument combination and cached, so
-constructing several controllers -- or the simulation model next to the hardware program --
-does not recompile it.
+reconstruct. That is rejected here rather than after the model has been built, since
+building it is the expensive half. The model is built once per argument combination and
+cached, so constructing several controllers -- or the simulation model next to the hardware
+program -- does not recompile it.
 """
 function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol = :forwarddiff)
-    key = (idparams, jacobian_backend)
-    return get!(_MPC_DYNAMICS_CACHE, key) do
+    jacobian_backend in (:forwarddiff, :finitediff) ||
+        throw(ArgumentError("furuta_mpc_dynamics needs an AD Jacobian backend (:forwarddiff \
+                             or :finitediff), got $(repr(jacobian_backend)): the compiled \
+                             multibody model references cached linear solves that the \
+                             :symbolic backend cannot reconstruct"))
+    return get!(_MPC_DYNAMICS_CACHE, (idparams, jacobian_backend)) do
         @info "Compiling the Furuta prediction model for the MPC" jacobian_backend
-        @named world = MultibodyComponents.World(render = false)
-        @named qube = QubePendulum(; idparams)
-        # The pendulum's energy relative to hanging, normalized by the upright's: kinetic energy of
-        # the rotation about the elbow (inertia about the pivot Jp + mp l^2) plus mp g l (1 - cos phi).
-        @variables pendulum_energy_ratio(t)
-        mp, l, Jp, g = idparams.mp, idparams.l, idparams.Jp, 9.81
-        energy = 0.5 * (Jp + mp * l^2) * qube.elbow_joint.w^2 + mp * g * l * (1 - cos(qube.elbow_joint.phi))
-        model = System([pendulum_energy_ratio ~ energy / (2 * mp * g * l)], t; systems = [world, qube], name = :furuta)
-        ssys = MultibodyComponents.multibody(model; inputs = [qube.voltage])
-        continuous_dynamics(ssys; inputs = [qube.voltage], jacobian_backend)
+        model = FurutaPredictionModel(; name = :furuta, idparams)
+        # `qube.voltage` rather than a port of the wrapper: the input has to be a variable of
+        # the flattened system, and an added port would only be aliased onto this one. It is
+        # reached through the un-namespaced view for the same reason `compile_program` does
+        # that -- the root's own name is not part of the flattened symbol names, so this is
+        # `qube₊voltage`, spelled the way `FURUTA_MPC_STATES` spells the states.
+        nsys = ModelingToolkit.toggle_namespacing(model, false)
+        u = [nsys.qube.voltage]
+        ssys = MultibodyComponents.multibody(model; inputs = u)
+        continuous_dynamics(ssys; inputs = u, jacobian_backend)
     end
 end
 const _MPC_DYNAMICS_CACHE = Dict{Any, ContinuousDynamics}()
@@ -83,14 +93,13 @@ const MPC_TUNABLES = OrderedDict{Any, Symbol}(
 )
 
 # Node outputs, in the order the runtime reports them: the swing-up program's four, then
-# acados' status.
-_mpc_outputs(nsys) = [nsys.logger.row, nsys.measurement.shoulder_angle,
-                      nsys.measurement.elbow_angle, nsys.command.u_applied,
-                      nsys.control_system.exitflag]
+# acados' status. The four are the same signals of the same components, so they are taken
+# from there rather than restated.
+_mpc_outputs(nsys) = [_swingup_outputs(nsys); nsys.control_system.exitflag]
 const MPC_OUTPUT_NAMES = (:row, :shoulder, :elbow, :u, :exitflag)
 
 """
-    generate_mpc_controller(; Ts=0.01, Np=60, log_file=MPC_LOG_FILE, dynamics=furuta_mpc_dynamics(), overrides...)
+    generate_mpc_controller(; Ts=0.01, Np=60, log_file=MPC_LOG_FILE, overrides...)
 
 Compile the MPC controller to a SynchJulia node: build `FurutaMPCHardware` -- the `ACADOSMPC`
 swing-up and balancing controller wired between `HardwareMeasurement` and `HardwareCommand`,
@@ -104,11 +113,11 @@ here, with Dyad's `__`-separated override paths, e.g. `control_system__energy_we
 `umax = 8.0`.
 
 `Ts` is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals.
-`dynamics` is the prediction model; the default is the identified `QubePendulum`.
+The prediction model is `FurutaMPCHardware`'s own default, `furuta_mpc_dynamics()`; pass
+`dynamics = ...` among the `overrides` to predict with a different plant.
 """
 function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
-                                  dynamics = furuta_mpc_dynamics(), param_overrides = nothing,
-                                  overrides...)
+                                  param_overrides = nothing, overrides...)
     # The MPC's `u` is an array variable of the clocked partition. Registry SynchToolkit 0.5.0
     # indexes its clock table by the array element and fails inside `stkcompile` with
     # `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch MPCComponents pins
@@ -119,7 +128,7 @@ function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
                Resolve SynchToolkit from the mpccomponents/compat-synchjulia-0.6 branch -- the \
                [sources] of this package's Project.toml pin it and the rest of the MPC stack; \
                see the README's \"Nonlinear MPC\" section.")
-    return compile_program(FurutaMPCHardware; name = :mpc_controller, Ts, Np, dynamics,
+    return compile_program(FurutaMPCHardware; name = :mpc_controller, Ts, Np,
                            tunables = MPC_TUNABLES, outputs = _mpc_outputs,
                            log = mpc_log(log_file), param_overrides, overrides...)
 end
@@ -173,12 +182,13 @@ costs what the program's does; cold, the first solve compiles for tens of second
 would leave every tick of a paced run behind schedule. So the problem is first solved for
 `warmup` seconds with the command clamped to 0 V (`command_umax = 0`: the encoders are read,
 nothing is written to the motor), the timing is reset, and only then is the real run made
-and logged. The device and the log are opened and closed around it as `run_program!` does.
+and logged. Opening and closing the device and the log around all of that, and switching the
+garbage collector off for the run, is [`with_rig`](@ref)'s job, the same as for
+[`run_program!`](@ref) -- including `disable_gc`, which is worth setting to `false` for a
+long run here, since the acados callbacks allocate a few MB per tick.
 `mode = :callback` runs against whatever [`bind_hardware!`](@ref) installed.
 
-As in [`run_program!`](@ref), the garbage collector is off during the run unless
-`disable_gc = false` (the acados callbacks allocate a few MB per tick; a collection pause is
-longer than a period). `overrides` are Dyad `__`-paths into the model, e.g.
+`overrides` are Dyad `__`-paths into the model, e.g.
 `control_system__Q2 = diagm([1e5])`. The solution's `diagnostics.late` says by how much each
 tick overran its slot.
 """
@@ -194,23 +204,20 @@ function run_mpc_hardware_model(; Tf, Ts = 0.01, Np = 60, arm_deg = 0.0,
     # The model is purely discrete (no continuous unknowns), and ModelingToolkit's initialization
     # problem cannot be built for its array-valued clocked variables; nothing needs initializing
     # here, so it is skipped.
-    open_hardware!(mode; arm_deg, card_options)
-    sol = try
-        if warmup > 0
-            # Compile everything the solve touches while the motor command is clamped to zero.
-            warm = ODEProblem(ssys, Pair[ssys.command_umax => 0.0], (0.0, Float64(warmup));
-                              build_initializeprob = false)
-            solve(warm; dt = Ts)
-        end
-        reset_hardware_counters!()
-        open_log!(mpc_log(log_file))
-        GC.gc()
-        disable_gc && GC.enable(false)
+    prob = ODEProblem(ssys, Pair[], (0.0, Float64(Tf)); build_initializeprob = false)
+    # Compile everything the run touches while the motor command is clamped to 0 V -- the
+    # encoders are read, nothing is written -- and before the log is open, so the warm-up's
+    # ticks are neither logged nor timed. `with_rig` resets the counters and the timing after
+    # it, so the run that follows starts from zero.
+    function warm()
+        wp = ODEProblem(ssys, Pair[ssys.command_umax => 0.0], (0.0, Float64(warmup));
+                        build_initializeprob = false)
+        solve(wp; dt = Ts)
+        return nothing
+    end
+    sol = with_rig(; mode, arm_deg, card_options, log = mpc_log(log_file), disable_gc,
+                    prepare = warmup > 0 ? warm : nothing) do
         solve(prob; dt = Ts)
-    finally
-        GC.enable(true)
-        close_hardware!()
-        close_log!()
     end
     return (; model, sol)
 end
