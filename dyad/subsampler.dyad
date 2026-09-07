@@ -1,0 +1,64 @@
+"""
+Reads a signal on one clock from another clock: on each tick of the reading clock, `y` is the
+value `u` had at the most recent tick of `u`'s own clock, or `init` before that clock has ticked
+at all. A source tick simultaneous with the reader's counts, so a reader whose period is a
+multiple of the source's sees the value computed in the same instant and the crossing adds no
+delay.
+
+This is the rate transition `FurutaMPCMultirate` is built on: the 1 kHz sensing and velocity
+estimation feeding the 125 Hz MPC. It is direction-agnostic -- with the reader slower than the
+source it sub-samples, faster and it holds -- so the name says what this model uses it for, not
+what the block can do.
+
+**Temporary, and it should not be copied.** It does *not* relate the two clocks: both are declared
+elsewhere, by two `PeriodicClock`s, and "the slow clock is eight times the fast one" lives in two
+period literals that nothing checks. Edit one and forget the other and the model silently changes
+meaning. That is exactly why the equivalent upstream blocks were rejected
+(JuliaComputing/DiscreteComponents.jl#114): a block-level component cannot express a *derived*
+clock, because the kernel cannot query or transform the clock of a connected signal. The accepted
+design is JuliaComputing/SynchToolkit.jl#190, `SubSample`/`SuperSample` as compiler operators with
+a clock-relation graph that infers rate factors and phase offsets instead of re-declaring them.
+Delete this file when that lands.
+
+It has to be an `external component` because Dyad has no rate-transition builtin -- its operators
+are `der`, `previous`, `pre`, `initial`, `sample`, `hold` and `time` -- which is the same escape
+hatch `PeriodicClock`, `Sampler`, `ZeroOrderHold` and `DiscreteComponents.LastValue` take. That
+last one is this block on the deprecated one-argument `SynchToolkit.LastValue`, which now warns at
+every compile and cannot be given an initial value.
+
+`init` is a structural parameter rather than a normal one because `SynchToolkit.Latest` places its
+initial value on the *reading* clock, and a symbolic parameter has no clock at all; structural
+means the Julia body bakes a plain number into the operator term, the only form the operator's own
+tests exercise. In this model it is never observed: both clocks start at phase 0 and the slow
+period is a power-of-two multiple of the fast one, so every slow tick coincides with a fast one.
+"""
+external component SubSampler@[input inclk, input outclk]
+  "The signal to read, on its own clock"
+  u = Dyad.RealInput@[inclk]() {^u}
+  "The source's most recent value, on the reading clock"
+  y = Dyad.RealOutput@[outclk]() {^y}
+  "Value of `y` before the source's clock has ticked; never observed when the two clocks share a tick"
+  structural parameter init::Real = 0.0
+relations
+metadata {
+  "Dyad": {"doc": {"behavior": false}},
+  "_links": {
+    "u": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": -50, "y1": 450, "x2": 50, "y2": 550, "rot": 0}
+        },
+        "tags": []
+      }
+    },
+    "y": {
+      "Dyad": {
+        "placement": {
+          "diagram": {"iconName": "default", "x1": 960, "y1": 450, "x2": 1060, "y2": 550, "rot": 0}
+        },
+        "tags": []
+      }
+    }
+  }
+}
+end
