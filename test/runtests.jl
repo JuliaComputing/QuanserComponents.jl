@@ -3,8 +3,8 @@ import QuanserComponents as QC
 # reach for `QuanserComponents.` directly in about a hundred places.
 import QuanserComponents
 using Test
-# SynchCompiler ≥ 0.4 provides its C compiler through a package extension; the `:c`
-# backend and C export used below require Clang_unified_jll to be loaded.
+# SynchJulia provides its C compiler through a package extension; the `:c` backend and
+# C export used below require Clang_unified_jll to be loaded.
 using Clang_unified_jll
 using ModelingToolkit
 using SymbolicIndexingInterface: default_values
