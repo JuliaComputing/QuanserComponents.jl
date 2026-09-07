@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, log_file, realtime, output_trajectories, command_umax, velocity_filter)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_filter)
 
 The MPC controller closed around the physical QUBE, with the hardware I/O inside the
 synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
@@ -41,13 +41,14 @@ src/mpc.jl does the run.
 | `arm_limit`         | Arm angle the MPC keeps the arm within [rad], inside the end stops at ±1.92                         | --  |   1.7 |
 | `nlp_solver`         | NLP solver of the MPC                         | --  |   MPCComponen...r.SQP_RTI() |
 | `warm_start`         | Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...art.Shift() |
+| `qp_cond_N`         | Horizon of HPIPM's partially condensed QP; -1 keeps the full horizon Np (see `FurutaMPC`)                         | --  |   5 |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   MPC_LOG_FILE |
 | `realtime`         | Pace the ticks in real time from inside the program: for running this model as a *simulation* (an ODE solver stepping it) against the device, see `run_mpc_hardware_model`. Off when `run_program!`'s loop keeps time                         | --  |   false |
 | `output_trajectories`         | Record the MPC's predicted trajectories and solver residuals at every tick, for `MPCComponents.mpc_gui`                         | --  |   false |
 | `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field                         | V  |   umax |
 | `velocity_filter`         | Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field                         | --  |   0.8 |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_filter=0.8, command_umax=umax, kwargs...)
+@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), qp_cond_N=5, log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_filter=0.8, command_umax=umax, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -102,7 +103,7 @@ src/mpc.jl does the run.
   push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
   # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, output_trajectories=output_trajectories, control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, control_system_overrides...))
   __bindings[control_system.velocity_filter] = velocity_filter
   # Now remove initial conditions in control_system that correspond to the bindings just added
   __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)

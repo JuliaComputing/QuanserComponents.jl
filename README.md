@@ -121,7 +121,8 @@ LQR part is wrapped to [0, 2π) about the reference π (the 2π jump at the bott
 solve that `reset_on_failure` recovers), soft velocity bounds and `ACADOSMPC`'s `reset_on_failure`
 keep a shifted real-time iteration from derailing, and the velocity estimate must be nearly
 unfiltered (`velocity_filter = 0.8`; the old default of 0.5 makes even the balancing unstable at
-10 ms). HPIPM condenses the QP to 5 stages, which halves the worst-case solve time.
+10 ms). HPIPM condenses the QP to 5 stages, which is the measured optimum of that setting
+(`qp_cond_N`, swept in NOTES.md).
 
 `FurutaMPCSwingup` is the closed loop around the simulated plant and `FurutaMPCHardware` the
 hardware program, the counterparts of `FurutaSwingup` and `FurutaHardware`:
@@ -167,6 +168,9 @@ random start) was still swinging. The arm column is the caveat of this design: i
 rest starts and 70 % of the random ones the swing-up carries the arm past the ±1.92 rad end stops,
 the same distribution the terminal-set design had (its summaries: 195 to 197 of 200 rest starts
 balanced, catch median 2.2 s, 90 % 5 s, arm median 2.2 rad).
+
+`qp_cond_N = 5` and the `ForwardDiff` Jacobian backend are both measured optima; the sweep behind
+them, and why the sparse AD backends are of no use to this model, are in NOTES.md.
 
 ### Environment
 
