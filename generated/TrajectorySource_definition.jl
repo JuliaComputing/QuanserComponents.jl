@@ -36,14 +36,14 @@ Clock-agnostic.
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `filename`         | File the samples are read from, opened by the driver with this name                         | --  |   "" |
-| `column`         | Column of the file to read, 1-based                         | --  |   2 |
+| `column`         | Column of the file to read, 1-based                         | --  |   1 |
 
 ## Connectors
 
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `k` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function TrajectorySource(; name = nothing, filename="", column=2, kwargs...)
+@component function TrajectorySource(; name = nothing, filename="", column=1, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:

@@ -151,9 +151,13 @@ const IDENTIFICATION_LOG_COLUMNS = ["time", "shoulder_angle", "elbow_angle", "co
 const IDENTIFICATION_LOG_HEADER = join(IDENTIFICATION_LOG_COLUMNS, "\t")
 const IDENTIFICATION_LOG_NCOLS = length(IDENTIFICATION_LOG_COLUMNS)
 const IDENTIFICATION_LOG_FILE = "identification_experiment.csv"
-# What examples/input_design.jl writes: `time` then the designed voltage `u`.
+# What examples/input_design.jl writes: one column, the designed voltage `u`, under a `u`
+# header. There is no `time` column because the sample time is `Ts` here and the trajectory
+# is indexed by tick, so a second column could only restate `(k-1) * Ts`; dropping it and
+# writing the voltage to the 0.1 mV the card can resolve is what makes the file small enough
+# to be checked in rather than regenerated.
 const IDENTIFICATION_TRAJ_FILE = "input_design.csv"
-const IDENTIFICATION_TRAJ_COLUMN = 2
+const IDENTIFICATION_TRAJ_COLUMN = 1
 
 # ---------------------------------------------------------------------------
 ## Swing-up run log layout

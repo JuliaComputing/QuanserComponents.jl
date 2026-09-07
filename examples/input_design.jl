@@ -308,10 +308,15 @@ println("=======================================================================
 # =============================================================================
 ## 5. Write the trajectory
 # =============================================================================
+# One column, and four decimals of it. The sample time is the model's (`Ts`), so a `time`
+# column would only restate `(k-1) * Ts` for every one of 12000 rows; and the analog output
+# resolves about 0.3 mV (16 bits over the amplifier's range), so a fifth decimal is a digit
+# the card cannot emit. Together that is a file a third the size, small enough to check in
+# next to the script that writes it -- see IDENTIFICATION_TRAJ_COLUMN in dyad/definitions.jl.
 open(OUTFILE, "w") do io
-    println(io, "time\tu")
+    println(io, "u")
     for k in eachindex(u_full)
-        @printf(io, "%.6f\t%.6f\n", tvec[k], u_full[k])
+        @printf(io, "%.4f\n", u_full[k])
     end
 end
 @info "wrote trajectory" OUTFILE n_samples=length(u_full) duration_s=tvec[end]+Ts maxabs_u=maximum(abs, u_full)

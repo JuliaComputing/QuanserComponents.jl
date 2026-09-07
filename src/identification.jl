@@ -43,7 +43,7 @@ const IDENTIFICATION_OUTPUT_NAMES = (:row, :k, :u_des, :u, :tripped)
 
 """
     generate_identification_controller(; Ts=0.005, traj_file=IDENTIFICATION_TRAJ_FILE,
-                                        traj_column=2, log_file=IDENTIFICATION_LOG_FILE,
+                                        traj_column=1, log_file=IDENTIFICATION_LOG_FILE,
                                         overrides...)
 
 Compile the open-loop replay to a SynchJulia node: build `FurutaIdentification` on a

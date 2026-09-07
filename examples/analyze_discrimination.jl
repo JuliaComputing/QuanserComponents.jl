@@ -71,7 +71,7 @@ end
 # =============================================================================
 if SYNTHETIC
     Dtraj = readdlm(TRAJFILE)
-    uvec  = Float64.(Dtraj[2:end, 2])
+    uvec  = Float64.(Dtraj[2:end, 1])   # one column, `u`, under a header
     Ts    = Ts_NOM
     ddyn0 = SeeToDee.Rk4(f_oop, Ts)
     Random.seed!(1)

@@ -39,14 +39,14 @@ amplifier's 10) and stay near the machine.
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `Ts`         | Sample time [s]; must match the rate the trajectory was designed for                         | --  |   0.005 |
 | `traj_file`         | File the designed input sequence is read from; the driver opens it with this name                         | --  |   IDENTIFICATION_TRAJ_FILE |
-| `traj_column`         | Column of `traj_file` holding the voltage, 1-based                         | --  |   2 |
+| `traj_column`         | Column of `traj_file` holding the voltage, 1-based                         | --  |   IDENTIFICAT...TRAJ_COLUMN |
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   IDENTIFICATION_LOG_FILE |
 | `umax`         | Hard clamp on anything written [V]. Deliberately well below the amplifier's range: this is an open-loop replay, so nothing here corrects an unexpected response                         | V  |   3.0 |
 | `warn`         | Arm angle beyond which the command is replaced by a pull-back [rad]                         | rad  |   1.6580627893946132 |
 | `abort`         | Arm angle beyond which the supervisor latches and commands 0 [rad]                         | rad  |   2.0943951023931953 |
 | `pullback`         | Pull-back gain past `warn` [V/rad]                         | --  |   2.0 |
 """
-@component function FurutaIdentification(; name = nothing, Ts=0.005, traj_file=IDENTIFICATION_TRAJ_FILE, traj_column=2, log_file=IDENTIFICATION_LOG_FILE, umax=Float64(3.0), warn=1.6580627893946132, abort=2.0943951023931953, pullback=Float64(2.0), kwargs...)
+@component function FurutaIdentification(; name = nothing, Ts=0.005, traj_file=IDENTIFICATION_TRAJ_FILE, traj_column=IDENTIFICATION_TRAJ_COLUMN, log_file=IDENTIFICATION_LOG_FILE, umax=Float64(3.0), warn=1.6580627893946132, abort=2.0943951023931953, pullback=Float64(2.0), kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
