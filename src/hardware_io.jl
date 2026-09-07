@@ -9,7 +9,7 @@
 # one controller definition serve all three targets:
 #
 #   backend = :julia   Julia ccalls the shared library directly.
-#   backend = :c       SynchCompiler links the library into the node's .so.
+#   backend = :c       SynchJulia links the library into the node's .so.
 #   export_c           the emitted top.c contains
 #                        extern double qube_hw_measure(double arg1);
 #                      plus a named call site, so the standalone C links against
@@ -85,10 +85,10 @@ function _c_compiler()
         p = Sys.which(c)
         p === nothing || return p
     end
-    # SynchCompiler ships clang through a Clang_unified_jll extension; use it if
+    # SynchJulia ships clang through a Clang_unified_jll extension; use it if
     # the extension is loaded (it is whenever the `:c` backend is available).
     try
-        return SynchCompiler.cc()
+        return SynchJulia.cc()
     catch
         return nothing
     end
@@ -118,7 +118,7 @@ function build_qube_hw!(; hil::Bool = quanser_sdk_flags().found, force::Bool = f
     end
     cc = _c_compiler()
     cc === nothing && error("""
-        No C compiler found (tried cc, gcc, clang and SynchCompiler's Clang_unified_jll).
+        No C compiler found (tried cc, gcc, clang and SynchJulia's Clang_unified_jll).
         One is needed to build $QUBE_HW_SRC, the hardware I/O the generated
         controller calls into.""")
     sdk = quanser_sdk_flags(; quanser_dir)

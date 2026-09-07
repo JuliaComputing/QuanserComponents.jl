@@ -132,14 +132,18 @@ function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
                                   param_overrides = nothing, overrides...)
     # The MPC's `u` is an array variable of the clocked partition. Registry SynchToolkit 0.5.0
     # indexes its clock table by the array element and fails inside `stkcompile` with
-    # `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch MPCComponents pins
-    # (JuliaComputing/SynchToolkit.jl#185) looks the element up through `lookup_var_clock`.
+    # `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch this package pins
+    # (JuliaComputing/SynchToolkit.jl#185) looks the element up through `lookup_var_clock`, so
+    # that function's presence is the feature test. SynchToolkit `main` would fail it: it
+    # dropped `lookup_var_clock` with the #186 clock rework and never re-landed #185, which is
+    # why the pin is a branch and not `main` even though `main` has the `Latest` operator the
+    # multirate model needs.
     isdefined(SynchToolkit, :lookup_var_clock) ||
         error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) cannot \
                compile a program with array clocked variables, which the MPC's outputs are. \
-               Resolve SynchToolkit from the mpccomponents/compat-synchjulia-0.6 branch -- the \
-               [sources] of this package's Project.toml pin it and the rest of the MPC stack; \
-               see the README's \"Nonlinear MPC\" section.")
+               Resolve SynchToolkit from the mpccomponents/sj0.8 branch -- the [sources] of this \
+               package's Project.toml pin it and the rest of the MPC stack; see the README's \
+               \"Nonlinear MPC\" section.")
     return compile_program(FurutaMPCHardware; name = :mpc_controller, Ts, Np,
                            tunables = MPC_TUNABLES, outputs = _mpc_outputs,
                            log = mpc_log(log_file), param_overrides, overrides...)
@@ -158,7 +162,7 @@ it at a device with [`open_hardware!`](@ref) or at a simulator with [`bind_hardw
 first; [`run_program!`](@ref) does the opening, the timing and the closing for a real run.
 
 Only `backend = :julia` is available: the AD Jacobian backend the multibody prediction model
-needs has no symbolic form for SynchCompiler to render. `command_umax` (the clamp on the
+needs has no symbolic form for SynchJulia to render. `command_umax` (the clamp on the
 command before the amplifier) and `velocity_filter` override the model's values at
 instantiation; the rest of the model, the MPC included, is set with `overrides` at
 compile time (see [`generate_mpc_controller`](@ref)).

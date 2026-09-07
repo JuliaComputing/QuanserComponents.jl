@@ -43,7 +43,7 @@ function build_qube_traj!(; force::Bool = false)
     end
     cc = _c_compiler()
     cc === nothing && error("""
-        No C compiler found (tried cc, gcc, clang and SynchCompiler's Clang_unified_jll).
+        No C compiler found (tried cc, gcc, clang and SynchJulia's Clang_unified_jll).
         One is needed to build $QUBE_TRAJ_SRC, the trajectory playback the generated
         program calls into.""")
     run(`$cc -O2 -Wall -fPIC -shared -o $QUBE_TRAJ_LIB $QUBE_TRAJ_SRC`)

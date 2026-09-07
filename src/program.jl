@@ -15,7 +15,6 @@
 
 using SynchToolkit
 using SynchToolkit: ClockedOutput, InputClock, ParametersStruct
-import SynchCompiler
 import SynchJulia
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t
@@ -247,7 +246,7 @@ function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing
     # Pass the static struct: AutoPars defaults may be expressions of its fields.
     auto = gen.auto_struct(cn, g)
     exe = backend === nothing ? nothing : SynchJulia.SynchExecutable(cn; backend)
-    export_dir === nothing || SynchCompiler.export_c(export_dir, SynchToolkit.node(cn))
+    export_dir === nothing || SynchJulia.export_c(export_dir, SynchToolkit.node(cn))
     return (; gains = g, auto, exe, SG = typeof(g), AP = typeof(auto))
 end
 

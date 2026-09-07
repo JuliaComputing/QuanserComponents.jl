@@ -131,7 +131,7 @@ past `n` are discarded because the C side writes only the `ncols` it was opened 
 The padding is `0.0` and not `0` on purpose, and this one bites: mixing element types
 across an array variable's equations — some `Float64`, some the integer literal Dyad
 emits for `= 0` — makes SynchToolkit materialise `v` with `vcat` into a
-`SynchJulia.SynchArray`, which SynchCompiler's C lowering then rejects as non-isbits.
+`SynchJulia.SynchArray`, which SynchJulia's C lowering then rejects as non-isbits.
 All-`Float64` elements compile on both backends. Nothing in the Dyad source hints that
 `0` and `0.0` differ, and the error surfaces two packages away naming only
 `Tuple{typeof(vcat), Float64, …, Int64}`, so keep the zeros floating.
