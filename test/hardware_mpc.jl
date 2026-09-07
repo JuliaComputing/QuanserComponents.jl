@@ -93,7 +93,7 @@ cnt = hardware_counters()
 # arm where it is, as above. Overrides reach the model the same way as for `MPCController`.
 using GLMakie
 using MPCComponents: mpc_gui
-gui = run_mpc_hardware_model(; Tf = 10, Ts, Np = 60, arm_deg = 0, log_file = "run_mpc_gui.csv")
+@time gui = run_mpc_hardware_model(; Tf = 3, Ts, Np = 60, arm_deg = 0, log_file = "run_mpc_gui.csv")
 fig, tslider = mpc_gui(gui.model, gui.sol)   # drag the slider, or set tslider[] = 2.0
 display(fig)
 # The solution also carries the pacing diagnostics: how late each tick was, in seconds.

@@ -194,7 +194,6 @@ function run_mpc_hardware_model(; Tf, Ts = 0.01, Np = 60, arm_deg = 0.0,
     # The model is purely discrete (no continuous unknowns), and ModelingToolkit's initialization
     # problem cannot be built for its array-valued clocked variables; nothing needs initializing
     # here, so it is skipped.
-    prob = ODEProblem(ssys, Pair[], (0.0, Float64(Tf)); build_initializeprob = false)
     open_hardware!(mode; arm_deg, card_options)
     sol = try
         if warmup > 0
