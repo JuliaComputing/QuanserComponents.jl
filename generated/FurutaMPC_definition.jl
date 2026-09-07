@@ -47,10 +47,13 @@ quantized angles and the discrete velocity estimators:
 
 The prediction model is the very plant model: `FurutaPredictionModel`, compiled by
 `furuta_mpc_dynamics()` (src/mpc.jl) with `MultibodyComponents.multibody` and handed to
-`continuous_dynamics` with the `ForwardDiff` Jacobian backend. A multibody model compiled this
+`continuous_dynamics` with an AD Jacobian backend. A multibody model compiled this
 way references cached linear solves (MTK diffcache parameters) that cannot be rebuilt
 symbolically, which is what rules out the default `Symbolic` backend and, with it, C export --
-this controller runs on the Julia solver backend only. The four MPC states are the model's
+this controller runs on the Julia solver backend only. Which AD backend is used is settled by
+`furuta_mpc_dynamics`, not here: `ACADOSMPC`'s own `jacobian_backend` applies only when it is
+handed a system to compile, and takes the backend from the `ContinuousDynamics` it is given
+otherwise, so the choice has one place. The four MPC states are the model's
 states, named so the state input does not depend on the compiler's state order: the two joint
 angles and their derivatives, which are exactly what the hardware measures and what the
 discrete `VelocityEstimator`s produce from the angles.
@@ -72,7 +75,7 @@ discrete `VelocityEstimator`s produce from the angles.
 | `warm_start`         | Initial guess of the NLP at every tick: Shift continues from the previous solution, which the swing-up over the horizon needs (with reset_on_failure protecting it); None restarts from the current state and cannot swing up                         | --  |   MPCComponen...art.Shift() |
 | `max_iter`         | Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it                         | --  |   30 |
 | `levenberg_marquardt`         | Levenberg-Marquardt regularization of the Gauss-Newton Hessian                         | --  |   1.0 |
-| `qp_cond_N`         | Horizon of HPIPM's partially condensed QP; 5 halves the worst-case solve time of the full horizon (-1) and keeps the iterates tamer                         | --  |   5 |
+| `qp_cond_N`         | Horizon of HPIPM's partially condensed QP; -1 keeps the full horizon Np. 5 is the measured optimum (0.97 ms per tick at the median and 2.3 ms at the 99th percentile, against 1.30 and 5.1 uncondensed); 3 to 10 are within a few percent of it and 1 or 2 cost more than they save. See NOTES.md                         | --  |   5 |
 | `output_trajectories`         | Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick (`mpc.x_pred`, `mpc.u_pred`, `mpc.residuals`, `mpc.iterations`), what `MPCComponents.mpc_gui` shows                         | --  |   false |
 | `Q1`         | Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s state weight, so the balancing is the well-tried LQR. Also defines the terminal cost-to-go. The MPC's stage weight is this matrix extended with `energy_weight` (see `furuta_mpc_weight`)                         | --  |   diagonal([1... 1.0, 1.0]) |
 | `Q2`         | Control weight: `design_lqr`'s                         | --  |   diagonal([100.0]) |
@@ -159,7 +162,7 @@ discrete `VelocityEstimator`s produce from the angles.
   push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
-  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, jacobian_backend=MPCComponents.ACADOSJacobianBackend.ForwardDiff(), backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
+  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
   __bindings[mpc.Q1] = furuta_mpc_weight(Q1, energy_weight)
   __bindings[mpc.Q2] = Q2
   __bindings[mpc.operating_point] = [Float64(0), pi, Float64(0), Float64(0)]

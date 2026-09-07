@@ -48,19 +48,31 @@ The result is a pure ODE with the four states `FURUTA_MPC_STATES` -- the joint a
 `shoulder_joint.phi`, `elbow_joint.phi` and their derivatives -- and the motor voltage as
 its one input, in `qube₊`-prefixed signal names, plus `pendulum_energy_ratio`.
 
-`jacobian_backend` must be an AD backend (`:forwarddiff` or `:finitediff`): the compiled
-multibody model references cached linear solves that the `:symbolic` backend cannot
-reconstruct. That is rejected here rather than after the model has been built, since
-building it is the expensive half. The model is built once per argument combination and
-cached, so constructing several controllers -- or the simulation model next to the hardware
-program -- does not recompile it.
+`jacobian_backend` must be an AD backend (`:forwarddiff`, `:finitediff` or their `:sparse_`
+variants): the compiled multibody model references cached linear solves that the `:symbolic`
+backend cannot reconstruct. That is rejected here rather than after the model has been built,
+since building it is the expensive half. The backend is chosen here and nowhere else --
+`ACADOSMPC` takes it from the `ContinuousDynamics` it is handed.
+
+`:forwarddiff` is the one to use. `:finitediff` allocates 70 % more per tick for a worse tail and
+an approximate Jacobian, and the two `:sparse_` backends cannot be built for this model: sparsity
+detection traces the right-hand side with SparseConnectivityTracer, whose global tracer carries no
+value, and the pivot search of the linear solve inside the compiled multibody model throws on it.
+They would not pay off if they could -- the last two rows of this Jacobian are dense, so a column
+colouring needs one direction per entry of `[x; u]`, exactly what the dense backend does. They are
+accepted here anyway, so that the day detection works the comparison is one keyword away. See
+NOTES.md.
+
+The model is built once per argument combination and cached, so constructing several controllers
+-- or the simulation model next to the hardware program -- does not recompile it.
 """
 function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol = :forwarddiff)
-    jacobian_backend in (:forwarddiff, :finitediff) ||
-        throw(ArgumentError("furuta_mpc_dynamics needs an AD Jacobian backend (:forwarddiff \
-                             or :finitediff), got $(repr(jacobian_backend)): the compiled \
-                             multibody model references cached linear solves that the \
-                             :symbolic backend cannot reconstruct"))
+    jacobian_backend in (:forwarddiff, :finitediff, :sparse_forwarddiff, :sparse_finitediff) ||
+        throw(ArgumentError("furuta_mpc_dynamics needs an AD Jacobian backend (:forwarddiff, \
+                             :finitediff, :sparse_forwarddiff or :sparse_finitediff), got \
+                             $(repr(jacobian_backend)): the compiled multibody model \
+                             references cached linear solves that the :symbolic backend \
+                             cannot reconstruct"))
     return get!(_MPC_DYNAMICS_CACHE, (idparams, jacobian_backend)) do
         @info "Compiling the Furuta prediction model for the MPC" jacobian_backend
         model = FurutaPredictionModel(; name = :furuta, idparams)
