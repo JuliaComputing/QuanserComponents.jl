@@ -158,17 +158,18 @@ component FurutaMPC
   "Exponential filter constant of the velocity estimators (1 = unfiltered first difference). 0.5 makes the balancing unstable at 10 ms; 0.8 leaves some smoothing of the encoder quantization"
   parameter velocity_filter::Real = 0.8
 relations
-  connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u) {^id12}
-  connect(anglenormalization.y, mpc.x[2]) {^id13}
-  connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]) {^id14}
-  connect(velocityestimator_shoulder.vel, mpc.x[3]) {^id15}
-  connect(velocityestimator_elbow.vel, mpc.x[4]) {^id16}
+  connect(anglenormalization.y, mpc.x[2]) {^id12}
+  connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]) {^id13}
+  connect(velocityestimator_shoulder.vel, mpc.x[3]) {^id14}
+  connect(velocityestimator_elbow.vel, mpc.x[4]) {^id15}
   # The reference is the upright state: arm centred, pendulum at π, at rest, and the energy of rest upright.
-  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id17}
-  connect(upright.y, mpc.r[2]) {^id18}
-  connect(level.y, mpc.r[5]) {^id19}
-  connect(mpc.u[1], u) {^id20}
-  connect(mpc.exitflag, exitflag) {^id21}
+  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id16}
+  connect(upright.y, mpc.r[2]) {^id17}
+  connect(level.y, mpc.r[5]) {^id18}
+  connect(mpc.u[1], u) {^id19}
+  connect(mpc.exitflag, exitflag) {^id20}
+  connect(elbow_angle, anglenormalization.u) {^id21}
+  connect(elbow_angle, velocityestimator_elbow.pos) {^id22}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupCatch.svg"}},
   "_links": {
@@ -203,16 +204,49 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 150, "y2": 250}}}
     },
     "level": {},
-    "id12": {},
-    "id13": {},
-    "id14": {},
-    "id15": {},
-    "id16": {},
-    "id17": {},
-    "id18": {},
-    "id19": {},
-    "id20": {},
-    "id21": {}
+    "id12": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id13": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": -10, "y": 200}, {"x": -10, "y": 300}], "E": 2},
+          {"S": 2, "M": [{"x": 70, "y": 300}, {"x": 70, "y": 350}], "E": 3}
+        ],
+        "path": {}
+      }
+    },
+    "id14": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id15": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id16": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 420, "y": 100}, {"x": 420, "y": 315}], "E": 2},
+          {"S": 2, "M": [], "E": 3},
+          {"S": 3, "M": [], "E": 4}
+        ],
+        "path": {}
+      }
+    },
+    "id17": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 390, "y": 200}, {"x": 390, "y": 315}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id18": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id19": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 820, "y": 373}, {"x": 820, "y": 500}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id20": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 820, "y": 324}, {"x": 820, "y": 200}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id21": {"Dyad": {"edges": [{"S": 1, "M": [{"x": -50, "y": 450}], "E": 2}], "path": {}}},
+    "id22": {"Dyad": {"edges": [{"S": 1, "M": [{"x": -50, "y": 600}], "E": 2}], "path": {}}}
   }
 }
 end
