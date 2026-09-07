@@ -11,6 +11,10 @@
 *.png
 furuta_c/
 *.csv
+# ...except the designed identification input, which examples/input_design.jl writes and
+# FurutaIdentification replays. Checked in so the analysis and its tests have their fixture
+# without a half-hour of input design first.
+!/input_design.csv
 *.html
 *.gif
 *.mp4

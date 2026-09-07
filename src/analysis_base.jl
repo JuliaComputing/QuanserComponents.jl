@@ -109,7 +109,7 @@ end
     output_dir::String = "identification_c"
     deploy_dir::String = "identification_c"
     traj_file::String = "input_design.csv"
-    traj_column::Int = 2
+    traj_column::Int = 1
     warn_deg::Float64 = 95.0
     abort_deg::Float64 = 120.0
     pullback::Float64 = 2.0

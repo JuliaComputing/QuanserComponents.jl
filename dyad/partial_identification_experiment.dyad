@@ -29,7 +29,7 @@ partial analysis FurutaIdentificationBase
   """
   parameter traj_file::String = "input_design.csv"
   "Column of `traj_file` holding the voltage, 1-based"
-  parameter traj_column::Integer = 2
+  parameter traj_column::Integer = 1
   "Arm angle [deg] beyond which the command is replaced by a pull-back"
   parameter warn_deg::Real = 95.0
   "Arm angle [deg] beyond which the supervisor latches and commands 0"

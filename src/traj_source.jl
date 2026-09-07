@@ -81,7 +81,7 @@ traj_value(index::Real)::Float64 =
 ## Driver-side API
 # ---------------------------------------------------------------------------
 """
-    open_traj!(filename; column=2) -> nsamples
+    open_traj!(filename; column=1) -> nsamples
 
 Load `column` (1-based) of `filename` for the `TrajectorySource` to replay, and return how many
 samples were read. Whitespace- or tab-separated text, one sample per line; a header line is
@@ -90,7 +90,7 @@ skipped, being unparseable as a number.
 Pass the settings the model's `TrajectorySource` was built with rather than a second copy of
 them — [`IdentificationController`](@ref) and the analysis both do.
 """
-function open_traj!(filename::AbstractString; column::Integer = 2)
+function open_traj!(filename::AbstractString; column::Integer = 1)
     ensure_qube_traj()
     r = ccall((:qube_traj_open, QUBE_TRAJ_LIB), Cint, (Cstring, Cint), filename, column)
     r == 0 || error("open_traj!($(repr(filename)), column = $column) failed with code $r" *

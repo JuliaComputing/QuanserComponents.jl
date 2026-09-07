@@ -29,7 +29,7 @@ component TrajectorySource@[input clk extends Discrete]
   "File the samples are read from, opened by the driver with this name"
   structural parameter filename::String = ""
   "Column of the file to read, 1-based"
-  structural parameter column::Integer = 2
+  structural parameter column::Integer = 1
 relations
   initial k@(clk-1) = 0
   k@clk = k@(clk-1) + 1
@@ -150,7 +150,7 @@ component FurutaIdentification
   "File the designed input sequence is read from; the driver opens it with this name"
   structural parameter traj_file::String = IDENTIFICATION_TRAJ_FILE
   "Column of `traj_file` holding the voltage, 1-based"
-  structural parameter traj_column::Integer = 2
+  structural parameter traj_column::Integer = IDENTIFICATION_TRAJ_COLUMN
   "File the log is written to; the driver opens it with this name"
   structural parameter log_file::String = IDENTIFICATION_LOG_FILE
   """

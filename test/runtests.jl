@@ -776,7 +776,7 @@ import DyadCompilerPasses
         QuanserComponents.close_log!()
 
         D = QuanserComponents.read_log(logfile)
-        useq = Float64.(readdlm(trajfile)[2:end, 2])
+        useq = Float64.(readdlm(trajfile)[2:end, 1])   # one column, `u`, under a header
         @test D.u_des[1:200] ≈ useq[1:200]   # sample for sample, in order
         @test all(iszero, D.tripped)
         @test all(abs.(D.control_input) .<= 3.0)
