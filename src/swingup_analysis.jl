@@ -38,7 +38,9 @@ struct FurutaSwingupSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: AbstractA
 end
 
 function DyadInterface.run_analysis(spec::FurutaSwingupBaseSpec)
-    backend = program_backend(spec)
+    # Rejects a misspelled `backend` here rather than after the program has been compiled,
+    # which is the expensive half. `run_on_target` reads it off the spec again.
+    program_backend(spec)
     mkpath(spec.output_dir)
     # `design_lqr` costs a couple of minutes, so it stays switched off until asked for; the
     # controller then keeps the tuned gain baked into the model.
@@ -51,12 +53,7 @@ function DyadInterface.run_analysis(spec::FurutaSwingupBaseSpec)
     log_file = program_log_path(spec, SWINGUP_LOG_FILE)
     gen = generate_swingup_controller(; spec.Ts, log_file, param_overrides = spec.overrides)
     Tf = spec.Tf > 0 ? spec.Tf : 10.0
-    hwrun = run_on_target(gen, SWINGUP_OUTPUT_NAMES; spec.run, spec.export_c, backend,
-                          spec.output_dir, Tf, spec.arm_deg,
-                          card_options = isempty(spec.card_options) ? nothing :
-                                         spec.card_options,
-                          spec.deploy_host, spec.deploy_dir, spec.live_plot,
-                          spec.live_plot_cmd, spec.live_plot_config, gains = (; L))
+    hwrun = run_on_target(gen, SWINGUP_OUTPUT_NAMES, spec; Tf, gains = (; L))
     return FurutaSwingupSolution(spec, hwrun,
                                  collect(float.(something(L, gen.tuning_defaults[:L]))))
 end
@@ -86,16 +83,7 @@ end
 # the same reader every other log in this package goes through.
 function DyadInterface.artifacts(sol::FurutaSwingupSolution, name::Symbol)
     if name === :GeneratedFiles
-        dir = sol.hwrun.output_dir
-        dir === nothing &&
-            throw(ArgumentError("Nothing was exported (run the analysis with `export_c = true`)"))
-        files = sol.hwrun.files
-        bytes = [filesize(joinpath(dir, f)) for f in files]
-        symbol = map(files) do f
-            f == "top.c" ? "$(sol.hwrun.mangled)_step" :
-            f == "top.h" ? "$(sol.hwrun.mangled)_reset" : ""
-        end
-        return (; file = files, bytes = bytes, symbol = symbol)
+        return generated_files_table(sol.hwrun; symbols = true)
     elseif name === :RunLog
         return run_trace(sol.hwrun)
     else

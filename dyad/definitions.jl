@@ -186,20 +186,18 @@ const MPC_LOG_NCOLS = length(MPC_LOG_COLUMNS)
 const MPC_LOG_FILE = "run_mpc.csv"
 
 # The MPC's state signals, named as they appear in the compiled prediction model (the
-# `qube` subsystem of `furuta_mpc_dynamics`'s system): the two joint angles and their
+# `qube` subsystem of `FurutaPredictionModel`): the two joint angles and their
 # derivatives, in the order the `FurutaMPC` component connects them to the MPC's state input
 # -- [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. The plant's
 # `shoulder_angle`/`elbow_angle` outputs are these joint angles exactly, so the hardware
 # measurements and the estimated velocities map onto the model states one to one.
 const FURUTA_MPC_STATES = ["qube₊shoulder_joint₊phi", "qube₊elbow_joint₊phi",
                            "qube₊shoulder_joint₊phiˍt", "qube₊elbow_joint₊phiˍt"]
-# The arm angle, the signal the end-stop constraint is placed on.
-const FURUTA_MPC_ARM_SIGNAL = ["qube₊shoulder_joint₊phi"]
 # The signals `FurutaMPC` bounds softly over its horizon: the arm angle (the end stops) and the two
 # velocities (where the model is trusted; keeps the real-time iterates sane), in this order.
 const FURUTA_MPC_CONSTRAINED = ["qube₊shoulder_joint₊phi", "qube₊shoulder_joint₊phiˍt", "qube₊elbow_joint₊phiˍt"]
-# The pendulum's energy relative to the upright's (a signal `furuta_mpc_dynamics` adds to the plant
-# model): 0 hanging at rest, 1 at rest upright. The swing-up MPC weights it as a fifth output with the
+# The pendulum's energy relative to the upright's (the signal `FurutaPredictionModel` adds to
+# the plant model): 0 hanging at rest, 1 at rest upright. The swing-up MPC weights it as a fifth output with the
 # reference 1 (energy shaping in the stage cost), which makes the cost a nonlinear least squares.
 const FURUTA_MPC_ENERGY_SIGNAL = ["pendulum_energy_ratio"]
 # The controlled outputs of the swing-up MPC: the four states followed by the energy ratio.

@@ -10,7 +10,7 @@
 using Printf: @printf
 
 export export_program_c, emit_hardware_harness, compile_hardware_harness,
-       program_log_path, local_log_path,
+       program_log_path, local_log_path, generated_files_table,
        launch_live_plot, deploy_hardware_harness, run_hardware_harness,
        run_hardware_harness_remote, run_on_target, run_target, HardwareRun
 
@@ -633,6 +633,43 @@ function run_trace(r::HardwareRun)
     (r.ran && r.log !== nothing && isfile(r.log)) ||
         throw(ArgumentError("No run log available (run the analysis with `run = true`)"))
     return read_log(r.log)
+end
+
+"""
+    run_on_target(gen, names, spec; Tf, gains = (;)) -> HardwareRun
+
+Put a compiled program on hardware the way an analysis' spec asks for.
+
+The `QubeHardwareRunBase` parameters mean the same thing for every analysis extending it, so
+each `run_analysis` forwards the same dozen fields; this is that forwarding, written once.
+What is left for the caller is what only it knows: how long to run (`Tf`, since one analysis
+reads it off a trajectory file and another off a reference schedule) and any runtime-settable
+`gains` it designed.
+"""
+run_on_target(gen, names::Tuple{Vararg{Symbol}}, spec::AbstractQubeHardwareRunBaseSpec;
+              Tf, gains = (;)) =
+    run_on_target(gen, names; spec.run, spec.export_c, backend = program_backend(spec),
+                  spec.output_dir, Tf, spec.arm_deg,
+                  card_options = isempty(spec.card_options) ? nothing : spec.card_options,
+                  spec.deploy_host, spec.deploy_dir, spec.live_plot, spec.live_plot_cmd,
+                  spec.live_plot_config, gains)
+
+"""
+    generated_files_table(r::HardwareRun; symbols = false) -> NamedTuple of vectors
+
+The `:GeneratedFiles` artifact every analysis that exports C reports: each file written and
+its size. With `symbols = true` a third column names the exported C symbol on the source and
+header rows, which is what makes the export usable from outside.
+"""
+function generated_files_table(r::HardwareRun; symbols::Bool = false)
+    r.output_dir === nothing &&
+        throw(ArgumentError("Nothing was exported (run the analysis with `export_c = true`)"))
+    files = r.files
+    bytes = [filesize(joinpath(r.output_dir, f)) for f in files]
+    symbols || return (; file = files, bytes)
+    symbol = map(f -> f == "top.c" ? "$(r.mangled)_step" :
+                      f == "top.h" ? "$(r.mangled)_reset" : "", files)
+    return (; file = files, bytes, symbol)
 end
 
 # The lines about the run itself that both solutions' `show` want.

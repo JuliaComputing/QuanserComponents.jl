@@ -122,13 +122,6 @@ end
 open_traj!(t::ProgramTrajectory) = open_traj!(t.file; column = t.column)
 open_traj!(::Nothing) = 0
 
-# Ticks the trajectory is worth, i.e. how long a replay of it lasts. Read off the file rather
-# than stated a second time in the analysis.
-function traj_duration(t::ProgramTrajectory, Ts)
-    n = open_traj!(t)
-    return n * Ts
-end
-
 # ---------------------------------------------------------------------------
 ## Compiling
 # ---------------------------------------------------------------------------
@@ -269,6 +262,48 @@ end
 ## Running it in this process
 # ---------------------------------------------------------------------------
 """
+    with_rig(body; mode, arm_deg, card_options, log, traj=nothing, disable_gc=true, prepare=nothing)
+
+Open the device and the log around `body()` and close both again whatever happens, returning
+what `body` returned.
+
+Every way of putting a program on the rig in this process needs the same sequence -- open the
+device, reset its counters and timing, open the log (and the trajectory a replay reads), run
+with the garbage collector off, and close the device and the log even on an exception, since
+the program cannot unwind a motor write it has already made. [`run_program!`](@ref) ticks a
+compiled node inside it and [`run_mpc_hardware_model`](@ref) lets an ODE solver step one.
+
+`prepare` runs after the device is open but before the log is opened and the collector is
+switched off: it is for whatever must happen with the device in hand but outside the timed,
+logged run -- resetting the program's own state, or solving the problem once so that
+everything the run touches is already compiled. The counters and the timing are reset after
+it, so the run starts its own timeline whatever `prepare` did to the device.
+
+The collector is off for the duration so that no collection pause lands inside a period; the
+programs here allocate next to nothing per tick. The MPC is the exception -- its acados
+callbacks allocate a few MB per tick -- so long runs of it pass `disable_gc = false` and
+accept an occasional overrun instead.
+"""
+function with_rig(body; mode::Symbol, arm_deg, card_options, log::ProgramLog,
+                  traj::Union{Nothing, ProgramTrajectory} = nothing,
+                  disable_gc::Bool = true, prepare = nothing)
+    open_hardware!(mode; arm_deg, card_options)
+    try
+        prepare === nothing || prepare()
+        reset_hardware_counters!()
+        open_log!(log)
+        open_traj!(traj)          # no-op when the program replays nothing
+        GC.gc()
+        disable_gc && GC.enable(false)
+        return body()
+    finally
+        GC.enable(true)
+        close_hardware!()
+        close_log!()
+    end
+end
+
+"""
     run_program!(ctrl; Tf, arm_deg=0.0, card_options=nothing, mode=:hil, disable_gc=true)
 
 Tick `ctrl` against the device every `Ts` for `Tf` seconds and return
@@ -283,47 +318,42 @@ back equal to `ticks` is the check that the program wrote one row per tick. `tim
 default, `""` leaves the driver on its own). `mode = :callback` runs against whatever
 [`bind_hardware!`](@ref) installed, which is how this is exercised without a rig.
 
-The garbage collector is switched off for the duration of the run so that no collection
-pause lands inside a period; the programs here allocate next to nothing per tick, so that
-costs no memory to speak of. The MPC program is the exception -- its acados callbacks
-allocate about 2 MB per tick, some 0.4 GB per second of run -- so for long runs of it pass
-`disable_gc = false` and accept an occasional overrun instead.
+The device and the log are opened and closed by [`with_rig`](@ref), which also switches the
+garbage collector off for the duration -- see there for `disable_gc`.
 """
 function run_program!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
                       card_options::Union{Nothing, AbstractString} = nothing,
                       mode::Symbol = :hil, disable_gc::Bool = true)
     Ts = ctrl.Ts
     N = round(Int, Tf / Ts)
-    tstamp = Vector{Float64}(undef, N)     # preallocated: GC is disabled below
-    n = 0
-    SynchToolkit.reset!(ctrl)
-    open_log!(ctrl.log)
-    open_traj!(ctrl.traj)          # no-op when the program replays nothing
-    open_hardware!(mode; arm_deg, card_options)
-    try
-        GC.gc()
-        disable_gc && GC.enable(false)
-        t0 = time()
-        t_next = t0 + Ts
-        for i in 1:N
-            ctrl()
-            tstamp[i] = time() - t0
-            n = i
-            # Absolute schedule rather than "sleep Ts": a step that overruns is absorbed by
-            # the next period instead of shifting every period after it. `systemsleep`
-            # because `sleep`'s resolution is of the same order as Ts itself.
-            dt = t_next - time()
-            dt > 0 && Libc.systemsleep(dt)
-            t_next += Ts
+    # The loop's own variables stay inside the closure and come back as its return value
+    # rather than being assigned into locals of this frame: writing to a captured local from
+    # inside a closure boxes it, and an untyped box is an allocation per tick in the one
+    # place there is no collector to take it back.
+    n, tstamp = with_rig(; mode, arm_deg, card_options, log = ctrl.log, traj = ctrl.traj,
+                          disable_gc, prepare = () -> SynchToolkit.reset!(ctrl)) do
+        tstamp = Vector{Float64}(undef, N)     # preallocated: GC is disabled here
+        n = 0
+        try
+            t0 = time()
+            t_next = t0 + Ts
+            for i in 1:N
+                ctrl()
+                tstamp[i] = time() - t0
+                n = i
+                # Absolute schedule rather than "sleep Ts": a step that overruns is absorbed by
+                # the next period instead of shifting every period after it. `systemsleep`
+                # because `sleep`'s resolution is of the same order as Ts itself.
+                dt = t_next - time()
+                dt > 0 && Libc.systemsleep(dt)
+                t_next += Ts
+            end
+        catch e
+            # Report what the run managed rather than losing it: the device and the log are
+            # closed by `with_rig` either way.
+            @error "Terminating run" e
         end
-    catch e
-        @error "Terminating run" e
-    finally
-        # The program cannot unwind a write it has already made, so make sure the motor ends
-        # up at zero and the log is flushed whatever happened.
-        close_hardware!()
-        close_log!()
-        GC.enable(true)
+        return n, tstamp
     end
     st = log_state()
     st.error && @warn "the log was closed early by a write error" file = st.filename

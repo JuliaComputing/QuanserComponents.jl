@@ -1,4 +1,55 @@
 """
+The plant model the MPC predicts with: the `QubePendulum` with one signal added, the
+pendulum's energy.
+
+This is the very model the controller is closed around -- there is no second, hand-written
+set of equations to keep in step with the plant. `furuta_mpc_dynamics` (src/mpc.jl) compiles
+it with `MultibodyComponents.multibody`, taking `qube.voltage` as the input, and hands the
+result to `MPCComponents.continuous_dynamics`; what is left in Julia there is that
+compilation and nothing else, since no Dyad component can express it.
+
+`pendulum_energy_ratio` is the pendulum's mechanical energy relative to hanging -- the
+kinetic energy of its rotation about the elbow (its inertia about the centre of mass `Jp`
+plus the parallel-axis term `mp*l^2`) plus the height of its centre of mass -- divided by
+the value at rest upright. So it is 0 hanging at rest and 1 upright at rest, and `FurutaMPC`
+weights it as a fifth controlled output with the reference 1, which is what makes the
+controller swing up. The masses and lengths are read off `qube` rather than restated here,
+so the energy cannot drift from the plant it describes when `idparams` changes.
+
+It is the same quantity the energy swing-up (`Energy`) pumps, but not the same expression:
+`Energy` omits the parallel-axis term, so the two disagree by nearly a factor of four on the
+kinetic part. Which of them is meant is a physics question deliberately left open --
+`EnergySwingup`'s gain was tuned against its own expression.
+
+The MPC's four states are `qube.shoulder_joint.phi`, `qube.elbow_joint.phi` and their
+derivatives (`FURUTA_MPC_STATES`, named so the state input does not depend on the compiler's
+state order). The plant's `shoulder_angle`/`elbow_angle` outputs are those joint angles
+exactly, so the hardware measurements and the estimated velocities map onto the model states
+one to one.
+"""
+component FurutaPredictionModel
+  world = MultibodyComponents.World(render = false) {^world}
+  qube = QubePendulum(final idparams = idparams) {^qube}
+  "Physical parameter set of the pendulum being predicted (see dyad/definitions.jl)"
+  structural parameter idparams::Native = identified
+  "Pendulum energy relative to hanging, normalized by the upright's: 0 hanging at rest, 1 upright at rest"
+  variable pendulum_energy_ratio::Real
+  "Gravitational acceleration, as `world` applies it"
+  parameter g::Real = 9.81
+relations
+  pendulum_energy_ratio = (0.5 * (qube.Jp + qube.mp * qube.l ^ 2) * qube.elbow_joint.w ^ 2 + qube.mp * g * qube.l * (1 - cos(qube.elbow_joint.phi))) / (2 * qube.mp * g * qube.l)
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/QubePendulum.svg"}},
+  "_links": {
+    "world": {"Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 20, "y2": 120}}}},
+    "qube": {
+      "Dyad": {"placement": {"diagram": {"x1": 240, "x2": 340, "y1": 200, "y2": 300}}}
+    }
+  }
+}
+end
+
+"""
 Swing-up and balancing of the Furuta pendulum by a nonlinear MPC alone.
 
 An `MPCComponents.ACADOSMPC` solves, every tick, a finite-horizon optimal control problem over
@@ -37,8 +88,8 @@ quantized angles and the discrete velocity estimators:
     filtered estimate (`velocity_filter` 0.5) makes even the balancing unstable, 0.8 to 1 is
     needed. The filter constant is runtime-settable in `FurutaMPCHardware`.
 
-The prediction model is the very plant model: `furuta_mpc_dynamics()` (src/mpc.jl) compiles a
-`QubePendulum` with `MultibodyComponents.multibody` and hands the result to
+The prediction model is the very plant model: `FurutaPredictionModel`, compiled by
+`furuta_mpc_dynamics()` (src/mpc.jl) with `MultibodyComponents.multibody` and handed to
 `continuous_dynamics` with the `ForwardDiff` Jacobian backend. A multibody model compiled this
 way references cached linear solves (MTK diffcache parameters) that cannot be rebuilt
 symbolically, which is what rules out the default `Symbolic` backend and, with it, C export --
@@ -64,8 +115,8 @@ component FurutaMPC
   upright = BlockComponents.Sources.Constant(final k = pi) {^upright}
   level = BlockComponents.Sources.Constant(final k = 1) {^level}
   """
-  Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an
-  AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with
+  Prediction model of the MPC: a `ContinuousDynamics` built from `FurutaPredictionModel` with
+  an AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with
   the identified parameters
   """
   structural parameter dynamics::Native = furuta_mpc_dynamics()
@@ -104,17 +155,17 @@ component FurutaMPC
   "Exponential filter constant of the velocity estimators (1 = unfiltered first difference). 0.5 makes the balancing unstable at 10 ms; 0.8 leaves some smoothing of the encoder quantization"
   parameter velocity_filter::Real = 0.8
 relations
-  connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u) {^id1}
-  connect(anglenormalization.y, mpc.x[2]) {^id2}
-  connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]) {^id3}
-  connect(velocityestimator_shoulder.vel, mpc.x[3]) {^id4}
-  connect(velocityestimator_elbow.vel, mpc.x[4]) {^id5}
+  connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u) {^id12}
+  connect(anglenormalization.y, mpc.x[2]) {^id13}
+  connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]) {^id14}
+  connect(velocityestimator_shoulder.vel, mpc.x[3]) {^id15}
+  connect(velocityestimator_elbow.vel, mpc.x[4]) {^id16}
   # The reference is the upright state: arm centred, pendulum at π, at rest, and the energy of rest upright.
-  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id6}
-  connect(upright.y, mpc.r[2]) {^id7}
-  connect(level.y, mpc.r[5]) {^id10}
-  connect(mpc.u[1], u) {^id8}
-  connect(mpc.exitflag, exitflag) {^id9}
+  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id17}
+  connect(upright.y, mpc.r[2]) {^id18}
+  connect(level.y, mpc.r[5]) {^id19}
+  connect(mpc.u[1], u) {^id20}
+  connect(mpc.exitflag, exitflag) {^id21}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupCatch.svg"}},
   "_links": {
@@ -124,7 +175,9 @@ metadata {
     "elbow_angle": {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 450, "y2": 550}}}
     },
-    "u": {"Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}},
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 450, "y2": 550}}}
+    },
     "exitflag": {
       "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 150, "y2": 250}}}
     },
@@ -137,11 +190,26 @@ metadata {
     "anglenormalization": {
       "Dyad": {"placement": {"diagram": {"x1": 100, "x2": 200, "y1": 400, "y2": 500}}}
     },
-    "mpc": {"Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 300, "y2": 400}}}},
-    "zero": {"Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 50, "y2": 150}}}},
+    "mpc": {
+      "Dyad": {"placement": {"diagram": {"x1": 450, "x2": 550, "y1": 300, "y2": 400}}}
+    },
+    "zero": {
+      "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 50, "y2": 150}}}
+    },
     "upright": {
       "Dyad": {"placement": {"diagram": {"x1": 250, "x2": 350, "y1": 150, "y2": 250}}}
-    }
+    },
+    "level": {},
+    "id12": {},
+    "id13": {},
+    "id14": {},
+    "id15": {},
+    "id16": {},
+    "id17": {},
+    "id18": {},
+    "id19": {},
+    "id20": {},
+    "id21": {}
   }
 }
 end
@@ -181,7 +249,7 @@ component FurutaMPCHardware
   structural parameter Ts::Real = 0.01
   "Prediction horizon in shooting intervals"
   structural parameter Np::Integer = 60
-  "Prediction model of the MPC (see `furuta_mpc_dynamics`)"
+  "Prediction model of the MPC: `FurutaPredictionModel` compiled by `furuta_mpc_dynamics`"
   structural parameter dynamics::Native = furuta_mpc_dynamics()
   "Motor voltage bound of the MPC [V]; the swing-up needs 10. `command_umax` clamps what reaches the amplifier"
   structural parameter umax::Real = 10.0

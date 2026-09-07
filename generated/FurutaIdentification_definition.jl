@@ -163,8 +163,7 @@ amplifier's 10) and stay near the machine.
   push!(__eqs, connect(supervisor.tripped, logger.u[6]))
   push!(__eqs, connect(diagnostics.dt, logger.u[7]))
   push!(__eqs, connect(diagnostics.exec, logger.u[8]))
-  push!(__eqs, connect(periodicclock.y, logger.u[2]))
-  push!(__eqs, connect(measurement.shoulder_angle, supervisor.arm, periodicclock.y))
+  push!(__eqs, connect(measurement.shoulder_angle, supervisor.arm, periodicclock.y, logger.u[2]))
 
   # Return completely constructed System
   return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)

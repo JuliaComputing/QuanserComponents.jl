@@ -34,7 +34,9 @@ struct FurutaIdentificationSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: Ab
 end
 
 function DyadInterface.run_analysis(spec::FurutaIdentificationBaseSpec)
-    backend = program_backend(spec)
+    # Rejects a misspelled `backend` here rather than after the program has been compiled,
+    # which is the expensive half. `run_on_target` reads it off the spec again.
+    program_backend(spec)
     mkpath(spec.output_dir)
     log_file = program_log_path(spec, IDENTIFICATION_LOG_FILE)
     traj = identification_traj(spec.traj_file, spec.traj_column)
@@ -53,12 +55,7 @@ function DyadInterface.run_analysis(spec::FurutaIdentificationBaseSpec)
                                               abort = deg2rad(spec.abort_deg),
                                               param_overrides = spec.overrides)
     spec.run && @info "Replaying the designed input" nsamples duration_s = Tf
-    hwrun = run_on_target(gen, IDENTIFICATION_OUTPUT_NAMES; spec.run, spec.export_c, backend,
-                          spec.output_dir, Tf, spec.arm_deg,
-                          card_options = isempty(spec.card_options) ? nothing :
-                                         spec.card_options,
-                          spec.deploy_host, spec.deploy_dir, spec.live_plot,
-                          spec.live_plot_cmd, spec.live_plot_config)
+    hwrun = run_on_target(gen, IDENTIFICATION_OUTPUT_NAMES, spec; Tf)
 
     # Read back whatever log is there, so `run = false` inspects an earlier run without the
     # hardware. A deployed run leaves the fetched copy in `output_dir`, which is `hwrun.log`.
@@ -97,11 +94,7 @@ end
 
 function DyadInterface.artifacts(sol::FurutaIdentificationSolution, name::Symbol)
     if name === :GeneratedFiles
-        dir = sol.hwrun.output_dir
-        dir === nothing &&
-            throw(ArgumentError("Nothing was exported (run the analysis with `export_c = true`)"))
-        files = sol.hwrun.files
-        return (; file = files, bytes = [filesize(joinpath(dir, f)) for f in files])
+        return generated_files_table(sol.hwrun)
     elseif name === :Trace
         sol.data === nothing &&
             throw(ArgumentError("No trace available (run the analysis with `run = true`)"))

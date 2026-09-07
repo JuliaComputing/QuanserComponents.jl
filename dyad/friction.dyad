@@ -170,7 +170,7 @@ metadata {
   "_links": {
     "u": {
       "Dyad": {
-        "placement": {"diagram": {"show": 8, "x1": -100, "x2": 0, "y1": 60, "y2": 940, "show": 8}}
+        "placement": {"diagram": {"show": 8, "x1": -100, "x2": 0, "y1": 60, "y2": 940}}
       }
     },
     "row": {
@@ -252,6 +252,8 @@ relations
   else
     sw = sign(w)
   end
+  # `w*abs(w^2)` and not `w^3`, which it is equal to (the square is never negative): the cube
+  # is a deliberate workaround for a SynchJulia bug. Do not simplify it back.
   tau_f = kc * sw + kv * w + k2 * sw * w ^ 2 + k3 * w*abs(w ^ 2)
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/Friction.svg"}},

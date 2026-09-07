@@ -97,7 +97,9 @@ end
 ran(sol::FurutaFrictionSolution) = sol.hwrun.ran
 
 function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
-    backend = program_backend(spec)
+    # Rejects a misspelled `backend` here rather than after the program has been compiled,
+    # which is the expensive half. `run_on_target` reads it off the spec again.
+    program_backend(spec)
     mkpath(spec.output_dir)
     # One full up-and-down sweep unless asked otherwise. Anything shorter truncates the
     # reference schedule, which costs the fit its highest speeds or one whole direction.
@@ -115,12 +117,7 @@ function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
     log_file = program_log_path(spec, FRICTION_LOG_FILE)
     gen = generate_friction_controller(; spec.Ts, log_file, param_overrides = spec.overrides)
     spec.run && @info "Running friction experiment"
-    hwrun = run_on_target(gen, FRICTION_OUTPUT_NAMES; spec.run, spec.export_c, backend,
-                          spec.output_dir, Tf, spec.arm_deg,
-                          card_options = isempty(spec.card_options) ? nothing :
-                                         spec.card_options,
-                          spec.deploy_host, spec.deploy_dir, spec.live_plot,
-                          spec.live_plot_cmd, spec.live_plot_config)
+    hwrun = run_on_target(gen, FRICTION_OUTPUT_NAMES, spec; Tf)
     spec.run && @info "Experiment done"
 
     # Fit whatever log is there, so `run = false` re-fits an earlier one with new thresholds

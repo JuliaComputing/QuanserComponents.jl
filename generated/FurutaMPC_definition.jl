@@ -45,8 +45,8 @@ quantized angles and the discrete velocity estimators:
     filtered estimate (`velocity_filter` 0.5) makes even the balancing unstable, 0.8 to 1 is
     needed. The filter constant is runtime-settable in `FurutaMPCHardware`.
 
-The prediction model is the very plant model: `furuta_mpc_dynamics()` (src/mpc.jl) compiles a
-`QubePendulum` with `MultibodyComponents.multibody` and hands the result to
+The prediction model is the very plant model: `FurutaPredictionModel`, compiled by
+`furuta_mpc_dynamics()` (src/mpc.jl) with `MultibodyComponents.multibody` and handed to
 `continuous_dynamics` with the `ForwardDiff` Jacobian backend. A multibody model compiled this
 way references cached linear solves (MTK diffcache parameters) that cannot be rebuilt
 symbolically, which is what rules out the default `Symbolic` backend and, with it, C export --
@@ -59,7 +59,7 @@ discrete `VelocityEstimator`s produce from the angles.
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `dynamics`         | Prediction model of the MPC: a `ContinuousDynamics` of the Furuta pendulum built with an AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with the identified parameters                         | --  |   furuta_mpc_dynamics() |
+| `dynamics`         | Prediction model of the MPC: a `ContinuousDynamics` built from `FurutaPredictionModel` with an AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with the identified parameters                         | --  |   furuta_mpc_dynamics() |
 | `Ts`         | Sample time of the controller; the MPC's shooting interval, so it must equal the clock period                         | --  |   0.01 |
 | `Np`         | Prediction horizon in shooting intervals; the horizon is Np * Ts                         | --  |   60 |
 | `umax`         | Motor voltage bound of the MPC [V]. The swing-up needs 10 (clamp the command with `command_umax` instead of lowering this)                         | --  |   10.0 |

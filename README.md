@@ -90,9 +90,10 @@ built, stepped and compared across backends without a device attached.
 model-predictive controller, `MPCComponents.ACADOSMPC`: it swings the pendulum up and balances
 it, with one real-time iteration per 10 ms tick over a horizon of 60 samples, the motor voltage
 bounded to ±10 V and the arm angle and the velocities bounded softly. The prediction model is the
-multibody `QubePendulum` itself: `furuta_mpc_dynamics()` compiles it with `multibody` and hands
-it to `continuous_dynamics` with the `ForwardDiff` Jacobian backend, which differentiates a
-numeric evaluation of the model. That backend exists because a multibody model's compiled form
+multibody `QubePendulum` itself: `FurutaPredictionModel` (dyad/furuta_mpc.dyad) is that plant plus
+the one signal the swing-up term needs, and `furuta_mpc_dynamics()` (src/mpc.jl) does nothing but
+compile it with `multibody` and hand it to `continuous_dynamics` with the `ForwardDiff` Jacobian
+backend, which differentiates a numeric evaluation of the model. That backend exists because a multibody model's compiled form
 contains cached linear solves that the default symbolic Jacobian cannot reconstruct; the same
 fact rules out C export, so this controller runs on SynchJulia's Julia backend only.
 
@@ -100,7 +101,8 @@ The weighting is `design_lqr`'s (`Q1 = diag(1000, 10, 1, 1)`, `Q2 = 100`, termin
 cost-to-go about upright) plus one term that makes it swing up: *energy shaping in the stage
 cost*. The prediction model carries the signal `pendulum_energy_ratio` (kinetic energy of the
 rotation about the elbow plus the height of the centre of mass, normalized so that rest upright
-is 1 and hanging at rest is 0, the quantity the energy swing-up controller pumps), and the MPC
+is 1 and hanging at rest is 0, the quantity the energy swing-up controller pumps -- though not
+by the same expression: `Energy` omits the parallel-axis term), and the MPC
 weights it as a fifth controlled output with the reference 1 and the weight `energy_weight`
 (1e5). The cost is then a nonlinear least squares, which `ACADOSMPC` gained for this (nonlinear
 `outputs`, JuliaComputing/MPCComponents.jl#16). From rest the term gives the solver a gradient

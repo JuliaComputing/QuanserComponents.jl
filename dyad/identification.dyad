@@ -175,8 +175,7 @@ relations
   connect(supervisor.tripped, logger.u[6]) {^id12}
   connect(diagnostics.dt, logger.u[7])
   connect(diagnostics.exec, logger.u[8])
-  connect(periodicclock.y, logger.u[2]) {^id13}
-  connect(measurement.shoulder_angle, supervisor.arm, periodicclock.y) {^id14}
+  connect(measurement.shoulder_angle, supervisor.arm, periodicclock.y, logger.u[2]) {^id13}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaIdentification.svg"}},
   "_links": {
@@ -270,12 +269,6 @@ metadata {
       }
     },
     "id13": {
-      "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 710, "y": 540}, {"x": 710, "y": 290}], "E": 2}],
-        "path": {}
-      }
-    },
-    "id14": {
       "Dyad": {
         "edges": [
           {"S": 1, "M": [], "E": -1},
