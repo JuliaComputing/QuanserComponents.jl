@@ -64,6 +64,15 @@ Returns `(; dir, mangled, files, gains, auto)`, where `mangled` is the base symb
 the emitted `<mangled>_step` / `<mangled>_reset` functions.
 """
 function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, gains = (;))
+    # A multirate node takes one boolean per clock, so both the mangled symbol below and
+    # `csrc/run_hardware.c`'s single `QUBE_STEP(true, ...)` would have to grow a tick per clock
+    # and a divisor counter in the loop. Nothing needs that yet -- the only multirate program is
+    # the MPC, which runs on the Julia backend because its prediction model has no symbolic form
+    # to render -- so this refuses rather than emitting a harness that cannot call its own node.
+    length(get(gen, :divisors, (1,))) == 1 ||
+        throw(ArgumentError("export_program_c: this program has $(length(gen.divisors)) clocks, \
+                             and the C harness drives a single clock tick. Export a single-rate \
+                             program, or teach csrc/run_hardware.c one tick per clock."))
     mkpath(dir)
     r = instantiate(gen; gains, export_dir = dir)
     mangled = SynchJulia.mangle("top", Bool, r.SG, r.AP)

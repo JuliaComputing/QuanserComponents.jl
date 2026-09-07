@@ -141,11 +141,25 @@ Compile one of the rig's programs to a SynchJulia node. This is where the stkcom
 Returns `(; compiled, tuning_struct, auto_struct, tuning_defaults, log, Ts)`, where
 `compiled` is SynchToolkit's `CompiledNode` and the two `ParametersStruct`s are kept because
 they double as the constructors for the structs they were compiled into. The node's argument
-order is `(tick::Bool, gains::TuningGains, auto::AutoPars)`.
+order is `(tick::Bool, subclock ticks..., gains::TuningGains, auto::AutoPars)` -- one boolean per
+clock, base clock first.
+
+`Ts` is what the model is built with; `base_Ts` is the period of the clock the driver ticks, and
+defaults to `Ts`. They differ only for a multirate model, whose `Ts` is the period of its *slow*
+partition while the program is ticked at the fast one. The returned `Ts` is `base_Ts`, since that
+is the loop period [`run_program!`](@ref) keeps.
+
+`divisors` declares the model's further clocks by their period as an integer multiple of
+`base_Ts`, e.g. `[8]` for a second clock eight times slower. Empty (the default) is a single-rate
+program and compiles to exactly what it did before. The periods are derived here from one number
+and an integer rather than restated, so they cannot disagree with the model's in the last bit --
+`8 * 0.001 === 0.008` holds, but only because the ratio is a power of two.
+[`ProgramRuntime`](@ref) generates the tick pattern, so a caller still ticks once per `base_Ts`.
 """
 function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
                          outputs, log::ProgramLog,
                          traj::Union{Nothing, ProgramTrajectory} = nothing,
+                         base_Ts = Ts, divisors = Int[],
                          param_overrides = nothing, overrides...)
     # Every C library the program calls into has to exist before the `:c` backend links them
     # (the Julia backend only needs them at call time).
@@ -165,7 +179,21 @@ function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
     tuning_struct = ParametersStruct(; arg_name = :gains, struct_name = :TuningGains,
                                       parameters = tuning_syms, generated = false)
     auto_struct = ParametersStruct(; arg_name = :auto, struct_name = :AutoPars)
-    inputs = [InputClock(ModelingToolkit.Clock(Ts)), tuning_struct, auto_struct]
+    # One `InputClock` per clock in the model, in the order the node's `step` will take them as
+    # boolean arguments. `divisors` gives each further clock's period as an integer multiple of
+    # `Ts` rather than as a period of its own: clock identity is field-wise on `(dt, phase)`, so a
+    # period written twice can differ in a bit, and then the `InputClock` names a clock no
+    # equation lives on and the generated node references an unbound identifier. The clocks are
+    # deliberately unnamed -- `InputClock(clk; name = ...)` reaches `insert_clock(::LustreTranslator,
+    # ...)`, which has no method on this SynchToolkit (fixed upstream by SynchToolkit.jl#189).
+    inputs = SynchToolkit.Argument[InputClock(ModelingToolkit.Clock(base_Ts))]
+    for d in divisors
+        d > 1 || throw(ArgumentError("compile_program: a subclock divisor must be greater than 1, \
+                                      got $d; the base clock is already `base_Ts`"))
+        push!(inputs, InputClock(ModelingToolkit.Clock(d * base_Ts)))
+    end
+    push!(inputs, tuning_struct)
+    push!(inputs, auto_struct)
     # Neither `name` nor `clock` may be passed to `ClockedOutput`: `name` desynchronises the
     # declared and assigned Lustre names, and `clock` hits a missing branch in
     # SynchToolkit's `build_output`. So the outputs are indexed positionally.
@@ -173,7 +201,7 @@ function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
     @info "Running stkcompile"
     compiled = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
     return (; compiled, tuning_struct, auto_struct, tuning_defaults, log, traj,
-              Ts = Float64(Ts))
+              Ts = Float64(base_Ts), divisors = (1, Int.(divisors)...))
 end
 
 # ---------------------------------------------------------------------------
@@ -192,28 +220,43 @@ logged, and the values are meaningless.
 Construct one through [`SwingupController`](@ref) or [`FrictionController`](@ref) rather
 than directly; both are this type with their own output names and tuning fields.
 """
-struct ProgramRuntime{names, E, G, A}
+struct ProgramRuntime{names, K, E, G, A}
     exe::E
     gains::G
     auto::A
     log::ProgramLog
     traj::Union{Nothing, ProgramTrajectory}
     Ts::Float64
+    # Each clock's period as an integer multiple of `Ts`, base clock first, so `(1,)` for a
+    # single-rate program. A type parameter as well as a field so the tick pattern below is
+    # built without allocating -- `run_program!` runs with the collector off.
+    divisors::NTuple{K, Int}
+    counter::Base.RefValue{Int}
 end
 
-ProgramRuntime{names}(exe::E, gains::G, auto::A, log, traj, Ts) where {names, E, G, A} =
-    ProgramRuntime{names, E, G, A}(exe, gains, auto, log, traj, Float64(Ts))
+ProgramRuntime{names}(exe::E, gains::G, auto::A, log, traj, Ts,
+                      divisors::NTuple{K, Int} = (1,)) where {names, K, E, G, A} =
+    ProgramRuntime{names, K, E, G, A}(exe, gains, auto, log, traj, Float64(Ts), divisors, Ref(0))
 
 # A held executable keeps stepping the code it was built with (SynchJulia >= 0.4), so
 # `step!`/`reset!` are world-safe from any frame -- no `invokelatest` in the hot path.
-function (c::ProgramRuntime{names})(; tick::Bool = true) where {names}
-    out = SynchJulia.step!(c.exe, tick, c.gains, c.auto)
+#
+# The subclock tick pattern is generated here rather than asked of the caller. A node with two
+# clocks takes one boolean per clock, and raising the slow one without the fast one compiles and
+# runs -- silently on the previous tick's measurements, since `Latest` returns the newest value
+# the source clock produced and a simultaneous source tick is what makes the crossing free. So
+# the phase is a property of the runtime, not of the call site, and `reset!` puts it back.
+function (c::ProgramRuntime{names, K})(; tick::Bool = true) where {names, K}
+    k = (c.counter[] += 1)
+    ticks = map(d -> tick && (k - 1) % d == 0, c.divisors)
+    out = SynchJulia.step!(c.exe, ticks..., c.gains, c.auto)
     return NamedTuple{names}(values(out))
 end
 
 "Resets the program's own state, and the I/O counters and loop timing; the device and the log stay as they are."
 function SynchToolkit.reset!(c::ProgramRuntime)
     SynchToolkit.reset!(c.exe)
+    c.counter[] = 0
     reset_hardware_counters!()
     return c
 end
@@ -254,7 +297,8 @@ end
 function make_runtime(gen, names::Tuple{Vararg{Symbol}}; backend::Symbol = :julia,
                       gains = (;))
     r = instantiate(gen; gains, backend)
-    return ProgramRuntime{names}(r.exe, r.gains, r.auto, gen.log, gen.traj, gen.Ts)
+    return ProgramRuntime{names}(r.exe, r.gains, r.auto, gen.log, gen.traj, gen.Ts,
+                                 get(gen, :divisors, (1,)))
 end
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,410 @@
+"""
+`FurutaMPC` split across two clocks: the encoders are read and the state estimated on a fast
+clock, the MPC solves on a slow one.
+
+The point is that the velocity estimate no longer has to trade lag against the MPC's period. At
+10 ms the single-rate controller has to run its estimator nearly unfiltered (`velocity_filter`
+0.8, a 6.2 ms time constant) because more lag destabilizes the balancing; estimating eight times
+per MPC tick removes that constraint.
+
+What replaces the estimator matters more than the extra rate. `VelocityEstimator` is a backward
+difference through an exponential filter -- a constant-velocity estimator -- and on a swinging
+pendulum the velocity is never locally constant, so its estimate carries a bias proportional to
+the acceleration that no bandwidth choice removes. Sampling the same estimator faster is
+therefore worth almost nothing: measured against the truth on an angle quantized to encoder
+counts, it goes from 0.141 to 0.164 rad/s RMS while balancing. A constant-*acceleration*
+estimator removes the bias: `DiscreteComponents.AlphaBetaGammaFilter` at 1 ms scores 0.035 rad/s
+while balancing and 0.243 during the swing-up, against 0.141 and 1.280 for the 10 ms baseline --
+four and five times better at once. See NOTES.md for the comparison and its method.
+
+The tracker's own position estimate feeds the MPC, not the raw encoder angle, so the state the
+solver sees is one filter's coherent (position, velocity) pair rather than a raw angle beside a
+filtered rate. Feeding the raw angle instead is a rewire of `subsampler_shoulder_angle.u`.
+
+The bridge to the slow clock is four `SubSampler`s, one per MPC state input.
+`SynchToolkit.Latest` keeps each source on the fast clock and puts the result on the reader's, so
+the MPC sees the newest value the fast partition produced at each of its own ticks. When the slow
+period is a power-of-two multiple of the fast one the two clocks tick simultaneously with no
+floating-point drift, so the MPC reads a value computed in the same instant: the crossing adds no
+delay and the `SubSampler`s' `init` values are never observed.
+
+The pendulum angle is wrapped *after* it is sub-sampled. `mod` is memoryless so the value is the
+same either way, and this order leaves every `Latest` source a variable of the fast partition
+rather than an algebraic function of one.
+
+Neither clock is declared here. The enclosing model folds one `PeriodicClock` into the
+measurement net and another into the command net, the way `FurutaMPCSwingup` declares its single
+clock; the fast clock arrives through `shoulder_angle`/`elbow_angle` and the slow one through `u`.
+Both are load-bearing -- without the slow one nothing pins the MPC's partition and the `Latest`
+reads have no reading clock. `Ts` must equal the slow clock's period, since it is also the MPC's
+shooting interval.
+
+Everything else -- the energy-shaping stage cost, the soft state bounds, `reset_on_failure`, the
+terminal LQR cost -- is `FurutaMPC`'s and is documented there. `Np` is 75 rather than 60 so the
+horizon stays the 0.6 s that was tuned at 10 ms; `qp_cond_N` was measured at `Np = 60` and is
+worth re-sweeping.
+"""
+component FurutaMPCMultirate
+  "Measured arm (shoulder) angle, on the fast clock"
+  shoulder_angle = Dyad.RealInput() {^shoulder_angle}
+  "Measured pendulum (elbow) angle, 0 hanging down, on the fast clock"
+  elbow_angle = Dyad.RealInput() {^elbow_angle}
+  "Control command, on the MPC's clock"
+  u = Dyad.RealOutput() {^u}
+  "acados status of the last MPC solve: 0 success, 2 maximum iterations, 4 QP failure, ..."
+  exitflag = Dyad.RealOutput() {^exitflag}
+  estimator_shoulder = DiscreteComponents.AlphaBetaGammaFilter(final alpha = velocity_alpha) {^estimator_shoulder}
+  estimator_elbow = DiscreteComponents.AlphaBetaGammaFilter(final alpha = velocity_alpha) {^estimator_elbow}
+  subsampler_shoulder_angle = SubSampler() {^subsampler_shoulder_angle}
+  subsampler_elbow_angle = SubSampler() {^subsampler_elbow_angle}
+  subsampler_shoulder_rate = SubSampler() {^subsampler_shoulder_rate}
+  subsampler_elbow_rate = SubSampler() {^subsampler_elbow_rate}
+  anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
+  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final state_variables = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_OUTPUTS, final Ts = Ts, final Np = Np, final Q1 = furuta_mpc_weight(Q1, energy_weight), final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), integrator_stages = 2, final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
+  zero = BlockComponents.Sources.Constant(final k = 0) {^zero}
+  upright = BlockComponents.Sources.Constant(final k = pi) {^upright}
+  level = BlockComponents.Sources.Constant(final k = 1) {^level}
+  """
+  Prediction model of the MPC: a `ContinuousDynamics` built from `FurutaPredictionModel` with an
+  AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with the
+  identified parameters
+  """
+  structural parameter dynamics::Native = furuta_mpc_dynamics()
+  "Sample time of the MPC; its shooting interval, so it must equal the slow clock's period"
+  structural parameter Ts::Real = 0.008
+  "Prediction horizon in shooting intervals; the horizon is Np * Ts. 75 * 8 ms is the 0.6 s the 10 ms controller had over 60 intervals"
+  structural parameter Np::Integer = 75
+  "Motor voltage bound of the MPC [V]. The swing-up needs 10 (clamp the command with `command_umax` instead of lowering this)"
+  structural parameter umax::Real = 10.0
+  "Arm angle the MPC keeps the arm within (softly, over its horizon) [rad]; inside the end stops at ±1.92. The swing-up under LQR weights violates it, see `FurutaMPC`"
+  structural parameter arm_limit::Real = 1.7
+  "Arm velocity the MPC keeps its predictions within [rad/s]; a soft bound that keeps the real-time iterates where the linearization is meaningful"
+  structural parameter velocity_limit_shoulder::Real = 20.0
+  "Pendulum velocity the MPC keeps its predictions within [rad/s]; see velocity_limit_shoulder"
+  structural parameter velocity_limit_elbow::Real = 30.0
+  "Stage weight on the pendulum's energy error, the swing-up term (see `FurutaMPC`)"
+  structural parameter energy_weight::Real = 1e5
+  "Quadratic penalty on the slacks of the soft state bounds (arm angle and velocities)"
+  structural parameter soft_weight::Real = 1e3
+  "NLP solver: one real-time iteration per tick (SQP_RTI, the default) or SQP to convergence"
+  structural parameter nlp_solver::MPCComponents.ACADOSSolver = MPCComponents.ACADOSSolver.SQP_RTI()
+  "Initial guess of the NLP at every tick (see `FurutaMPC`)"
+  structural parameter warm_start::MPCComponents.ACADOSWarmStart = MPCComponents.ACADOSWarmStart.Shift()
+  "Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it"
+  structural parameter max_iter::Integer = 30
+  "Levenberg-Marquardt regularization of the Gauss-Newton Hessian"
+  structural parameter levenberg_marquardt::Real = 1.0
+  "Horizon of HPIPM's partially condensed QP; -1 keeps the full horizon Np. 5 is the optimum measured at Np = 60 (see NOTES.md) and is worth re-sweeping for 75"
+  structural parameter qp_cond_N::Integer = 5
+  "Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick, what `MPCComponents.mpc_gui` shows"
+  structural parameter output_trajectories::Boolean = false
+  "Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s (see `FurutaMPC`)"
+  structural parameter Q1::Real[4, 4] = diagonal([1000.0, 10.0, 1.0, 1.0])
+  "Control weight: `design_lqr`'s"
+  structural parameter Q2::Real[1, 1] = diagonal([100.0])
+  "Position correction gain of both state estimators, in (0, 1); the rate and acceleration gains follow from it by Kalata's steady-state relations, so this is the one knob. Larger trusts the measurement more and filters less. Runtime-settable, a `TuningGains` field of `FurutaMPCMultirateHardware`, and the value to sweep in test/mpc_rollouts.jl -- the only place encoder quantization is simulated"
+  parameter velocity_alpha::Real(min = 0, max = 1) = 0.5
+relations
+  connect(shoulder_angle, estimator_shoulder.u) {^id1}
+  connect(elbow_angle, estimator_elbow.u) {^id2}
+  connect(estimator_shoulder.y, subsampler_shoulder_angle.u) {^id3}
+  connect(estimator_elbow.y, subsampler_elbow_angle.u) {^id4}
+  connect(estimator_shoulder.rate, subsampler_shoulder_rate.u) {^id5}
+  connect(estimator_elbow.rate, subsampler_elbow_rate.u) {^id6}
+  # Wrapped after the sub-sample, not before: `mod` is memoryless so the value is the same, and
+  # this leaves every `Latest` source a variable of the fast partition.
+  connect(subsampler_elbow_angle.y, anglenormalization.u) {^id7}
+  connect(subsampler_shoulder_angle.y, mpc.x[1]) {^id8}
+  connect(anglenormalization.y, mpc.x[2]) {^id9}
+  connect(subsampler_shoulder_rate.y, mpc.x[3]) {^id10}
+  connect(subsampler_elbow_rate.y, mpc.x[4]) {^id11}
+  # The reference is the upright state: arm centred, pendulum at π, at rest, and the energy of rest upright.
+  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id12}
+  connect(upright.y, mpc.r[2]) {^id13}
+  connect(level.y, mpc.r[5]) {^id14}
+  connect(mpc.u[1], u) {^id15}
+  connect(mpc.exitflag, exitflag) {^id16}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupCatch.svg"}},
+  "_links": {
+    "shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 150, "y2": 250}}}
+    },
+    "elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 550, "y2": 650}}}
+    },
+    "u": {
+      "Dyad": {"placement": {"diagram": {"x1": 1100, "x2": 1200, "y1": 450, "y2": 550}}}
+    },
+    "exitflag": {
+      "Dyad": {"placement": {"diagram": {"x1": 1100, "x2": 1200, "y1": 150, "y2": 250}}}
+    },
+    "estimator_shoulder": {
+      "Dyad": {"placement": {"diagram": {"x1": 80, "x2": 180, "y1": 200, "y2": 300}}}
+    },
+    "estimator_elbow": {
+      "Dyad": {"placement": {"diagram": {"x1": 80, "x2": 180, "y1": 600, "y2": 700}}}
+    },
+    "subsampler_shoulder_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 100, "y2": 200}}}
+    },
+    "subsampler_shoulder_rate": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 260, "y2": 360}}}
+    },
+    "subsampler_elbow_angle": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 560, "y2": 660}}}
+    },
+    "subsampler_elbow_rate": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 720, "y2": 820}}}
+    },
+    "anglenormalization": {
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 560, "y2": 660}}}
+    },
+    "mpc": {
+      "Dyad": {"placement": {"diagram": {"x1": 760, "x2": 860, "y1": 400, "y2": 500}}}
+    },
+    "zero": {
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 20, "y2": 120}}}
+    },
+    "upright": {
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 160, "y2": 260}}}
+    },
+    "level": {
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 300, "y2": 400}}}
+    },
+    "id1": {},
+    "id2": {},
+    "id3": {},
+    "id4": {},
+    "id5": {},
+    "id6": {},
+    "id7": {},
+    "id8": {},
+    "id9": {},
+    "id10": {},
+    "id11": {},
+    "id12": {},
+    "id13": {},
+    "id14": {},
+    "id15": {},
+    "id16": {}
+  }
+}
+end
+
+"""
+`FurutaMPCMultirate` closed around the simulated `QubePendulum`: the multirate counterpart of
+`FurutaMPCSwingup`, which is unchanged and still the single-rate loop.
+
+The plant is sampled and the state estimated at `Ts_fast`; the MPC solves at `Ts` and its move is
+held over the whole `Ts`, so the voltage the plant sees is piecewise constant on the MPC's clock
+and not on the sensing clock. Two `PeriodicClock`s declare the two rates, the fast one on the
+measurement net and the slow one on the command net; both are needed, since nothing else pins the
+MPC's partition.
+
+`Ts` should be a power-of-two multiple of `Ts_fast` so the two clocks tick simultaneously without
+floating-point drift -- at the defaults 0.008 is exactly 8 x 0.001.
+
+Compile with `multibody(model, additional_passes = [SynchToolkit.compile_lustre])` and simulate
+with `dt = Ts_fast`: the base step has to resolve the fastest clock.
+"""
+component FurutaMPCMultirateSwingup
+  control_system = FurutaMPCMultirate(final Ts = Ts, final Np = Np) {^control_system}
+  qubependulum = QuanserComponents.QubePendulum(idparams = QuanserComponents.identified) {^qubependulum}
+  zeroorderhold = DiscreteComponents.ZeroOrderHold(initial_condition = 0) {^zeroorderhold}
+  elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
+  shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^shoulder_sampler}
+  fastclock = DiscreteComponents.PeriodicClock(final dt = Ts_fast) {^fastclock}
+  slowclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^slowclock}
+  world = MultibodyComponents.World(default_body_color = gray, default_rod_color = gray, default_joint_color = gray, nominal_length = 0.1, render = false) {^world}
+  parameter gray::Real[4] = [0.9, 0.9, 0.9, 1]
+  "Sample time of the MPC"
+  structural parameter Ts::Real = 0.008
+  "Sample time of the encoder sampling and the state estimators"
+  structural parameter Ts_fast::Real = 0.001
+  "Prediction horizon in shooting intervals; 75 * 8 ms is the 0.6 s horizon of the 10 ms controller"
+  structural parameter Np::Integer = 75
+relations
+  connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id1}
+  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id2}
+  connect(shoulder_sampler.y, control_system.shoulder_angle, fastclock.y) {^id3}
+  connect(elbow_sampler.y, control_system.elbow_angle) {^id4}
+  # The MPC's clock is declared on the command net, the way the sensing clock is declared on the
+  # measurement net: this is where the `Latest` reads inside `control_system` get their reading
+  # clock, and it is what makes the hold span a whole `Ts`.
+  connect(control_system.u, zeroorderhold.u, slowclock.y) {^id5}
+  connect(zeroorderhold.y, qubependulum.voltage) {^id6}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaSwingup.svg"}},
+  "_links": {
+    "control_system": {
+      "Dyad": {"placement": {"diagram": {"x1": 200, "x2": 300, "y1": 300, "y2": 400}}}
+    },
+    "qubependulum": {
+      "Dyad": {"placement": {"diagram": {"x1": 600, "x2": 700, "y1": 300, "y2": 400}}}
+    },
+    "zeroorderhold": {
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 300, "y2": 400}}}
+    },
+    "elbow_sampler": {
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 550, "y2": 650}}}
+    },
+    "shoulder_sampler": {
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 100, "y2": 200}}}
+    },
+    "fastclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 200, "x2": 300, "y1": 100, "y2": 200}}}
+    },
+    "slowclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 340, "x2": 440, "y1": 450, "y2": 550}}}
+    },
+    "world": {
+      "Dyad": {"placement": {"diagram": {"x1": 600, "x2": 700, "y1": 100, "y2": 200}}}
+    },
+    "id1": {},
+    "id2": {},
+    "id3": {},
+    "id4": {},
+    "id5": {},
+    "id6": {}
+  }
+}
+end
+
+"""
+The multirate MPC closed around the physical QUBE: the counterpart of `FurutaMPCHardware`, which
+is unchanged and still the single-rate program.
+
+The encoders are read at `Ts_fast` and the state estimated there; the MPC solves at `Ts` and
+`HardwareCommand` writes the amplifier once per solve.
+
+`HardwareDiagnostics` sits on the MPC's clock and not on the sensing clock because its `dep` port
+is what orders its reads after the motor write -- `exec` is latched by the write -- and a
+`SubSampler` between them would be a partition boundary rather than a data dependency, so that
+ordering would be lost.
+
+The `DataLogger` is on the MPC's clock too, one row per solve in the `MPC_LOG_COLUMNS` order, so
+the file is the single-rate program's file and every reader of it works unchanged. Two
+`SubSampler`s bring the measured angles onto that clock; they read the same sources at the same
+reading clock as the controller's own sub-samplers, so the logged angles are exactly the ones the
+MPC solved with.
+
+Three things this costs, all easy to over-read:
+
+  - **The fast partition is not recorded.** The log still has one row per `Ts`; the encoder
+    samples and the state estimates between solves never reach the file, which is a pity since
+    they are what this model exists to improve. A second `DataLogger` on the fast clock would
+    need a second log slot in csrc/qube_log.c first.
+  - **Two columns mean something different here.** `dt` and `time` are latched by the encoder
+    read (csrc/qube_hw.c), which now runs on the fast clock: `dt` is the achieved *fast* period,
+    about `Ts_fast`, sampled once per `Ts`, and `time` is the timestamp of the last fast read, up
+    to `Ts_fast` before the write. `exec`, being read-to-write, is now close to the MPC's solve
+    time rather than the whole loop body. Reading the log as a single-rate one misleads.
+  - **`realtime = true` paces the MPC's clock only.** In a *simulated* run (an ODE solver
+    stepping the program, the `mpc_gui` route) the eight fast reads bunch just before each slot
+    instead of spreading. Fine for inspecting predictions, wrong as a rig run -- a rig run goes
+    through the compiled program and is timed by the driver.
+
+Whether the device sustains a `Ts_fast` of 1 ms is a measurement, not a modelling question: each
+encoder read is a HIL transaction of order 100 to 300 us, and the MPC solve itself takes about
+1 ms at the median, which does not fit inside a 1 ms slot -- the loop absorbs that by running the
+next fast ticks back to back, so the cost is jitter on the sensing clock rather than failure. The
+`dt` and `exec` columns measure both. `Ts_fast` is structural, so halving the rate is one keyword.
+"""
+component FurutaMPCMultirateHardware
+  measurement = HardwareMeasurement() {^measurement}
+  control_system = FurutaMPCMultirate(final dynamics = dynamics, final Ts = Ts, final Np = Np, final umax = umax, final arm_limit = arm_limit, final nlp_solver = nlp_solver, final warm_start = warm_start, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, final velocity_alpha = velocity_alpha) {^control_system}
+  command = HardwareCommand(final umax = command_umax) {^command}
+  diagnostics = HardwareDiagnostics(final realtime = realtime) {^diagnostics}
+  logger = DataLogger(final n = MPC_LOG_NCOLS, final filename = log_file, final header = MPC_LOG_HEADER) {^logger}
+  log_shoulder = SubSampler() {^log_shoulder}
+  log_elbow = SubSampler() {^log_elbow}
+  fastclock = DiscreteComponents.PeriodicClock(final dt = Ts_fast) {^fastclock}
+  slowclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^slowclock}
+  "Sample time of the MPC"
+  structural parameter Ts::Real = 0.008
+  "Sample time of the encoder reads and the state estimators"
+  structural parameter Ts_fast::Real = 0.001
+  "Prediction horizon in shooting intervals; 75 * 8 ms is the 0.6 s horizon of the 10 ms controller"
+  structural parameter Np::Integer = 75
+  "Prediction model of the MPC: `FurutaPredictionModel` compiled by `furuta_mpc_dynamics`"
+  structural parameter dynamics::Native = furuta_mpc_dynamics()
+  "Motor voltage bound of the MPC [V]; the swing-up needs 10. `command_umax` clamps what reaches the amplifier"
+  structural parameter umax::Real = 10.0
+  "Arm angle the MPC keeps the arm within [rad], inside the end stops at ±1.92"
+  structural parameter arm_limit::Real = 1.7
+  "NLP solver of the MPC"
+  structural parameter nlp_solver::MPCComponents.ACADOSSolver = MPCComponents.ACADOSSolver.SQP_RTI()
+  "Initial guess of the MPC's NLP at every tick (see `FurutaMPC`)"
+  structural parameter warm_start::MPCComponents.ACADOSWarmStart = MPCComponents.ACADOSWarmStart.Shift()
+  "Horizon of HPIPM's partially condensed QP; -1 keeps the full horizon Np (see `FurutaMPCMultirate`)"
+  structural parameter qp_cond_N::Integer = 5
+  "File the log is written to; the driver opens it with this name"
+  structural parameter log_file::String = MPC_LOG_FILE
+  "Pace the ticks in real time from inside the program, for running this model as a *simulation* against the device. Paces the MPC's clock only, see the component documentation"
+  structural parameter realtime::Boolean = false
+  "Record the MPC's predicted trajectories and solver residuals at every tick, for `MPCComponents.mpc_gui`"
+  structural parameter output_trajectories::Boolean = false
+  "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field"
+  parameter command_umax::Dyad.Voltage = umax
+  "Position correction gain of the state estimators (see `FurutaMPCMultirate`). Runtime-settable, a `TuningGains` field"
+  parameter velocity_alpha::Real(min = 0, max = 1) = 0.5
+relations
+  connect(measurement.shoulder_angle, control_system.shoulder_angle, log_shoulder.u, fastclock.y) {^id1}
+  connect(measurement.elbow_angle, control_system.elbow_angle, log_elbow.u) {^id2}
+  # The MPC's clock is declared on the command net; `HardwareCommand`, `HardwareDiagnostics` and
+  # the `DataLogger` all take it from here.
+  connect(control_system.u, command.u, slowclock.y) {^id3}
+  # The applied voltage is the diagnostics' dependency token as well as a logged column: `exec` is
+  # latched by the write, so the reads have to be scheduled after it. That is why the diagnostics
+  # cannot be moved to the fast clock.
+  connect(command.u_applied, diagnostics.dep, logger.u[4]) {^id4}
+  connect(log_shoulder.y, logger.u[2]) {^id5}
+  connect(log_elbow.y, logger.u[3]) {^id6}
+  connect(diagnostics.elapsed, logger.u[1]) {^id7}
+  connect(diagnostics.dt, logger.u[5]) {^id8}
+  connect(diagnostics.exec, logger.u[6]) {^id9}
+  connect(control_system.exitflag, logger.u[7]) {^id10}
+metadata {
+  "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaHardware.svg"}},
+  "_links": {
+    "measurement": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 136, "y2": 236}}}
+    },
+    "control_system": {
+      "Dyad": {"placement": {"diagram": {"x1": 170, "x2": 270, "y1": 140, "y2": 240}}}
+    },
+    "command": {
+      "Dyad": {"placement": {"diagram": {"x1": 330, "x2": 430, "y1": 140, "y2": 240}}}
+    },
+    "diagnostics": {
+      "Dyad": {"placement": {"diagram": {"x1": 490, "x2": 590, "y1": 140, "y2": 240}}}
+    },
+    "logger": {
+      "Dyad": {"placement": {"diagram": {"x1": 810, "x2": 910, "y1": 140, "y2": 240}}}
+    },
+    "log_shoulder": {
+      "Dyad": {"placement": {"diagram": {"x1": 650, "x2": 750, "y1": 340, "y2": 440}}}
+    },
+    "log_elbow": {
+      "Dyad": {"placement": {"diagram": {"x1": 650, "x2": 750, "y1": 470, "y2": 570}}}
+    },
+    "fastclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 10, "y2": 110}}}
+    },
+    "slowclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 290, "x2": 390, "y1": 10, "y2": 110}}}
+    },
+    "id1": {},
+    "id2": {},
+    "id3": {},
+    "id4": {},
+    "id5": {},
+    "id6": {},
+    "id7": {},
+    "id8": {},
+    "id9": {},
+    "id10": {}
+  }
+}
+end
