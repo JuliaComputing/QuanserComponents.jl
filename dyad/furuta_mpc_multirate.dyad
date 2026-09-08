@@ -104,25 +104,25 @@ component FurutaMPCMultirate
   "Position correction gain of both state estimators, in (0, 1); the rate and acceleration gains follow from it by Kalata's steady-state relations, so this is the one knob. Larger trusts the measurement more and filters less. Runtime-settable, a `TuningGains` field of `FurutaMPCMultirateHardware`, and the value to sweep in test/mpc_rollouts.jl -- the only place encoder quantization is simulated"
   parameter velocity_alpha::Real(min = 0, max = 1) = 0.5
 relations
-  connect(shoulder_angle, estimator_shoulder.u) {^id1}
-  connect(elbow_angle, estimator_elbow.u) {^id2}
-  connect(estimator_shoulder.y, latest_shoulder_angle.u) {^id3}
-  connect(estimator_elbow.y, latest_elbow_angle.u) {^id4}
-  connect(estimator_shoulder.rate, latest_shoulder_rate.u) {^id5}
-  connect(estimator_elbow.rate, latest_elbow_rate.u) {^id6}
+  connect(estimator_shoulder.y, latest_shoulder_angle.u) {^id16}
+  connect(estimator_elbow.y, latest_elbow_angle.u) {^id17}
+  connect(estimator_shoulder.rate, latest_shoulder_rate.u) {^id18}
+  connect(estimator_elbow.rate, latest_elbow_rate.u) {^id19}
   # Wrapped after the sub-sample, not before: `mod` is memoryless so the value is the same, and
   # this leaves every `Latest` source a variable of the fast partition.
-  connect(latest_elbow_angle.y, anglenormalization.u) {^id7}
-  connect(latest_shoulder_angle.y, mpc.x[1]) {^id8}
-  connect(anglenormalization.y, mpc.x[2]) {^id9}
-  connect(latest_shoulder_rate.y, mpc.x[3]) {^id10}
-  connect(latest_elbow_rate.y, mpc.x[4]) {^id11}
+  connect(latest_elbow_angle.y, anglenormalization.u) {^id20}
+  connect(latest_shoulder_angle.y, mpc.x[1]) {^id21}
+  connect(anglenormalization.y, mpc.x[2]) {^id22}
+  connect(latest_shoulder_rate.y, mpc.x[3]) {^id23}
+  connect(latest_elbow_rate.y, mpc.x[4]) {^id24}
   # The reference is the upright state: arm centred, pendulum at π, at rest, and the energy of rest upright.
-  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id12}
-  connect(upright.y, mpc.r[2]) {^id13}
-  connect(level.y, mpc.r[5]) {^id14}
-  connect(mpc.u[1], u) {^id15}
-  connect(mpc.exitflag, exitflag) {^id16}
+  connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id25}
+  connect(upright.y, mpc.r[2]) {^id26}
+  connect(level.y, mpc.r[5]) {^id27}
+  connect(mpc.u[1], u) {^id28}
+  connect(mpc.exitflag, exitflag) {^id29}
+  connect(elbow_angle, estimator_elbow.u) {^id30}
+  connect(shoulder_angle, estimator_shoulder.u) {^id31}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/SwingupCatch.svg"}},
   "_links": {
@@ -130,13 +130,13 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 150, "y2": 250}}}
     },
     "elbow_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 550, "y2": 650}}}
+      "Dyad": {"placement": {"diagram": {"x1": -100, "x2": 0, "y1": 590, "y2": 690}}}
     },
     "u": {
-      "Dyad": {"placement": {"diagram": {"x1": 1100, "x2": 1200, "y1": 450, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 660, "y2": 760}}}
     },
     "exitflag": {
-      "Dyad": {"placement": {"diagram": {"x1": 1100, "x2": 1200, "y1": 150, "y2": 250}}}
+      "Dyad": {"placement": {"diagram": {"x1": 1000, "x2": 1100, "y1": 190, "y2": 290}}}
     },
     "estimator_shoulder": {
       "Dyad": {"placement": {"diagram": {"x1": 80, "x2": 180, "y1": 200, "y2": 300}}}
@@ -145,13 +145,13 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 80, "x2": 180, "y1": 600, "y2": 700}}}
     },
     "latest_shoulder_angle": {
-      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 100, "y2": 200}}}
-    },
-    "latest_shoulder_rate": {
-      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 260, "y2": 360}}}
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 160, "y2": 260}}}
     },
     "latest_elbow_angle": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 560, "y2": 660}}}
+    },
+    "latest_shoulder_rate": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 400, "y2": 500}}}
     },
     "latest_elbow_rate": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 720, "y2": 820}}}
@@ -171,22 +171,103 @@ metadata {
     "level": {
       "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 580, "y1": 300, "y2": 400}}}
     },
-    "id1": {},
-    "id2": {},
-    "id3": {},
-    "id4": {},
-    "id5": {},
-    "id6": {},
-    "id7": {},
-    "id8": {},
-    "id9": {},
-    "id10": {},
-    "id11": {},
-    "id12": {},
-    "id13": {},
-    "id14": {},
-    "id15": {},
-    "id16": {}
+    "id16": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 262.3333333333333, "y": 215}, {"x": 262.3333333333333, "y": 210}],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id17": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 262.3333333333333, "y": 615}, {"x": 262.3333333333333, "y": 610}],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id18": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 262.3333333333333, "y": 250}, {"x": 262.3333333333333, "y": 450}],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id19": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 220, "y": 650}, {"x": 220, "y": 770}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id20": {},
+    "id21": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 440, "y": 210}, {"x": 440, "y": 450}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id22": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 715, "y": 610}, {"x": 715, "y": 450}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id23": {"Dyad": {"edges": [{"S": 1, "M": [], "E": 2}], "path": {}}},
+    "id24": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 715, "y": 770}, {"x": 715, "y": 450}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id25": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 750, "y": 70}, {"x": 750, "y": 375}, {"x": 755, "y": 375}],
+            "E": 2
+          },
+          {"S": 2, "M": [], "E": 3},
+          {"S": 3, "M": [], "E": 4}
+        ],
+        "path": {}
+      }
+    },
+    "id26": {"Dyad": {"edges": [{"S": 1, "M": [{"x": 755, "y": 210}], "E": 2}], "path": {}}},
+    "id27": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 715, "y": 350}, {"x": 715, "y": 415}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id28": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 1110, "y": 473}, {"x": 1110, "y": 710}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id29": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 940, "y": 424}, {"x": 940, "y": 240}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id30": {"Dyad": {"edges": [{"S": 1, "M": [{"x": -50, "y": 650}], "E": 2}], "path": {}}},
+    "id31": {"Dyad": {"edges": [{"S": 1, "M": [{"x": -50, "y": 250}], "E": 2}], "path": {}}}
   }
 }
 end
@@ -224,15 +305,15 @@ component FurutaMPCMultirateSwingup
   "Prediction horizon in shooting intervals; 75 * 8 ms is the 0.6 s horizon of the 10 ms controller"
   structural parameter Np::Integer = 75
 relations
-  connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id1}
-  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id2}
-  connect(shoulder_sampler.y, control_system.shoulder_angle, fastclock.y) {^id3}
-  connect(elbow_sampler.y, control_system.elbow_angle) {^id4}
+  connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id9}
+  connect(qubependulum.elbow_angle, elbow_sampler.u) {^id10}
+  connect(shoulder_sampler.y, control_system.shoulder_angle, fastclock.y) {^id11}
+  connect(elbow_sampler.y, control_system.elbow_angle) {^id12}
   # The MPC's clock is declared on the command net, the way the sensing clock is declared on the
   # measurement net: this is where the `Latest` reads inside `control_system` get their reading
   # clock, and it is what makes the hold span a whole `Ts`.
-  connect(control_system.u, zeroorderhold.u, slowclock.y) {^id5}
-  connect(zeroorderhold.y, qubependulum.voltage) {^id6}
+  connect(control_system.u, zeroorderhold.u, slowclock.y) {^id13}
+  connect(zeroorderhold.y, qubependulum.voltage) {^id14}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaSwingup.svg"}},
   "_links": {
@@ -246,26 +327,57 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 300, "y2": 400}}}
     },
     "elbow_sampler": {
-      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 550, "y2": 650}}}
+      "Dyad": {"placement": {"diagram": {"x1": 500, "x2": 400, "y1": 460, "y2": 560}}}
     },
     "shoulder_sampler": {
-      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 100, "y2": 200}}}
+      "Dyad": {"placement": {"diagram": {"x1": 500, "x2": 400, "y1": 590, "y2": 690}}}
     },
     "fastclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 200, "x2": 300, "y1": 100, "y2": 200}}}
+      "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 50, "y1": 150, "y2": 250}}}
     },
     "slowclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 340, "x2": 440, "y1": 450, "y2": 550}}}
+      "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 150, "y2": 250}}}
     },
     "world": {
       "Dyad": {"placement": {"diagram": {"x1": 600, "x2": 700, "y1": 100, "y2": 200}}}
     },
-    "id1": {},
-    "id2": {},
-    "id3": {},
-    "id4": {},
-    "id5": {},
-    "id6": {}
+    "id9": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 840, "y": 330}, {"x": 840, "y": 640}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id10": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 740, "y": 349}, {"x": 740, "y": 510}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id11": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [{"x": 110, "y": 640}, {"x": 110, "y": 320}], "E": 2},
+          {"S": 2, "M": [{"x": 195, "y": 200}], "E": 3}
+        ],
+        "path": {}
+      }
+    },
+    "id12": {
+      "Dyad": {
+        "edges": [{"S": 1, "M": [{"x": 150, "y": 510}, {"x": 150, "y": 364}], "E": 2}],
+        "path": {}
+      }
+    },
+    "id13": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {"S": 2, "M": [{"x": 360, "y": 350}, {"x": 360, "y": 200}], "E": 3}
+        ],
+        "path": {}
+      }
+    },
+    "id14": {}
   }
 }
 end
@@ -349,21 +461,21 @@ component FurutaMPCMultirateHardware
   "Position correction gain of the state estimators (see `FurutaMPCMultirate`). Runtime-settable, a `TuningGains` field"
   parameter velocity_alpha::Real(min = 0, max = 1) = 0.5
 relations
-  connect(measurement.shoulder_angle, control_system.shoulder_angle, log_shoulder.u, fastclock.y) {^id1}
-  connect(measurement.elbow_angle, control_system.elbow_angle, log_elbow.u) {^id2}
+  connect(measurement.shoulder_angle, control_system.shoulder_angle, log_shoulder.u, fastclock.y) {^id10}
+  connect(measurement.elbow_angle, control_system.elbow_angle, log_elbow.u) {^id11}
   # The MPC's clock is declared on the command net; `HardwareCommand`, `HardwareDiagnostics` and
   # the `DataLogger` all take it from here.
-  connect(control_system.u, command.u, slowclock.y) {^id3}
+  connect(control_system.u, command.u, slowclock.y) {^id12}
   # The applied voltage is the diagnostics' dependency token as well as a logged column: `exec` is
   # latched by the write, so the reads have to be scheduled after it. That is why the diagnostics
   # cannot be moved to the fast clock.
-  connect(command.u_applied, diagnostics.dep, logger.u[4]) {^id4}
-  connect(log_shoulder.y, logger.u[2]) {^id5}
-  connect(log_elbow.y, logger.u[3]) {^id6}
-  connect(diagnostics.elapsed, logger.u[1]) {^id7}
-  connect(diagnostics.dt, logger.u[5]) {^id8}
-  connect(diagnostics.exec, logger.u[6]) {^id9}
-  connect(control_system.exitflag, logger.u[7]) {^id10}
+  connect(command.u_applied, diagnostics.dep, logger.u[4]) {^id13}
+  connect(log_shoulder.y, logger.u[2]) {^id14}
+  connect(log_elbow.y, logger.u[3]) {^id15}
+  connect(diagnostics.elapsed, logger.u[1]) {^id16}
+  connect(diagnostics.dt, logger.u[5]) {^id17}
+  connect(diagnostics.exec, logger.u[6]) {^id18}
+  connect(control_system.exitflag, logger.u[7]) {^id19}
 metadata {
   "Dyad": {"icons": {"default": "dyad://QuanserComponents/FurutaHardware.svg"}},
   "_links": {
@@ -389,21 +501,72 @@ metadata {
       "Dyad": {"placement": {"diagram": {"x1": 650, "x2": 750, "y1": 470, "y2": 570}}}
     },
     "fastclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 20, "x2": 120, "y1": 10, "y2": 110}}}
+      "Dyad": {"placement": {"diagram": {"x1": 480, "x2": 380, "y1": 270, "y2": 370}}}
     },
     "slowclock": {
-      "Dyad": {"placement": {"diagram": {"x1": 290, "x2": 390, "y1": 10, "y2": 110}}}
+      "Dyad": {"placement": {"diagram": {"x1": 330, "x2": 430, "y1": 10, "y2": 110}}}
     },
-    "id1": {},
-    "id2": {},
-    "id3": {},
-    "id4": {},
-    "id5": {},
-    "id6": {},
-    "id7": {},
-    "id8": {},
-    "id9": {},
-    "id10": {}
+    "id10": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {"S": 2, "M": [{"x": 205, "y": 160}, {"x": 205, "y": 390}], "E": 3},
+          {"S": 3, "M": [{"x": 600, "y": 390}, {"x": 600, "y": 320}], "E": 4}
+        ],
+        "path": {}
+      }
+    },
+    "id11": {
+      "Dyad": {
+        "edges": [
+          {"S": 1, "M": [], "E": 2},
+          {"S": 2, "M": [{"x": 150, "y": 204}, {"x": 150, "y": 520}], "E": 3}
+        ],
+        "path": {}
+      }
+    },
+    "id12": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 308.3333333333333, "y": 211}, {"x": 308.3333333333333, "y": 190}],
+            "E": 2
+          },
+          {"S": 2, "M": [{"x": 325, "y": 92.5}, {"x": 330, "y": 92.5}], "E": 3}
+        ],
+        "path": {}
+      }
+    },
+    "id13": {},
+    "id14": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 780, "y": 390}, {"x": 780, "y": 230}, {"x": 805, "y": 230}],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id15": {
+      "Dyad": {
+        "edges": [
+          {
+            "S": 1,
+            "M": [{"x": 800, "y": 520}, {"x": 800, "y": 230}, {"x": 805, "y": 230}],
+            "E": 2
+          }
+        ],
+        "path": {}
+      }
+    },
+    "id16": {},
+    "id17": {},
+    "id18": {},
+    "id19": {}
   }
 }
 end
