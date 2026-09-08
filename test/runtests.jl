@@ -824,7 +824,7 @@ import DyadCompilerPasses
     @testset "past the end of the trajectory" begin
         dir = mktempdir()
         short = joinpath(dir, "short.csv")
-        write(short, "time\tu\n0.0\t1.0\n0.005\t2.0\n")
+        write(short, "u\n1.0\n2.0\n")
         ctrl = QuanserComponents.IdentificationController(; Ts, backend = :julia,
                             traj_file = short, log_file = joinpath(dir, "l.csv"))
         QuanserComponents.bind_hardware!(measure = () -> (0.0, 0.0), control = u -> nothing)
@@ -853,7 +853,7 @@ import DyadCompilerPasses
         @test isfile(joinpath(dir, basename(trajfile)))
         cfg = read(joinpath(dir, "run_hardware_config.h"), String)
         @test occursin("#define QUBE_TRAJ_FILE   \"$(basename(trajfile))\"", cfg)
-        @test occursin("#define QUBE_TRAJ_COLUMN 2", cfg)
+        @test occursin("#define QUBE_TRAJ_COLUMN $(QuanserComponents.IDENTIFICATION_TRAJ_COLUMN)", cfg)
         @test occursin("#define QUBE_LOG_NCOLS  8", cfg)
         @test Set(nameof.(DI.AnalysisSolutionMetadata(sol).artifacts)) == Set([:GeneratedFiles])
         @test_throws ArgumentError DI.artifacts(sol, :Trace)
