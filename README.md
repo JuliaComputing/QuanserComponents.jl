@@ -15,10 +15,24 @@ needed to use the package.
 
 ```julia
 pkg> registry add https://github.com/JuliaComputing/DyadRegistry
-pkg> add https://github.com/JuliaComputing/QuanserComponents.jl
+pkg> add https://github.com/JuliaComputing/QuanserComponents.jl#simulation-only
 ```
 
 or, for development, clone the repository and `pkg> dev path/to/QuanserComponents`.
+
+### What this branch is
+
+`simulation-only` is `main` as of the commit before the nonlinear MPC work, and it is the
+branch to install: every dependency resolves to a registered version, so nothing here needs
+access to a repository other than this one. `Manifest.toml` and `test/Manifest.toml` record
+the versions the swing-up simulation and the test suite below were verified against.
+
+`main` cannot be installed that way. Its MPC controller depends on MPCComponents, which is
+not registered, and on branch builds of SynchToolkit, SynchJulia, DiscreteComponents and
+LinearMPC together with two local checkouts, so it instantiates only for someone with access
+to all of those. The MPC controller (`FurutaMPC`, `FurutaMPCSwingup`, `FurutaMPCHardware`) is
+consequently absent from this branch. Everything else is the same: the multibody plant, the
+energy swing-up and balancing controller, the hardware programs and the C export.
 
 ## Simulating the swing-up
 
