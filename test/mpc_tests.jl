@@ -1,4 +1,4 @@
-# The MPC program (`FurutaMPCHardware`, `MPCController`): compiled once, then ticked against a
+# The MPC program (`FurutaMPCHardware`): compiled once, then ticked against a
 # simulated plant through the hardware I/O callbacks, as the swing-up program is in runtests.jl.
 # The plant is the MPC's own prediction model -- the multibody `QubePendulum` ODE from
 # `furuta_mpc_dynamics()` -- integrated with RK4. These tests check the mechanics of the program
@@ -26,8 +26,11 @@ using ModelingToolkit: @named
     # The symbolic backend cannot handle the multibody model; that is what the AD backend is for.
     @test_throws ArgumentError QC.furuta_mpc_dynamics(jacobian_backend = :symbolic)
 
-    ctrl = QC.MPCController(; Ts)
-    @test_throws ArgumentError QC.MPCController(; Ts, backend = :c)
+    gen = QC.compile_program(QC.FurutaMPCHardware; Ts)
+    @test gen.divisors == (1,) && gen.Ts == Ts
+    ctrl = QC.ProgramRuntime(gen)
+    # The prediction model has no symbolic form to render to C, so the spec allows :julia only.
+    @test_throws ArgumentError QC.ProgramRuntime(gen; backend = :c)
 
     # RK4 on the prediction model, five sub-steps per period.
     function simulate(x0; Tf)
@@ -58,29 +61,33 @@ using ModelingToolkit: @named
 
     # One acados solve per tick: the component's step is a scalar-valued call whose results are read
     # back through accessors, so the scalarization of the clocked equations does not duplicate it.
-    ctrl2 = QC.MPCController(; Ts, command_umax = 5.0)
+    ctrl2 = QC.ProgramRuntime(gen; command_umax = 5.0)
     @test ctrl2.gains.command_umax == 5.0
-    @test_throws ArgumentError QC.make_runtime(QC.generate_mpc_controller(; Ts), QC.MPC_OUTPUT_NAMES;
-                                               gains = (; L = [1.0]))
+    @test_throws ArgumentError QC.ProgramRuntime(gen; L = [1.0])     # not one of this program's tunables
 
     # The same model run as a simulation against the callbacks, paced in real time and recording
     # the MPC's predictions (the route `mpc_gui` uses).
     x = [0.0, 0.01, 0.0, 0.0]
     QC.bind_hardware!(measure = () -> (x[1], x[2]), control = u -> nothing)
     Tf = 0.5
-    g = QC.run_mpc_hardware_model(; Tf, Ts, mode = :callback, log_file = tempname() * ".csv")
-    b = only(acados_controllers(g.model)).bundle
-    ssys = g.sol.prob.f.sys
-    nticks = length(g.sol[ssys.control_system.exitflag])
+    spec = QC.program_spec(QC.FurutaMPCHardware)
+    log_file = tempname() * ".csv"
+    model = QC.FurutaMPCHardware(; name = spec.name, Ts, log_file, spec.ode_kwargs...)
+    ssys = QC.mtkcompile(model; additional_passes = [QC.SynchToolkit.compile_lustre])
+    prob = QC.ODEProblem(ssys, Pair[], (0.0, Tf); build_initializeprob = false)
+    sol = QC.run_ode!(QC.FurutaMPCHardware, prob; mode = :callback, log_file)
+    @test sol.prob.tspan == (0.0, Tf)                # the caller's problem is what was solved
+    b = only(acados_controllers(model)).bundle
+    nticks = length(sol[ssys.control_system.exitflag])
     @test 49 <= nticks <= 51
-    @test length(g.sol[ssys.control_system.mpc.x_pred][1]) == 4 * 61     # nx × (Np + 1)
-    late = g.sol[ssys.diagnostics.late]
+    @test length(sol[ssys.control_system.mpc.x_pred][1]) == 4 * 61     # nx × (Np + 1)
+    late = sol[ssys.diagnostics.late]
     @test all(>=(0), late)
-    elapsed = g.sol[ssys.diagnostics.elapsed]
+    elapsed = sol[ssys.diagnostics.elapsed]
     @test elapsed[end] >= 0.9 * (nticks - 1) * Ts        # paced on the wall clock, not run through
 end
 
-# The multirate MPC (`FurutaMPCMultirateHardware`, `MPCMultirateController`): the encoders are
+# The multirate MPC (`FurutaMPCMultirateHardware`): the encoders are
 # read and the state estimated on a 1 ms clock, the MPC solves on an 8 ms one. These check the
 # mechanics -- that the two partitions really are separate, that the program ticks at the fast
 # rate and solves at the slow one -- not closed-loop performance, which mpc_rollouts.jl is for.
@@ -91,14 +98,18 @@ end
     # one through the operator the model is built on.
     @test isdefined(QC.SynchToolkit, :Latest)      # DiscreteComponents.Latest is built on it
 
-    ctrl = QC.MPCMultirateController(; Ts, Ts_fast, Np = 75)
+    gen = QC.compile_program(QC.FurutaMPCMultirateHardware; Ts, Ts_fast, Np = 75)
+    # The two clocks are read off the model: the driver ticks the *fast* one and the node takes
+    # a second boolean for the slow one, raised every eighth tick.
+    @test gen.divisors == (1, 8)
+    @test gen.Ts == Ts_fast
+    ctrl = QC.ProgramRuntime(gen)
     @test ctrl.divisors == (1, 8)
-    @test ctrl.Ts == Ts_fast                       # the driver ticks the *fast* clock
-    @test_throws ArgumentError QC.MPCMultirateController(; Ts, Ts_fast, backend = :c)
-    # The ratio has to be an integer of at least 2, and is what reaches the compiler rather than
-    # a second period that could disagree with the model's in the last bit.
-    @test_throws ArgumentError QC.generate_mpc_multirate_controller(; Ts = 0.008, Ts_fast = 0.003)
-    @test_throws ArgumentError QC.generate_mpc_multirate_controller(; Ts = 0.001, Ts_fast = 0.001)
+    @test_throws ArgumentError QC.ProgramRuntime(gen; backend = :c)
+    # A slow period that is not an integer multiple of the fast one cannot be ticked from one
+    # loop, and is rejected before anything is compiled.
+    @test_throws ArgumentError QC.compile_program(QC.FurutaMPCMultirateHardware; Ts = 0.008,
+                                                  Ts_fast = 0.003)
 
     x = [0.0, 0.01, 0.0, 0.0]
     applied = Ref(0.0)
@@ -123,7 +134,6 @@ end
     @test findall(o -> o.exitflag !== nothing, outs2) == [1, 9, 17]
 
     # A multirate program has no C harness: run_hardware.c drives one clock tick.
-    gen = QC.generate_mpc_multirate_controller(; Ts, Ts_fast, Np = 75)
     @test_throws ArgumentError QC.export_program_c(gen, mktempdir(); Tf = 1.0)
 end
 

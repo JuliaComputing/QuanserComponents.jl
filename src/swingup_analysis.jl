@@ -51,9 +51,9 @@ function DyadInterface.run_analysis(spec::FurutaSwingupBaseSpec)
     # the spec field by field. `Ts` and `log_file` are the exception: they are structural, so
     # they are not parameters of the built system and have to be passed to the constructor.
     log_file = program_log_path(spec, SWINGUP_LOG_FILE)
-    gen = generate_swingup_controller(; spec.Ts, log_file, param_overrides = spec.overrides)
+    gen = compile_program(FurutaHardware; spec.Ts, log_file, param_overrides = spec.overrides)
     Tf = spec.Tf > 0 ? spec.Tf : 10.0
-    hwrun = run_on_target(gen, SWINGUP_OUTPUT_NAMES, spec; Tf, gains = (; L))
+    hwrun = run_on_target(gen, spec; Tf, gains = (; L))
     return FurutaSwingupSolution(spec, hwrun,
                                  collect(float.(something(L, gen.tuning_defaults[:L]))))
 end

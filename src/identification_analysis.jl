@@ -49,13 +49,11 @@ function DyadInterface.run_analysis(spec::FurutaIdentificationBaseSpec)
     # file names are structural, so they are not parameters of the built system and are passed to
     # the constructor; the safety angles are converted from degrees here for the same reason they
     # are stated in degrees — that is how the arm's limits are quoted in the manual.
-    gen = generate_identification_controller(; spec.Ts, traj_file = spec.traj_file,
-                                              traj_column = spec.traj_column, log_file,
-                                              warn = deg2rad(spec.warn_deg),
-                                              abort = deg2rad(spec.abort_deg),
-                                              param_overrides = spec.overrides)
+    gen = compile_program(FurutaIdentification; spec.Ts, spec.traj_file, spec.traj_column,
+                          log_file, warn = deg2rad(spec.warn_deg), abort = deg2rad(spec.abort_deg),
+                          param_overrides = spec.overrides)
     spec.run && @info "Replaying the designed input" nsamples duration_s = Tf
-    hwrun = run_on_target(gen, IDENTIFICATION_OUTPUT_NAMES, spec; Tf)
+    hwrun = run_on_target(gen, spec; Tf)
 
     # Read back whatever log is there, so `run = false` inspects an earlier run without the
     # hardware. A deployed run leaves the fetched copy in `output_dir`, which is `hwrun.log`.

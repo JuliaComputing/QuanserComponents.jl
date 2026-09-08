@@ -33,9 +33,9 @@ With `realtime = true` the component also paces the program: after the motor wri
 until the wall clock reaches the next tick's time (`hw_realtime_wait`, the n-th tick ending
 `n` sample times after the first), and reports how late it was in `late`. That is for a
 program that is not driven by a timing loop but *simulated* -- an ODE solver stepping the
-clocked partition as fast as it can, as `run_mpc_hardware_model` does so that the MPC's
+clocked partition as fast as it can, as `run_ode!` does so that the MPC's
 predicted trajectories are recorded for `mpc_gui` -- yet has to talk to the real device at
-its real rate. A program run by `run_program!`, whose loop keeps time, leaves it off.
+its real rate. A program run by `run_inprocess!`, whose loop keeps time, leaves it off.
 
 Clock-agnostic.
 

@@ -74,11 +74,25 @@ render(model, sol; filename = "swingup.mp4")     # animation, real time at 30 fr
 
 `FurutaHardware` is the same controller with the plant replaced by `HardwareMeasurement`,
 `HardwareCommand`, `HardwareDiagnostics` and a `DataLogger`. Because it is purely discrete,
-`SynchToolkit.stkcompile` turns it into a standalone synchronous program that can run in
-process (`SwingupController(; backend = :julia)` or `:c`) or be exported as standalone C
-(`export_swingup_c`). The `FurutaSwingupExperiment` analysis builds the program, exports the C,
-copies it to a Raspberry Pi with the QUBE attached, builds and runs it there and streams the log
-back. Without a device, `FurutaSwingupExperiment(; run = false)` still builds and exports.
+`SynchToolkit.stkcompile` turns it into a standalone synchronous program. Every program in this
+package is handled the same way: `compile_program(Model; ...)` compiles it, with everything the
+program needs beyond its constructor declared once in the model's `ProgramSpec`, and the result
+is put on the rig by one of three functions, each named for how it runs the program:
+
+```julia
+gen  = compile_program(FurutaHardware; Ts = 0.005)
+ctrl = ProgramRuntime(gen; backend = :c, umax = 5.0)   # :julia or :c; the tunables by name
+run_inprocess!(ctrl; Tf = 10)                          # a Julia timing loop ticks the node here
+run_c!(gen; Tf = 10, deploy_host = "pi@192.168.1.49")  # standalone C, built and run here or on the Pi
+run_ode!(FurutaMPCHardware, prob)                      # an ODE solver steps the model, paced by itself
+```
+
+`prob` is an `ODEProblem` over the model built with the spec's `ode_kwargs` (see `run_ode!`).
+
+The `FurutaSwingupExperiment` analysis builds the program, exports the C, copies it to a Raspberry
+Pi with the QUBE attached, builds and runs it there and streams the log back (`run_on_target`
+picks between the in-process and the C route from the analysis' parameters). Without a device,
+`FurutaSwingupExperiment(; run = false)` still builds and exports.
 
 The hardware I/O calls into `csrc/qube_hw.c`, which needs the Quanser HIL SDK; the exported C
 is built on the target for the same reason. See `test/runtests.jl` for how the controller is
@@ -136,13 +150,13 @@ prob = ODEProblem(ssys, Pair[ssys.qubependulum.shoulder_joint.render => false,
                              ssys.qubependulum.shoulder_joint.phi => 0.0], (0.0, 10.0))
 sol = solve(prob; dt = 0.01)
 
-ctrl = MPCController(; Ts = 0.01, Np = 60)     # the hardware program, see test/hardware_mpc.jl
+ctrl = ProgramRuntime(compile_program(FurutaMPCHardware; Ts = 0.01, Np = 60))   # the hardware program, see test/hardware_mpc.jl
 ```
 
 `test/hardware_mpc.jl` runs it on the rig. Two parameters are runtime-settable (`TuningGains`):
 `command_umax`, a clamp on the command before the amplifier for a first run at reduced voltage,
 and `velocity_filter`. The script then runs the same model against the device a second way, as a
-simulation (`run_mpc_hardware_model`: `HardwareDiagnostics(realtime = true)` paces the ODE
+simulation (`run_ode!`: `HardwareDiagnostics(realtime = true)` paces the ODE
 solver's ticks on the wall clock, `output_trajectories = true` makes the MPC record its
 predictions) and opens `MPCComponents.mpc_gui` on the solution to inspect the predicted
 trajectories and the solver residuals tick by tick.
@@ -200,13 +214,14 @@ ssys = multibody(model, additional_passes = [SynchToolkit.compile_lustre])
 sol = solve(ODEProblem(ssys, Pair[ssys.qubependulum.elbow_joint.phi => deg2rad(0.15)],
                        (0.0, 4.0)); dt = 0.001)          # step the *fastest* clock
 
-ctrl = MPCMultirateController(; Ts = 0.008, Ts_fast = 0.001, Np = 75)
+ctrl = ProgramRuntime(compile_program(FurutaMPCMultirateHardware; Ts = 0.008, Ts_fast = 0.001, Np = 75))
 out = ctrl()        # one 1 ms tick; the MPC fires on every 8th, `nothing` in between
 ```
 
-`Np` is 75 rather than 60 so the horizon stays the 0.6 s that was tuned at 10 ms. The compiled node
-takes one boolean per clock and `ProgramRuntime` generates that pattern, so the driver still ticks
-once per `Ts_fast`; there is no C harness for it, since `run_hardware.c` drives a single tick.
+`Np` is 75 rather than 60 so the horizon stays the 0.6 s that was tuned at 10 ms. `compile_program`
+reads the two clocks off the model, the compiled node takes one boolean per clock and
+`ProgramRuntime` generates that pattern, so the driver still ticks once per `Ts_fast`; there is no C
+harness for it, since `run_hardware.c` drives a single tick.
 
 ### Environment
 
@@ -225,10 +240,12 @@ longer exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.j
 KeyError: key (control_system₊mpc₊u(t))[1] not found
 ```
 
-(`MPCController` checks for this and says so). This branch therefore checks in `Manifest.toml`
-and `test/Manifest.toml`, resolved against the pinned stack, with the two packages that have to
-come from local checkouts recorded relative to this repository: `../MPCComponents` (at
-`feat/synchjulia-0.8`, which drops SynchCompiler) and `../MultibodyComponents` (the
+(`compile_program` checks for this and says so). This branch therefore checks in `Manifest.toml`
+and `test/Manifest.toml`, resolved against the pinned stack. MPCComponents comes from its GitHub
+`main` (which has to include
+[JuliaComputing/MPCComponents.jl#31](https://github.com/JuliaComputing/MPCComponents.jl/pull/31):
+without it the multibody prediction model is rejected as time-varying), and one package has to
+come from a local checkout recorded relative to this repository: `../MultibodyComponents` (the
 `~/.julia/dev` checkout; the registered release does not resolve against these pins). With both
 next to the repo,
 

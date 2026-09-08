@@ -113,9 +113,9 @@ Ts = 0.005
 ##
 # Code generation for the swing-up controller.
 #
-# `QC.generate_swingup_controller` / `SwingupController` compile the
-# discrete `SwingupWithHoming` controller into a standalone SynchJulia node (Julia- or
-# C-executable), and `export_swingup_c` writes C sources. The test below drives the
+# `QC.compile_program(FurutaHardware)` compiles the discrete `SwingupWithHoming` controller
+# into a standalone SynchJulia node, `ProgramRuntime` makes it executable in Julia or C, and
+# `export_program_c` writes C sources. The test below drives the
 # generated controller in closed loop against the Dyad `QubePendulum`, discretized with
 # `SeeToDee.Rk4`. On the real rig the same node instead runs `open_hardware!(:hil)`, with
 # no Julia in the loop.
@@ -138,8 +138,10 @@ import DyadCompilerPasses
     end
 
     # ---- generated controller: compile once, run on both backends ----------
+    gen = QC.compile_program(QC.FurutaHardware; Ts)
+    @test gen.divisors == (1,) && gen.Ts == Ts     # single-rate: the loop ticks the model's Ts
     @testset "compile and step ($backend)" for backend in (:julia, :c)
-        ctrl = QC.SwingupController(; Ts, backend)
+        ctrl = QC.ProgramRuntime(gen; backend)
         # No log open: `log_row` is a no-op returning 0, so the program runs unchanged.
         @test ctrl.log.columns == QC.SWINGUP_LOG_COLUMNS
         # near hanging -> small command; near upright -> stabilizer engages
@@ -163,8 +165,8 @@ import DyadCompilerPasses
     # :julia and :c backends must produce identical control signals. This is the
     # single most important property of the ccall-based hardware I/O: the same
     # controller definition, the same C implementation of the I/O, both targets.
-    let cj = QC.SwingupController(; Ts, backend=:julia),
-        cc = QC.SwingupController(; Ts, backend=:c)
+    let cj = QC.ProgramRuntime(gen; backend = :julia),
+        cc = QC.ProgramRuntime(gen; backend = :c)
         step_all(c) = [(hold(0.0, el); c().u) for el in (0.01, 0.5, 1.5, Float64(π))]
         @test step_all(cj) ≈ step_all(cc)
     end
@@ -172,7 +174,7 @@ import DyadCompilerPasses
     # ---- C source export ----------------------------------------------------
     @testset "C export" begin
         dir = mktempdir()
-        r = QC.export_swingup_c(dir; Ts)
+        r = QC.export_program_c(gen, dir; Tf = 10.0)
         @test isfile(joinpath(dir, "top.c"))
         @test isfile(joinpath(dir, "top.h"))
         csrc = read(joinpath(dir, "top.c"), String)
@@ -227,7 +229,7 @@ import DyadCompilerPasses
         # node's `extern qube_hw_*` declarations resolve against qube_hw.c.
         if isdir("/opt/quanser/hil_sdk") &&
            (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
-            exe = QC.compile_hardware_harness(dir)
+            exe = QC.compile_c_harness(dir)
             @test isfile(exe)
         end
     end
@@ -319,7 +321,7 @@ import DyadCompilerPasses
             SymT = ModelingToolkit.SymbolicT
             ov = Dict{SymT, SymT}(ModelingToolkit.unwrap(nm.umax) =>
                                   ModelingToolkit.unwrap(Num(5.0)))
-            gen5 = QC.generate_swingup_controller(; Ts, param_overrides = ov)
+            gen5 = QC.compile_program(QC.FurutaHardware; Ts, param_overrides = ov)
             @test gen5.tuning_defaults[:umax] == 5.0
         end
         # With `export_c = false` the analysis would run in-process and export nothing.
@@ -345,7 +347,7 @@ import DyadCompilerPasses
     # the same code and the timing loop around the program writes nothing.
     @testset "swing-up run log" begin
         logfile = joinpath(mktempdir(), "run.csv")
-        ctrl = QuanserComponents.SwingupController(; Ts, backend = :julia, log_file = logfile)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaHardware; Ts, log_file = logfile))
         @test ctrl.log.file == logfile
         applied = hold(0.0, 0.01)
         QuanserComponents.open_log!(ctrl.log)
@@ -374,18 +376,18 @@ import DyadCompilerPasses
     end
 
     # ---- the in-process timing loop ------------------------------------------
-    # `run_program!` is what a hardware run does when it is not exported to C: open the device
-    # and the log, tick every Ts, close both. It is shared by both programs, so this exercises
+    # `run_inprocess!` is what a hardware run does when it is not exported to C: open the device
+    # and the log, tick every Ts, close both. It is shared by every program, so this exercises
     # it with the swing-up one against a first-order axis (which never swings up — the point
     # here is the loop, not the controller).
-    @testset "run_program!" begin
+    @testset "run_inprocess!" begin
         logfile = joinpath(mktempdir(), "loop.csv")
-        ctrl = QuanserComponents.SwingupController(; Ts, backend = :julia, log_file = logfile)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaHardware; Ts, log_file = logfile))
         w, phi = Ref(0.0), Ref(0.0)
         QuanserComponents.bind_hardware!(
             measure = () -> (phi[], 0.0),
             control = u -> (w[] += Ts * u; phi[] += Ts * w[]; nothing))
-        r = QuanserComponents.run_program!(ctrl; Tf = 0.25, mode = :callback)
+        r = QuanserComponents.run_inprocess!(ctrl; Tf = 0.25, mode = :callback)
         @test r.ticks == 50
         @test r.rows == r.ticks                    # the program wrote one row per tick
         @test r.log_file == logfile
@@ -409,8 +411,8 @@ import DyadCompilerPasses
         logfile = joinpath(mktempdir(), "friction.csv")
         # Explicit gains: this testset is about the logging, and the model's `velocity_pi`
         # values are whatever the loop is currently tuned to.
-        ctrl = QuanserComponents.FrictionController(; Ts, backend, log_file = logfile,
-                                                     K = 0.05, Ti = 0.5)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaFriction; Ts, log_file = logfile);
+                                 backend, K = 0.05, Ti = 0.5)
         @test ctrl.log.file == logfile          # the model carries the filename, not the driver
 
         # A first-order axis to close the velocity loop around. Coulomb friction included,
@@ -607,9 +609,8 @@ import DyadCompilerPasses
 
         # With a log present, `run = false` re-fits it without touching the hardware — the
         # workflow that used to need a separate script.
-        ctrl = QuanserComponents.FrictionController(; Ts, backend = :julia,
-                                                     log_file = logfile,
-                                                     K = 0.05, Ti = 0.5)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaFriction; Ts, log_file = logfile);
+                                 K = 0.05, Ti = 0.5)
         wr, phi = Ref(0.0), Ref(0.0)
         QuanserComponents.bind_hardware!(
             measure = () -> (phi[], 0.0),
@@ -682,8 +683,8 @@ import DyadCompilerPasses
     # which program it carries. Nothing about the experiment needed changing for this.
     @testset "friction experiment C export" begin
         dir = mktempdir()
-        gen = QuanserComponents.generate_friction_controller(; Ts,
-                                    log_file = QuanserComponents.FRICTION_LOG_FILE)
+        gen = QC.compile_program(QC.FurutaFriction; Ts,
+                                 log_file = QuanserComponents.FRICTION_LOG_FILE)
         r = QuanserComponents.export_program_c(gen, dir;
                                     Tf = QuanserComponents.friction_sweep_duration())
         @test isfile(joinpath(dir, "top.c")) && !isempty(r.mangled)
@@ -701,7 +702,7 @@ import DyadCompilerPasses
         end
         if isdir("/opt/quanser/hil_sdk") &&
            (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
-            @test isfile(QuanserComponents.compile_hardware_harness(dir))
+            @test isfile(QuanserComponents.compile_c_harness(dir))
         end
     end
 
@@ -755,8 +756,9 @@ import DyadCompilerPasses
     @testset "identification replay ($backend)" for backend in (:julia, :c)
         trajfile = joinpath(pkgdir(QuanserComponents), "input_design.csv")
         logfile = joinpath(mktempdir(), "replay.csv")
-        ctrl = QuanserComponents.IdentificationController(; Ts, backend, traj_file = trajfile,
-                                                          log_file = logfile, umax = 3.0)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaIdentification; Ts,
+                                                    traj_file = trajfile, log_file = logfile);
+                                 backend, umax = 3.0)
         @test ctrl.traj.file == trajfile     # the model carries it, not the driver
         @test ctrl.log.columns == QuanserComponents.IDENTIFICATION_LOG_COLUMNS
         # A free arm: the command accelerates it and nothing restores it, which is what makes
@@ -786,9 +788,9 @@ import DyadCompilerPasses
     # what the old driver-side `break` could not do: keep commanding 0 afterwards.
     @testset "safety supervisor" begin
         trajfile = joinpath(pkgdir(QuanserComponents), "input_design.csv")
-        ctrl = QuanserComponents.IdentificationController(; Ts, backend = :julia,
-                            traj_file = trajfile, log_file = joinpath(mktempdir(), "t.csv"),
-                            umax = 3.0)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaIdentification; Ts,
+                            traj_file = trajfile, log_file = joinpath(mktempdir(), "t.csv"));
+                                 umax = 3.0)
         arm = Ref(deg2rad(130.0))            # past abort (120)
         applied = Float64[]
         QuanserComponents.bind_hardware!(measure = () -> (arm[], 0.0),
@@ -805,9 +807,9 @@ import DyadCompilerPasses
         @test all(iszero, applied)
 
         # Between warn and abort the command is a pull-back towards centre, not the design.
-        ctrl2 = QuanserComponents.IdentificationController(; Ts, backend = :julia,
-                            traj_file = trajfile, log_file = joinpath(mktempdir(), "w.csv"),
-                            umax = 3.0)
+        ctrl2 = QC.ProgramRuntime(QC.compile_program(QC.FurutaIdentification; Ts,
+                            traj_file = trajfile, log_file = joinpath(mktempdir(), "w.csv"));
+                                  umax = 3.0)
         QuanserComponents.bind_hardware!(measure = () -> (deg2rad(100.0), 0.0),
                                         control = u -> nothing)
         QuanserComponents.open_traj!(ctrl2.traj)
@@ -827,8 +829,8 @@ import DyadCompilerPasses
         # One column, like input_design.csv: the `time` column was dropped from the format
         # because it only ever restated `(k-1) * Ts`, and the replay is indexed by tick.
         write(short, "u\n1.0\n2.0\n")
-        ctrl = QuanserComponents.IdentificationController(; Ts, backend = :julia,
-                            traj_file = short, log_file = joinpath(dir, "l.csv"))
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaIdentification; Ts,
+                            traj_file = short, log_file = joinpath(dir, "l.csv")))
         QuanserComponents.bind_hardware!(measure = () -> (0.0, 0.0), control = u -> nothing)
         @test QuanserComponents.open_traj!(ctrl.traj) == 2
         QuanserComponents.open_log!(ctrl.log)
@@ -861,7 +863,7 @@ import DyadCompilerPasses
         @test_throws ArgumentError DI.artifacts(sol, :Trace)
         if isdir("/opt/quanser/hil_sdk") &&
            (Sys.which("cc") !== nothing || Sys.which("gcc") !== nothing)
-            @test isfile(QuanserComponents.compile_hardware_harness(dir))
+            @test isfile(QuanserComponents.compile_c_harness(dir))
         end
         @test occursin("trajectory:", sprint(show, MIME"text/plain"(), sol))
     end
@@ -948,7 +950,7 @@ import DyadCompilerPasses
         pp = ModelingToolkit.MTKParameters(io_sys, Dict(plant.voltage => 0.0))
         f_disc = SeeToDee.Rk4(f_oop, Ts; supersample=4)
 
-        ctrl = QuanserComponents.SwingupController(; Ts, backend=:julia)
+        ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaHardware; Ts))
         N = round(Int, 12.0 / Ts)
         x0 = zeros(length(dvs))
         x0[2] = deg2rad(0.15)   # near hanging

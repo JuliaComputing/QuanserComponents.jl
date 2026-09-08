@@ -2,7 +2,7 @@
 
 ## FurutaMPC: the solver settings, and where the tick goes
 
-Measured by ticking the compiled program (`MPCController`, the very node the rig runs) against the
+Measured by ticking the compiled program (a `ProgramRuntime`, the very node the rig runs) against the
 simulated plant -- `test/mpc_rollouts.jl`'s harness with the timing kept and the plots dropped --
 24 rollouts of 6 s per configuration from the same initial conditions (3 from rest near hanging,
 21 from the random operating space), 14 400 ticks each, every configuration swinging up and
@@ -189,7 +189,7 @@ fire back to back. Two or three of every eight encoder samples therefore arrive 
 about 0 and about 2.3 ms rather than 1 ms -- on the very clock whose purpose is a clean 1 kHz
 estimate. The 40 to 150 ms tail ticks (0.3 % of solves) swallow 40 to 150 fast slots.
 
-`run_program!` keeps an absolute schedule and never skips, so this is jitter rather than failure,
+`run_inprocess!` keeps an absolute schedule and never skips, so this is jitter rather than failure,
 and the `dt` and `exec` log columns measure it directly. If a rig run shows it mattering, `Ts_fast`
 is structural: a 2 ms base with a divisor of 4 keeps the 8 ms MPC and puts the solve at half a
 slot. Worth checking first is whether the device sustains 1 kHz reads at all -- each `hil_read` is
