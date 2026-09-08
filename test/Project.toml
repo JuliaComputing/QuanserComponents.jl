@@ -36,7 +36,6 @@ LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/bagg
 MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
 MultibodyComponents = {path = "../../MultibodyComponents"}
 QuanserComponents = {path = ".."}
-SynchToolkit = {rev = "mpccomponents/sj0.8", url = "https://github.com/JuliaComputing/SynchToolkit.jl.git"}
 acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
 tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_renderer_jll.jl"}
 

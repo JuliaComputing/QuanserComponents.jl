@@ -106,34 +106,6 @@ mpc_log(file = MPC_LOG_FILE) = ProgramLog(file, MPC_LOG_COLUMNS)
 _mpc_outputs(nsys) = [_swingup_outputs(nsys); nsys.control_system.exitflag]
 const MPC_OUTPUT_NAMES = (:row, :shoulder, :elbow, :u, :exitflag)
 
-# The MPC's `u` is an array variable of the clocked partition. Registry SynchToolkit 0.5.0
-# indexes its clock table by the array element and fails inside `stkcompile` with
-# `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch this package pins
-# (JuliaComputing/SynchToolkit.jl#185) looks the element up through `lookup_var_clock`, so
-# that function's presence is the feature test. SynchToolkit `main` would fail it: it
-# dropped `lookup_var_clock` with the #186 clock rework and never re-landed #185, which is
-# why the pin is a branch and not `main` even though `main` has the `Latest` operator the
-# multirate model needs.
-function _mpc_prerequisites()
-    isdefined(SynchToolkit, :lookup_var_clock) ||
-        error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) cannot \
-               compile a program with array clocked variables, which the MPC's outputs are. \
-               Resolve SynchToolkit from the mpccomponents/sj0.8 branch -- the [sources] of this \
-               package's Project.toml pin it and the rest of the MPC stack; see the README's \
-               \"Nonlinear MPC\" section.")
-    return
-end
-
-function _mpc_multirate_prerequisites()
-    _mpc_prerequisites()
-    isdefined(SynchToolkit, :Latest) ||
-        error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) has no \
-               `Latest` operator, which the multirate model's clock transitions need. Resolve it \
-               from the mpccomponents/sj0.8 branch -- the [sources] of this package's Project.toml \
-               pin it; see the README's \"Nonlinear MPC\" section.")
-    return
-end
-
 # What the model has to be built with for `run_ode!`: `realtime = true` makes `HardwareDiagnostics` pace the
 # ticks on the wall clock, and `output_trajectories = true` makes the MPC record its predicted
 # trajectories and solver residuals, which is what that route is for. Its warm-up clamps the
@@ -160,7 +132,6 @@ program_spec(::typeof(FurutaMPCHardware)) = ProgramSpec(;
     output_names = MPC_OUTPUT_NAMES,
     log = mpc_log,
     backends = (:julia,),
-    prerequisites = _mpc_prerequisites,
     ode_kwargs = _MPC_ODE_KWARGS,
     ode_warmup = _mpc_ode_warmup)
 
@@ -180,6 +151,5 @@ program_spec(::typeof(FurutaMPCMultirateHardware)) = ProgramSpec(;
     output_names = MPC_OUTPUT_NAMES,
     log = mpc_log,
     backends = (:julia,),
-    prerequisites = _mpc_multirate_prerequisites,
     ode_kwargs = _MPC_ODE_KWARGS,
     ode_warmup = _mpc_ode_warmup)

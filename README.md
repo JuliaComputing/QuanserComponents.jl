@@ -31,8 +31,8 @@ pkg> add ModelingToolkit MultibodyComponents SynchToolkit OrdinaryDiffEqDefault
 
 Those commands resolve `main` only for someone who can reach the repositories the MPC
 controller is pinned to: MPCComponents is not registered, and `[sources]` names branch
-builds of SynchToolkit, SynchJulia, DiscreteComponents and LinearMPC, two unregistered
-acados JLLs and two local checkouts (see [Environment](#environment) below). Everyone
+builds of DiscreteComponents and LinearMPC, two unregistered acados JLLs and one local
+checkout (see [Environment](#environment) below). Everyone
 else installs the branch `simulation-only`, which is `main` as of the commit before the
 MPC work and resolves entirely to registered versions:
 
@@ -252,24 +252,26 @@ harness for it, since `run_hardware.c` drives a single tick.
 
 ### Environment
 
-MPCComponents is not registered, and the MPC stack it needs is not all released. The pins that
-matter are SynchToolkit's branch `mpccomponents/sj0.8`, which is the only one with both the
-`Latest` clock-crossing operator the multirate model needs
-(JuliaComputing/SynchToolkit.jl#199) and array clocked variables in `stkcompile` (#185); a
-DiscreteComponents integration branch carrying `AlphaBetaGammaFilter`
-(JuliaComputing/DiscreteComponents.jl#119) until that merges; and unregistered LinearMPC and
-acados forks. SynchJulia is *not* pinned -- 0.8.1 is in DyadRegistry -- and SynchCompiler no
-longer exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
-**Registry SynchToolkit 0.5.0 does not have the array support**: with it, compiling
+MPCComponents is not registered, and the MPC stack it needs is not all released. What is still
+pinned is a DiscreteComponents integration branch carrying `AlphaBetaGammaFilter`
+(JuliaComputing/DiscreteComponents.jl#119) and the `Latest` clock transition
+(JuliaComputing/DiscreteComponents.jl#121) until both merge, and unregistered LinearMPC and
+acados forks.
+
+The whole Synch stack comes from DyadRegistry. SynchJulia is 0.8.1, and SynchCompiler no longer
+exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.jl#205. SynchToolkit is
+0.5.1 (JuliaComputing/SynchToolkit.jl#214), which has both the `Latest` clock-crossing operator
+the multirate model needs (JuliaComputing/SynchToolkit.jl#199) and, through the clock rework of
+JuliaComputing/SynchToolkit.jl#186, the array clocked variables the MPC's outputs are. Registry
+0.5.0 has neither, so `[compat]` reads `SynchToolkit = "0.5.1"`; with 0.5.0, compiling
 `FurutaMPCHardware` fails inside `stkcompile` with
 
 ```
 KeyError: key (control_system₊mpc₊u(t))[1] not found
 ```
 
-(`compile_program` checks for this and says so). This branch therefore checks in `Manifest.toml`
-and `test/Manifest.toml`, resolved against the pinned stack. MPCComponents comes from its GitHub
-`main` (which has to include
+This branch checks in `Manifest.toml` and `test/Manifest.toml`, resolved against the pinned stack.
+MPCComponents comes from its GitHub `main` (which has to include
 [JuliaComputing/MPCComponents.jl#31](https://github.com/JuliaComputing/MPCComponents.jl/pull/31):
 without it the multibody prediction model is rejected as time-varying), and one package has to
 come from a local checkout recorded relative to this repository: `../MultibodyComponents` (the
@@ -281,11 +283,9 @@ julia --project=path/to/QuanserComponents -e 'using Pkg; Pkg.instantiate()'   # 
 julia --project=path/to/QuanserComponents/test test/hardware_mpc.jl           # the scripts
 ```
 
-is all it takes; check with `using SynchToolkit` that both
-`isdefined(SynchToolkit, :lookup_var_clock)` and `isdefined(SynchToolkit, :Latest)` hold.
-For an environment of your own, copy the `[sources]` block (and the `[extras]` entries they
-refer to) from Project.toml into it. The first `using` precompiles the multibody and acados
-trees, a few minutes.
+is all it takes. For an environment of your own, copy the `[sources]` block (and the `[extras]`
+entries they refer to) from Project.toml into it. The first `using` precompiles the multibody and
+acados trees, a few minutes.
 
 ## Layout
 
