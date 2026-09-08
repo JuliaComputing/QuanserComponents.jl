@@ -20,6 +20,13 @@ pkg> add https://github.com/JuliaComputing/QuanserComponents.jl
 
 or, for development, clone the repository and `pkg> dev path/to/QuanserComponents`.
 
+The snippets below reach for four of the dependencies by name, so add them to the
+environment as well:
+
+```julia
+pkg> add ModelingToolkit MultibodyComponents SynchToolkit OrdinaryDiffEqDefault
+```
+
 ### The simulation-only branch
 
 Those commands resolve `main` only for someone who can reach the repositories the MPC
