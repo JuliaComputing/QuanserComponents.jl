@@ -1,17 +1,28 @@
 # Building and running a synchronous program for the QUBE rig, whichever program it is.
 #
-# Both programs in this library -- `FurutaHardware` (swing-up) and `FurutaFriction`
-# (constant-velocity friction experiment) -- are purely discrete models that contain their
-# own hardware I/O and their own logging, so compiling one and running it is the same job
-# twice over: build the model with the analysis' overrides applied, resolve the parameters
-# that are to stay runtime-settable, `stkcompile` it, construct the parameter structs behind
-# a single world-age boundary, then tick it every `Ts` with the device and the log open.
-# What differs is the model constructor, which parameters are tunable, which outputs come
-# back and what the log columns mean; all four are arguments here.
+# Every program in this library -- `FurutaHardware` (swing-up), `FurutaFriction` (friction
+# experiment), `FurutaIdentification` (open-loop replay), `FurutaMPCHardware` and
+# `FurutaMPCMultirateHardware` (MPC) -- is a purely discrete model that contains its own hardware
+# I/O and its own logging, so compiling one and running it is the same job every time: build the
+# model with the overrides applied, resolve the parameters that are to stay runtime-settable,
+# `stkcompile` it, construct the parameter structs, then tick it against the device with the log
+# open. What differs from program to program -- which parameters are tunable, which outputs come
+# back, what the log columns mean -- is declared once per model in a [`ProgramSpec`](@ref), which
+# [`program_spec`](@ref) returns for the model's constructor.
 #
-# The specifics live in codegen.jl (swing-up) and friction.jl (friction experiment), which
-# are thin by design: if something in one of them is not about *that* program, it belongs
-# here.
+# There are three ways to put a program on the rig, and each is named for what it is:
+#
+#   - [`run_inprocess!`](@ref) ticks a compiled node from a Julia timing loop in this process, on
+#     either SynchJulia backend. The only route for the MPC programs, whose prediction model has no
+#     symbolic form to render to C.
+#   - `run_c!` (harness.jl) exports the node as standalone C, builds it here or on another machine
+#     and runs that binary.
+#   - [`run_ode!`](@ref) does not compile a node at all: an ODE solver steps the model, paced by the
+#     model itself, so that every clocked variable ends up in a solution object.
+#
+# The per-program files (codegen.jl, friction.jl, identification.jl, mpc.jl) hold nothing but the
+# model's `ProgramSpec` and what the model is about; if something in one of them is not about
+# *that* program, it belongs here.
 
 using SynchToolkit
 using SynchToolkit: ClockedOutput, InputClock, ParametersStruct
@@ -24,7 +35,76 @@ using OrderedCollections: OrderedDict
 # into one map) is owned by SymbolicIndexingInterface; ModelingToolkit no longer re-exports it.
 using SymbolicIndexingInterface: default_values
 
-export ProgramLog, ProgramRuntime, run_program!, read_log
+export ProgramSpec, program_spec, ProgramLog, ProgramTrajectory, CompiledProgram,
+       compile_program, build_parameter_structs, ProgramRuntime, run_inprocess!, run_ode!,
+       read_log
+
+# ---------------------------------------------------------------------------
+## What a program declares about itself
+# ---------------------------------------------------------------------------
+"""
+    ProgramSpec(; name, tunables, outputs, output_names, log, traj=nothing, backends=(:julia, :c),
+                  prerequisites, check, ode_kwargs=nothing, ode_warmup=nothing)
+
+What [`compile_program`](@ref) and the run functions need to know about a model beyond its
+constructor. One is defined per program by a method of [`program_spec`](@ref) on the model's
+constructor type.
+
+  - `name`: the system name the model is built with.
+  - `tunables`: model parameter => field name, for the runtime-settable `TuningGains` struct. Each
+    parameter is given as a function of the un-namespaced system (`nsys -> nsys.umax`), and has to
+    be *unbound* -- see [`resolve_tunables`](@ref).
+  - `outputs`: a function of the un-namespaced system returning the signals the node exposes, in
+    the order [`ProgramRuntime`](@ref) reports them under `output_names`.
+  - `log`: builds the [`ProgramLog`](@ref) the model's `DataLogger` writes, `log(file)` or
+    `log()` for the program's default file.
+  - `traj`: builds the [`ProgramTrajectory`](@ref) the program replays from the model's keyword
+    arguments (`traj(kw::Dict)`), or `nothing` for a program that replays nothing.
+  - `backends`: the SynchJulia backends the program can run on. The MPC programs are `(:julia,)`.
+  - `prerequisites`: called before the model is built; the place to check for compiler features
+    the program needs and fail with a message rather than deep inside `stkcompile`.
+  - `check`: called with the loop period and the resolved tunable values whenever parameter
+    structs are built, for warnings about values that compile but do not work.
+  - `ode_kwargs`: the constructor keywords the model has to be built with for [`run_ode!`](@ref)
+    -- what makes it pace itself in real time and record what that route is run for -- or
+    `nothing` for a model that has no such mode.
+  - `ode_warmup`: a function of the compiled system returning the parameter overrides that make
+    the model read the device without writing to it, for the warm-up run of [`run_ode!`](@ref);
+    `nothing` if the model cannot be clamped that way.
+"""
+struct ProgramSpec
+    name::Symbol
+    tunables::OrderedDict{Any, Symbol}
+    outputs::Any
+    output_names::Tuple{Vararg{Symbol}}
+    log::Any
+    traj::Any
+    backends::Tuple{Vararg{Symbol}}
+    prerequisites::Any
+    check::Any
+    ode_kwargs::Union{Nothing, NamedTuple}
+    ode_warmup::Any
+end
+
+function ProgramSpec(; name::Symbol, tunables::AbstractDict, outputs, output_names,
+                     log, traj = nothing, backends = (:julia, :c),
+                     prerequisites = () -> nothing, check = (Ts, vals) -> nothing,
+                     ode_kwargs = nothing, ode_warmup = nothing)
+    return ProgramSpec(name, OrderedDict{Any, Symbol}(tunables), outputs,
+                       Tuple(output_names), log, traj, Tuple(backends), prerequisites, check,
+                       ode_kwargs, ode_warmup)
+end
+
+"""
+    program_spec(ctor) -> ProgramSpec
+
+The [`ProgramSpec`](@ref) of the program whose model `ctor` constructs. Defined for
+`FurutaHardware`, `FurutaFriction`, `FurutaIdentification`, `FurutaMPCHardware` and
+`FurutaMPCMultirateHardware`; a new program adds a method here and nothing else.
+"""
+program_spec(ctor) =
+    throw(ArgumentError("$ctor is not one of this package's programs: no `program_spec` method \
+                         is defined for it"))
 
 # ---------------------------------------------------------------------------
 ## Runtime-settable parameters
@@ -122,103 +202,206 @@ open_traj!(t::ProgramTrajectory) = open_traj!(t.file; column = t.column)
 open_traj!(::Nothing) = 0
 
 # ---------------------------------------------------------------------------
+## The model's clocks
+# ---------------------------------------------------------------------------
+"""
+    model_clocks(sys) -> Vector{PeriodicClock}
+
+The periodic clocks a model declares, fastest first.
+
+Read off the built system rather than restated by the caller: a `PeriodicClock` component puts
+its clock in the time-domain metadata of its output, so the clocks are known before any
+inference runs. Clock identity is field-wise on `(dt, phase)`, so using the model's own clock
+objects for the node's `InputClock`s cannot name a clock no equation lives on, which a period
+written a second time could do by differing in the last bit.
+"""
+function model_clocks(sys)
+    PC = ModelingToolkit.SciMLBase.PeriodicClock
+    clocks = Set{PC}()
+    for v in ModelingToolkit.unknowns(ModelingToolkit.expand_connections(sys))
+        d = ModelingToolkit.getmetadata(ModelingToolkit.unwrap(v),
+                                        ModelingToolkit.VariableTimeDomain, nothing)
+        d isa PC && push!(clocks, d)
+    end
+    return sort!(collect(clocks); by = c -> c.dt)
+end
+
+# Each clock's period as an integer multiple of the fastest one, fastest first, so `(1,)` for a
+# single-rate program. The node takes one boolean per clock and `ProgramRuntime` raises each
+# every so many ticks of the fastest, which is only right if the periods are integer multiples
+# and the clocks all start together.
+function clock_divisors(clocks)
+    isempty(clocks) &&
+        throw(ArgumentError("the model declares no periodic clock; a program needs at least one"))
+    base = first(clocks).dt
+    all(c -> c.phase == 0, clocks) ||
+        throw(ArgumentError("the model's clocks have to start together (phase 0); got \
+                             $(clocks)"))
+    divisors = map(clocks) do c
+        ratio = c.dt / base
+        d = round(Int, ratio)
+        abs(ratio - d) <= 1e-9 * d ||
+            throw(ArgumentError("the period $(c.dt) of one of the model's clocks is not an \
+                                 integer multiple of the fastest, $base (ratio $ratio); the \
+                                 program ticks the fastest clock and raises the others every \
+                                 so many ticks of it"))
+        d
+    end
+    return Tuple(divisors)
+end
+
+# ---------------------------------------------------------------------------
 ## Compiling
 # ---------------------------------------------------------------------------
 """
-    compile_program(ctor; name, Ts, tunables, outputs, log, param_overrides, overrides...)
+    CompiledProgram
+
+What [`compile_program`](@ref) returns: the model's [`ProgramSpec`](@ref), SynchToolkit's
+`CompiledNode` in `compiled`, the two `ParametersStruct`s (kept because they double as the
+constructors for the structs they were compiled into), the model's resolved values of the
+tunable parameters in `tuning_defaults`, the [`ProgramLog`](@ref) and [`ProgramTrajectory`](@ref)
+the model was built with, the loop period `Ts`, and the `divisors` of the model's clocks.
+
+`Ts` is the period of the model's *fastest* clock, which is the one a driver ticks; for a
+single-rate program that is the model's `Ts`. `divisors` gives every clock's period as an integer
+multiple of it, fastest first, so `(1,)` for a single-rate program and `(1, 8)` for the multirate
+MPC.
+"""
+struct CompiledProgram{C, TS, AS}
+    spec::ProgramSpec
+    compiled::C
+    tuning_struct::TS
+    auto_struct::AS
+    tuning_defaults::OrderedDict{Symbol, Any}
+    log::ProgramLog
+    traj::Union{Nothing, ProgramTrajectory}
+    Ts::Float64
+    divisors::Tuple{Vararg{Int}}
+end
+
+"""
+    compile_program(ctor; log_file=nothing, param_overrides=nothing, overrides...) -> CompiledProgram
 
 Compile one of the rig's programs to a SynchJulia node. This is where the stkcompile call lives.
 
-  - `ctor` is the generated model constructor (`FurutaHardware`, `FurutaFriction`), called
-    with `Ts`, the log file and the overrides.
-  - `tunables` maps model parameters to the field names they take in the runtime-settable
-    `TuningGains` struct; `outputs` is a function of the un-namespaced system returning the
-    signals to expose, in the order the runtime reports them.
-  - `log` is the [`ProgramLog`](@ref) the model's `DataLogger` writes.
-  - `param_overrides` is an analysis' `spec.overrides`; `overrides...` are Dyad
-    `__`-separated model paths, e.g. `control_system__runtime__swingup_catch__gain__k`.
+`ctor` is the model constructor -- `FurutaHardware`, `FurutaFriction`, `FurutaIdentification`,
+`FurutaMPCHardware` or `FurutaMPCMultirateHardware` -- and everything else about the program
+comes from its [`program_spec`](@ref). `overrides...` are passed to the constructor: the model's
+own structural parameters (`Ts`, `Np`, `traj_file`) and Dyad `__`-separated paths into its
+components, e.g. `control_system__energy_weight = 3e4`. `param_overrides` is an analysis'
+`spec.overrides`, the same thing in the form the Dyad compiler produces. `log_file` is where the
+model's `DataLogger` writes; it goes to the model, not just to the driver, so the component that
+writes the file and the call that opens it cannot disagree about which file that is.
 
-Returns `(; compiled, tuning_struct, auto_struct, tuning_defaults, log, Ts)`, where
-`compiled` is SynchToolkit's `CompiledNode` and the two `ParametersStruct`s are kept because
-they double as the constructors for the structs they were compiled into. The node's argument
-order is `(tick::Bool, subclock ticks..., gains::TuningGains, auto::AutoPars)` -- one boolean per
-clock, base clock first.
-
-`Ts` is what the model is built with; `base_Ts` is the period of the clock the driver ticks, and
-defaults to `Ts`. They differ only for a multirate model, whose `Ts` is the period of its *slow*
-partition while the program is ticked at the fast one. The returned `Ts` is `base_Ts`, since that
-is the loop period [`run_program!`](@ref) keeps.
-
-`divisors` declares the model's further clocks by their period as an integer multiple of
-`base_Ts`, e.g. `[8]` for a second clock eight times slower. Empty (the default) is a single-rate
-program and compiles to exactly what it did before. The periods are derived here from one number
-and an integer rather than restated, so they cannot disagree with the model's in the last bit --
-`8 * 0.001 === 0.008` holds, but only because the ratio is a power of two.
-[`ProgramRuntime`](@ref) generates the tick pattern, so a caller still ticks once per `base_Ts`.
+The node's argument order is `(ticks::Bool..., gains::TuningGains, auto::AutoPars)` -- one
+boolean per clock of the model, fastest first. The clocks are read off the built model
+([`model_clocks`](@ref)), so a multirate model needs nothing declared here: `divisors` in the
+result records each clock's period as an integer multiple of the fastest, and
+[`ProgramRuntime`](@ref) generates the tick pattern from it so that a caller ticks once per
+`Ts`.
 """
-function compile_program(ctor; name::Symbol, Ts, tunables::AbstractDict,
-                         outputs, log::ProgramLog,
-                         traj::Union{Nothing, ProgramTrajectory} = nothing,
-                         base_Ts = Ts, divisors = Int[],
-                         param_overrides = nothing, overrides...)
+function compile_program(ctor; log_file = nothing, param_overrides = nothing, overrides...)
+    spec = program_spec(ctor)
+    spec.prerequisites()
     # Every C library the program calls into has to exist before the `:c` backend links them
     # (the Julia backend only needs them at call time).
     ensure_qube_hw()
     ensure_qube_log()
-    traj === nothing || ensure_qube_traj()
     kw = Dict{Symbol, Any}(overrides)
     merge!(kw, _model_kwargs(param_overrides))
-    sys = ctor(; name, Ts, log_file = log.file, kw...)
+    log = log_file === nothing ? spec.log() : spec.log(log_file)
+    traj = spec.traj === nothing ? nothing : spec.traj(kw)
+    traj === nothing || ensure_qube_traj()
+    sys = ctor(; name = spec.name, log_file = log.file, kw...)
+    clocks = model_clocks(sys)
+    divisors = clock_divisors(clocks)
     # `sys` is the root, so its own name is not part of the flattened symbol names; reach
     # for symbols through the un-namespaced view, which is what `default_values` and
     # `stkcompile` see.
     nsys = ModelingToolkit.toggle_namespacing(sys, false)
     tuning_syms = OrderedDict{Any, Symbol}(
-        ModelingToolkit.unwrap(f(nsys)) => field for (f, field) in tunables)
+        ModelingToolkit.unwrap(f(nsys)) => field for (f, field) in spec.tunables)
     tuning_defaults = resolve_tunables(sys, tuning_syms)
     tuning_struct = ParametersStruct(; arg_name = :gains, struct_name = :TuningGains,
                                       parameters = tuning_syms, generated = false)
     auto_struct = ParametersStruct(; arg_name = :auto, struct_name = :AutoPars)
-    # One `InputClock` per clock in the model, in the order the node's `step` will take them as
-    # boolean arguments. `divisors` gives each further clock's period as an integer multiple of
-    # `Ts` rather than as a period of its own: clock identity is field-wise on `(dt, phase)`, so a
-    # period written twice can differ in a bit, and then the `InputClock` names a clock no
-    # equation lives on and the generated node references an unbound identifier. The clocks are
-    # deliberately unnamed -- `InputClock(clk; name = ...)` reaches `insert_clock(::LustreTranslator,
-    # ...)`, which has no method on this SynchToolkit (fixed upstream by SynchToolkit.jl#189).
-    inputs = SynchToolkit.Argument[InputClock(ModelingToolkit.Clock(base_Ts))]
-    for d in divisors
-        d > 1 || throw(ArgumentError("compile_program: a subclock divisor must be greater than 1, \
-                                      got $d; the base clock is already `base_Ts`"))
-        push!(inputs, InputClock(ModelingToolkit.Clock(d * base_Ts)))
-    end
+    # One `InputClock` per clock of the model, in the order the node's `step` will take them as
+    # boolean arguments. They are deliberately unnamed -- `InputClock(clk; name = ...)` reaches
+    # `insert_clock(::LustreTranslator, ...)`, which has no method on this SynchToolkit (fixed
+    # upstream by SynchToolkit.jl#189).
+    inputs = SynchToolkit.Argument[InputClock(c) for c in clocks]
     push!(inputs, tuning_struct)
     push!(inputs, auto_struct)
     # Neither `name` nor `clock` may be passed to `ClockedOutput`: `name` desynchronises the
     # declared and assigned Lustre names, and `clock` hits a missing branch in
     # SynchToolkit's `build_output`. So the outputs are indexed positionally.
-    outs = [ClockedOutput(o) for o in outputs(nsys)]
+    outs = [ClockedOutput(o) for o in spec.outputs(nsys)]
     @info "Running stkcompile"
     compiled = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
-    return (; compiled, tuning_struct, auto_struct, tuning_defaults, log, traj,
-              Ts = Float64(base_Ts), divisors = (1, Int.(divisors)...))
+    return CompiledProgram(spec, compiled, tuning_struct, auto_struct, tuning_defaults, log,
+                           traj, first(clocks).dt, divisors)
+end
+
+# ---------------------------------------------------------------------------
+## The parameter structs
+# ---------------------------------------------------------------------------
+"""
+    build_parameter_structs(gen::CompiledProgram; gains=(;)) -> (; gains, auto)
+
+Construct the `TuningGains` and `AutoPars` parameter objects of a compiled program, with `gains`
+overriding the model's resolved values field by field (a `nothing` leaves the model's value).
+
+These objects are what the node's `step` is handed, in this process by [`ProgramRuntime`](@ref)
+and as raw bytes in the exported C by `export_program_c`: their in-memory field bytes are
+exactly what the exported C reads at its baked-in `fieldoffset`s. The spec's `check` runs on
+the final values, so a warning about an unworkable tunable is given whichever way the program
+is run.
+
+`stkcompile` evaluates a runtime module in a newer world than this frame, but nothing here has
+to know that: a `ParametersStruct` is callable with the `CompiledNode`, and does its own
+`invoke_in_world` inside (SynchToolkit#159).
+"""
+function build_parameter_structs(gen::CompiledProgram; gains = (;))
+    vals = OrderedDict{Symbol, Any}(gen.tuning_defaults)
+    for (field, v) in pairs(gains)
+        v === nothing && continue
+        haskey(vals, field) ||
+            throw(ArgumentError("$field is not one of this program's tunable parameters \
+                                 ($(join(keys(vals), ", ")))"))
+        vals[field] = vals[field] isa AbstractVector ? collect(float.(v)) : float(v)
+    end
+    gen.spec.check(gen.Ts, vals)
+    cn = gen.compiled
+    g = gen.tuning_struct(cn; vals...)
+    # Pass the static struct: AutoPars defaults may be expressions of its fields.
+    auto = gen.auto_struct(cn, g)
+    return (; gains = g, auto)
 end
 
 # ---------------------------------------------------------------------------
 ## The runtime
 # ---------------------------------------------------------------------------
 """
-    ProgramRuntime{names}
+    ProgramRuntime(gen::CompiledProgram; backend=:julia, gains...)
 
-A compiled program with its parameter structs, ready to be ticked.
+A compiled program with its parameter structs and a `SynchExecutable` on `backend`, ready to be
+ticked in this process.
 
 `out = runtime()` advances one step: the program reads the encoders, computes, writes the
 motor and appends a row to its log, and `out` is a `NamedTuple` of the node's outputs under
-`names`. With `tick = false` the clock does not fire, so no hardware is touched, no row is
-logged, and the values are meaningless.
+the spec's `output_names`. With `tick = false` the clock does not fire, so no hardware is
+touched, no row is logged, and the values are meaningless. For a multirate program one call
+is one tick of the *fastest* clock; the other clocks fire every so many of them, and an output
+on a clock that did not fire comes back as `nothing`.
 
-Construct one through [`SwingupController`](@ref) or [`FrictionController`](@ref) rather
-than directly; both are this type with their own output names and tuning fields.
+`gains` are the runtime-settable parameters by their `TuningGains` field name
+(`ProgramRuntime(gen; umax = 5.0)`), overriding the model's values without a recompile; a
+name that is not one of the program's tunables is an error. `backend` is `:julia` or `:c`, and
+has to be one the spec allows.
+
+Point the runtime at a device with [`open_hardware!`](@ref) or at a simulator with
+[`bind_hardware!`](@ref) and open the log with [`open_log!`](@ref) to tick it by hand;
+[`run_inprocess!`](@ref) does all of that, and the timing, for a real run.
 """
 struct ProgramRuntime{names, K, E, G, A}
     exe::E
@@ -227,9 +410,9 @@ struct ProgramRuntime{names, K, E, G, A}
     log::ProgramLog
     traj::Union{Nothing, ProgramTrajectory}
     Ts::Float64
-    # Each clock's period as an integer multiple of `Ts`, base clock first, so `(1,)` for a
+    # Each clock's period as an integer multiple of `Ts`, fastest first, so `(1,)` for a
     # single-rate program. A type parameter as well as a field so the tick pattern below is
-    # built without allocating -- `run_program!` runs with the collector off.
+    # built without allocating -- `run_inprocess!` runs with the collector off.
     divisors::NTuple{K, Int}
     counter::Base.RefValue{Int}
 end
@@ -237,6 +420,17 @@ end
 ProgramRuntime{names}(exe::E, gains::G, auto::A, log, traj, Ts,
                       divisors::NTuple{K, Int} = (1,)) where {names, K, E, G, A} =
     ProgramRuntime{names, K, E, G, A}(exe, gains, auto, log, traj, Float64(Ts), divisors, Ref(0))
+
+function ProgramRuntime(gen::CompiledProgram; backend::Symbol = :julia, gains...)
+    backend in gen.spec.backends ||
+        throw(ArgumentError("the program $(gen.spec.name) runs on the \
+                             $(join(repr.(gen.spec.backends), ", ")) backend only, not \
+                             $(repr(backend)); see its `program_spec`"))
+    p = build_parameter_structs(gen; gains)
+    exe = SynchJulia.SynchExecutable(gen.compiled; backend)
+    return ProgramRuntime{gen.spec.output_names}(exe, p.gains, p.auto, gen.log, gen.traj,
+                                                 gen.Ts, gen.divisors)
+end
 
 # A held executable keeps stepping the code it was built with (SynchJulia >= 0.4), so
 # `step!`/`reset!` are world-safe from any frame -- no `invokelatest` in the hot path.
@@ -263,44 +457,6 @@ end
 
 log_file(c::ProgramRuntime) = c.log.file
 
-# Construct the `TuningGains`/`AutoPars` parameter objects (with `gains` overriding the
-# model's resolved values field by field), optionally build a `SynchExecutable` on `backend`,
-# and optionally export the C sources into `export_dir`. These objects are what the runtime
-# hands to the node's `step` (as opaque pointers in the C backend); their in-memory field
-# bytes are exactly what the exported C reads at its baked-in `fieldoffset`s.
-#
-# `stkcompile` evaluates a runtime module in a newer world than this frame, but nothing here
-# has to know that: a `ParametersStruct` is callable with the `CompiledNode` and
-# `SynchExecutable`/`node` take one, and each does its own `invoke_in_world` inside
-# (SynchToolkit#159). Hence no `@invokelatest` and no single-crossing contract to honour --
-# that used to be this function's whole shape.
-function instantiate(gen; gains = (;), backend::Union{Nothing, Symbol} = nothing,
-                     export_dir = nothing)
-    vals = OrderedDict{Symbol, Any}(gen.tuning_defaults)
-    for (field, v) in pairs(gains)
-        v === nothing && continue
-        haskey(vals, field) ||
-            throw(ArgumentError("$field is not one of this program's tunable parameters \
-                                 ($(join(keys(vals), ", ")))"))
-        vals[field] = vals[field] isa AbstractVector ? collect(float.(v)) : float(v)
-    end
-    cn = gen.compiled
-    g = gen.tuning_struct(cn; vals...)
-    # Pass the static struct: AutoPars defaults may be expressions of its fields.
-    auto = gen.auto_struct(cn, g)
-    exe = backend === nothing ? nothing : SynchJulia.SynchExecutable(cn; backend)
-    export_dir === nothing || SynchJulia.export_c(export_dir, SynchToolkit.node(cn))
-    return (; gains = g, auto, exe, SG = typeof(g), AP = typeof(auto))
-end
-
-# Build a ready-to-tick runtime from an already-compiled program (avoids recompiling).
-function make_runtime(gen, names::Tuple{Vararg{Symbol}}; backend::Symbol = :julia,
-                      gains = (;))
-    r = instantiate(gen; gains, backend)
-    return ProgramRuntime{names}(r.exe, r.gains, r.auto, gen.log, gen.traj, gen.Ts,
-                                 get(gen, :divisors, (1,)))
-end
-
 # ---------------------------------------------------------------------------
 ## Running it in this process
 # ---------------------------------------------------------------------------
@@ -313,8 +469,8 @@ what `body` returned.
 Every way of putting a program on the rig in this process needs the same sequence -- open the
 device, reset its counters and timing, open the log (and the trajectory a replay reads), run
 with the garbage collector off, and close the device and the log even on an exception, since
-the program cannot unwind a motor write it has already made. [`run_program!`](@ref) ticks a
-compiled node inside it and [`run_mpc_hardware_model`](@ref) lets an ODE solver step one.
+the program cannot unwind a motor write it has already made. [`run_inprocess!`](@ref) ticks a
+compiled node inside it and [`run_ode!`](@ref) lets an ODE solver step a model.
 
 `prepare` runs after the device is open but before the log is opened and the collector is
 switched off: it is for whatever must happen with the device in hand but outside the timed,
@@ -347,15 +503,16 @@ function with_rig(body; mode::Symbol, arm_deg, card_options, log::ProgramLog,
 end
 
 """
-    run_program!(ctrl; Tf, arm_deg=0.0, card_options=nothing, mode=:hil, disable_gc=true)
+    run_inprocess!(ctrl::ProgramRuntime; Tf, arm_deg=0.0, card_options=nothing, mode=:hil, disable_gc=true)
 
-Tick `ctrl` against the device every `Ts` for `Tf` seconds and return
-`(; rows, ticks, log_file, timing)`.
+Tick `ctrl` against the device every `Ts` for `Tf` seconds from a timing loop in this process,
+and return `(; rows, ticks, log_file, timing)`.
 
 This opens the device and the log, runs the loop, and closes both. It does no logging of its
 own -- the program writes the file -- so the loop body is a single call, and `rows` coming
 back equal to `ticks` is the check that the program wrote one row per tick. `timing` is
-`(; median_dt, max_dt)` of the achieved period, for confirming the loop kept up.
+`(; median_dt, max_dt)` of the achieved period, for confirming the loop kept up. For a
+multirate program `Ts` is the fastest clock's period and `rows` counts the logger's clock.
 
 `card_options` overrides the driver's card options (`nothing` keeps `qube_hw.c`'s own
 default, `""` leaves the driver on its own). `mode = :callback` runs against whatever
@@ -364,9 +521,9 @@ default, `""` leaves the driver on its own). `mode = :callback` runs against wha
 The device and the log are opened and closed by [`with_rig`](@ref), which also switches the
 garbage collector off for the duration -- see there for `disable_gc`.
 """
-function run_program!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
-                      card_options::Union{Nothing, AbstractString} = nothing,
-                      mode::Symbol = :hil, disable_gc::Bool = true)
+function run_inprocess!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
+                        card_options::Union{Nothing, AbstractString} = nothing,
+                        mode::Symbol = :hil, disable_gc::Bool = true)
     Ts = ctrl.Ts
     N = round(Int, Tf / Ts)
     # The loop's own variables stay inside the closure and come back as its return value
@@ -404,6 +561,82 @@ function run_program!(ctrl::ProgramRuntime; Tf, arm_deg = 0.0,
     return (; rows = st.rows, ticks = n, log_file = ctrl.log.file,
               timing = (; median_dt = _median(dts),
                           max_dt = isempty(dts) ? NaN : maximum(dts)))
+end
+
+# ---------------------------------------------------------------------------
+## Running the model as an ODE, paced by itself
+# ---------------------------------------------------------------------------
+"""
+    run_ode!(ctor, prob; log_file=nothing, arm_deg=0.0, card_options=nothing, mode=:hil, warmup=nothing, disable_gc=true) -> sol
+
+Solve `prob`, an `ODEProblem` of a program's model, against the device, and return the solution.
+For the MPC programs the solution is what `MPCComponents.mpc_gui(model, sol)` takes.
+
+[`run_inprocess!`](@ref) ticks a node that keeps nothing but its outputs. Here nothing is compiled
+to a node: an ODE solver steps the clocked partitions of the model, with the hardware I/O
+happening inside the ticks exactly as in the program, so that every clocked variable ends up in
+the solution -- for the MPC, the predicted trajectories and solver residuals. The caller builds
+the model and the problem, so that both can be kept between runs:
+
+```julia
+spec = program_spec(FurutaMPCHardware)
+model = FurutaMPCHardware(; name = spec.name, Ts, Np, log_file, spec.ode_kwargs...)
+ssys = mtkcompile(model; additional_passes = [SynchToolkit.compile_lustre])
+prob = ODEProblem(ssys, Pair[], (0.0, Tf); build_initializeprob = false)
+sol = run_ode!(FurutaMPCHardware, prob; log_file)
+```
+
+The model has to be built with the spec's `ode_kwargs`: `realtime = true` makes
+`HardwareDiagnostics` pace the ticks on the wall clock, without which the solver steps the
+clocked partition as fast as it can against the device, and for the MPC `output_trajectories =
+true` makes it record its predictions. The model is purely discrete, and ModelingToolkit's
+initialization problem cannot be built for its array-valued clocked variables, hence
+`build_initializeprob = false`. `log_file` must be the file the model was built with: the
+model's `DataLogger` writes it, and this opens it with the program's columns.
+
+Warm, a tick costs what the program's does; cold, the first MPC solve compiles for tens of
+seconds, which would leave every tick of a paced run behind schedule. So a problem over the same
+system is first solved for `warmup` seconds with the spec's `ode_warmup` overrides applied (for
+the MPC, `command_umax = 0`: the encoders are read, nothing is written to the motor), the timing
+is reset, and only then is `prob` solved and logged. `warmup` defaults to a fraction of a second
+when the spec can clamp the command and to 0 otherwise. Opening and closing the device and the
+log around all of that, and switching the garbage collector off for the run, is
+[`with_rig`](@ref)'s job -- see there for `disable_gc`, which is worth setting to `false` for a
+long MPC run. `mode = :callback` runs against whatever [`bind_hardware!`](@ref) installed.
+
+For a multirate model `realtime = true` paces the slowest clock only, so the fast reads of each
+period bunch just before its slot instead of spreading over it -- fine for inspecting the MPC's
+predictions, which is what this route is for, and not representative of the compiled program's
+timing.
+"""
+function run_ode!(ctor, prob; log_file = nothing, arm_deg = 0.0,
+                  card_options::Union{Nothing, AbstractString} = nothing,
+                  mode::Symbol = :hil, warmup = nothing, disable_gc::Bool = true)
+    spec = program_spec(ctor)
+    ensure_qube_hw()
+    ensure_qube_log()
+    log = log_file === nothing ? spec.log() : spec.log(log_file)
+    ssys = prob.f.sys
+    warmup = something(warmup, spec.ode_warmup === nothing ? 0.0 : 0.2)
+    prepare = nothing
+    if warmup > 0
+        spec.ode_warmup === nothing &&
+            throw(ArgumentError("the program $(spec.name) has no `ode_warmup` overrides that \
+                                 keep it from writing to the motor, so it cannot be warmed up \
+                                 against the device; pass `warmup = 0`"))
+        # Compile everything the run touches before the log is open, so the warm-up's ticks
+        # are neither logged nor timed. `with_rig` resets the counters and the timing after
+        # it, so the run that follows starts from zero.
+        prepare = function ()
+            wp = ODEProblem(ssys, spec.ode_warmup(ssys), (0.0, Float64(warmup));
+                            build_initializeprob = false)
+            solve(wp)
+            return nothing
+        end
+    end
+    return with_rig(; mode, arm_deg, card_options, log, disable_gc, prepare) do
+        solve(prob)
+    end
 end
 
 # ---------------------------------------------------------------------------

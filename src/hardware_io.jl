@@ -219,8 +219,8 @@ hw_count_elbow(dep::Real)::Float64 =
 Pace the program from the inside: the n-th call sleeps until `n * Ts` seconds after the
 first one and returns 0, or returns by how many seconds it was late. This is what makes a
 program that is *simulated* -- an ODE solver stepping the clocked partition as fast as it
-can, as `run_mpc_hardware_model` does to record the MPC's predictions -- tick in real time
-against the device; a program driven by [`run_program!`](@ref)'s timing loop does not need
+can, as `run_ode!` does to record the MPC's predictions -- tick in real time
+against the device; a program driven by [`run_inprocess!`](@ref)'s timing loop does not need
 it. `dep` orders the call after the motor write (see `HardwareDiagnostics`); the anchor is
 reset with the other timing by `reset_hardware_counters!`.
 """

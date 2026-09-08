@@ -13,7 +13,7 @@
 # a **structural** parameter — a build-time Julia value that never enters the
 # equations — and the driver opens the file. That stays one source of truth because
 # the generator hands the same value to the model and to `open_log!`
-# (`generate_friction_controller` in src/friction.jl), and the column names and
+# (`compile_program` in src/program.jl), and the column names and
 # count are shared consts in dyad/definitions.jl.
 #
 # With no log open `log_row` is a no-op returning 0, so a model containing a

@@ -15,7 +15,7 @@ inside the synchronous program.
 `HardwareCommand`, which perform the encoder read and the amplifier write
 themselves. Compiling this model therefore yields a synchronous program that
 needs nothing from its caller but a clock tick -- see
-`generate_swingup_controller` and `SwingupController` in `src/codegen.jl`.
+`compile_program` in src/program.jl and the program's `ProgramSpec` in `src/codegen.jl`.
 
 The run log is written from inside the program too, by the `DataLogger`, in the
 `SWINGUP_LOG_COLUMNS` order: what was measured and applied, plus the loop

@@ -20,9 +20,10 @@ include("traj_source.jl")
 include("../generated/module.jl")
 
 # Building a synchronous program for the rig and running it, in three layers: what every
-# program shares (program.jl), how one gets onto hardware (harness.jl), and the programs
-# themselves (codegen.jl for the swing-up controller, friction.jl for the friction experiment,
-# identification.jl for the open-loop replay, mpc.jl for the MPC swing-up).
+# program shares (program.jl: compiling, the runtime, running in process or as an ODE), how one
+# runs as C (harness.jl), and the programs themselves, each a `ProgramSpec` (codegen.jl for the
+# swing-up controller, friction.jl for the friction experiment, identification.jl for the
+# open-loop replay, mpc.jl for the two MPC programs).
 include("program.jl")
 include("harness.jl")
 include("codegen.jl")

@@ -1,7 +1,7 @@
 #=
 This script runs the swing-up controller on the physical Furuta pendulum. The
-controller is the generated synchronous program `QuanserComponents.SwingupController`
-(the `FurutaHardware` model), which contains the complete state machine: it first
+controller is the `FurutaHardware` model compiled to a synchronous program with
+`compile_program`, which contains the complete state machine: it first
 homes the arm (`GoHome`), then switches to energy-based swing-up plus LQR
 stabilization wrapped by error recovery (`RuntimeController`), and re-homes if the
 arm stays out of bounds.
@@ -10,9 +10,10 @@ The controller also does its own I/O and its own logging. `HardwareMeasurement` 
 the encoders, `HardwareCommand` writes the motor voltage and `DataLogger` appends a row,
 all by calling into csrc/qube_hw.c and csrc/qube_log.c -- the same C implementations the
 exported standalone binary links against. So there is nothing for this script to do but
-name a log file and hand the program to `run_program!`, which opens the device and the
+name a log file and hand the program to `run_inprocess!`, which opens the device and the
 log, keeps time, and closes both; the same function the analyses use, so this runs what
-they run.
+they run. Running the same program as standalone C, here or on a Raspberry Pi, is `run_c!`;
+see test/hardware_swingup_c.jl.
 
 Before starting, let the pendulum hang straight down; the device is opened with the
 current encoder counts as the homing offsets. The arm does not have to be at its home
@@ -24,8 +25,8 @@ ENVIRONMENT: run in the package `test/` environment:
 =#
 
 using QuanserComponents
-using QuanserComponents: SwingupController, run_program!, read_log, hardware_counters,
-                         build_qube_hw!, have_hil, SWINGUP_LOG_COLUMNS
+using QuanserComponents: compile_program, ProgramRuntime, run_inprocess!, read_log,
+                         hardware_counters, build_qube_hw!, have_hil, SWINGUP_LOG_COLUMNS
 using Printf
 using Statistics
 using Plots
@@ -37,12 +38,14 @@ logfile = "swingup.csv"
 # the SDK is installed, so this only matters if the library was built without it.
 have_hil() || build_qube_hw!(; hil = true, force = true)
 
-# Compiling the model takes a while; keep the controller around between runs.
-@time "compile FurutaHardware" ctrl = SwingupController(; Ts, backend = :julia,
-                                                        log_file = logfile)
+# Compiling the model takes a while; keep the compiled program around between runs. The
+# runtime is cheap to rebuild from it, so a retune (`ProgramRuntime(gen; umax = 5.0)`) needs no
+# recompile.
+@time "compile FurutaHardware" gen = compile_program(FurutaHardware; Ts, log_file = logfile)
+ctrl = ProgramRuntime(gen; backend = :julia)
 # For the C backend instead (identical control signal, ~the same speed here since
 # the hot path is the same C either way):
-# ctrl = SwingupController(; Ts, backend = :c, log_file = logfile)
+# ctrl = ProgramRuntime(gen; backend = :c)
 
 # `D` is the log the *program* wrote, one row per tick, in SWINGUP_LOG_COLUMNS order:
 # time, the two angles, the applied voltage, then dt/exec and the raw encoder counts.
@@ -63,7 +66,7 @@ end
 # Pendulum hanging, arm parked wherever is convenient: `arm_deg` is where the arm
 # physically is now (degrees), so 0 still means centred and there is no need to nudge
 # the arm into position by hand. Same calibration as `home!(process, -5)`.
-r = run_program!(ctrl; Tf = 10, arm_deg = -5)
+r = run_inprocess!(ctrl; Tf = 10, arm_deg = -5)
 
 log = read_log(r.log_file)
 D = permutedims(reduce(hcat, [getproperty(log, Symbol(c)) for c in SWINGUP_LOG_COLUMNS[1:4]]))

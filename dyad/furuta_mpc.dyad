@@ -260,7 +260,7 @@ machine.
 `DataLogger` appends a row per tick in the `MPC_LOG_COLUMNS` order: what was measured and
 applied, the loop diagnostics, and acados' `exitflag` of every solve. Compiling this model
 yields a synchronous program that needs nothing from its caller but a clock tick; see
-`generate_mpc_controller` and `MPCController` in src/mpc.jl.
+`compile_program` in src/program.jl and the program's `ProgramSpec` in src/mpc.jl.
 
 Unlike `FurutaHardware` there is no homing and no error recovery: the arm limit is a
 constraint of the MPC instead, and the arm starts from wherever it is (`open_hardware!`'s
@@ -272,8 +272,8 @@ The model can also be run against the device as a *simulation*, i.e. stepped by 
 rather than compiled to a program -- that is how the MPC's predicted trajectories and solver
 residuals end up in a solution object for `MPCComponents.mpc_gui`. Two options exist for
 that: `realtime = true` makes `HardwareDiagnostics` pace the ticks on the wall clock, and
-`output_trajectories = true` makes the MPC record them. `run_mpc_hardware_model` in
-src/mpc.jl does the run.
+`output_trajectories = true` makes the MPC record them. `run_ode!` in
+src/program.jl does the run.
 """
 component FurutaMPCHardware
   measurement = HardwareMeasurement() {^measurement}

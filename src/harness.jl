@@ -1,18 +1,19 @@
-# Getting a compiled program onto hardware: standalone C export, the timing loop around it,
-# deployment to another machine, live plotting, and the choice between the four.
+# Getting a compiled program onto hardware as C: standalone C export, the timing loop around it,
+# deployment to another machine, live plotting, and `run_on_target`, which picks between running
+# in process and running as C the way an analysis' parameters ask.
 #
 # Nothing here knows which program it is carrying. That became possible once the log moved
 # inside the program (`DataLogger`): the harness no longer has to name the node's outputs, so
 # `run_hardware.c` is a bare timing loop parameterized by nothing but the mangled node
-# symbols, the period, the duration and the log's identity — which the swing-up controller and
-# the friction experiment supply alike.
+# symbols, the period, the duration and the log's identity — which every program supplies
+# alike through its `ProgramLog`.
 
 using Printf: @printf
 
-export export_program_c, emit_hardware_harness, compile_hardware_harness,
+export export_program_c, emit_c_harness, compile_c_harness, run_c_harness,
+       deploy_c_harness, run_c_harness_remote, run_c!,
        program_log_path, local_log_path, generated_files_table,
-       launch_live_plot, deploy_hardware_harness, run_hardware_harness,
-       run_hardware_harness_remote, run_on_target, run_target, HardwareRun
+       launch_live_plot, run_on_target, run_target, HardwareRun
 
 # ---------------------------------------------------------------------------
 ## C export
@@ -49,7 +50,7 @@ extra_harness_files(dir) = filter(f -> isfile(joinpath(dir, f)),
 Export a compiled program as standalone C into `dir`: the SynchToolkit node (`top.c`,
 `top.h`, `top.pc`, `synchjulia.h`), the C the node calls into (`qube_hw.c` for the device,
 `qube_log.c` for the log, copied from `csrc/`), and a runnable control loop (`run_hardware.c`,
-`Makefile`) — see [`emit_hardware_harness`](@ref).
+`Makefile`) — see [`emit_c_harness`](@ref).
 
 `gains` overrides the runtime-settable parameters field by field, exactly as when running
 in-process; the resulting struct bytes are what gets embedded. `Tf`, `arm_deg` and
@@ -69,13 +70,14 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
     # and a divisor counter in the loop. Nothing needs that yet -- the only multirate program is
     # the MPC, which runs on the Julia backend because its prediction model has no symbolic form
     # to render -- so this refuses rather than emitting a harness that cannot call its own node.
-    length(get(gen, :divisors, (1,))) == 1 ||
+    length(gen.divisors) == 1 ||
         throw(ArgumentError("export_program_c: this program has $(length(gen.divisors)) clocks, \
                              and the C harness drives a single clock tick. Export a single-rate \
                              program, or teach csrc/run_hardware.c one tick per clock."))
     mkpath(dir)
-    r = instantiate(gen; gains, export_dir = dir)
-    mangled = SynchJulia.mangle("top", Bool, r.SG, r.AP)
+    p = build_parameter_structs(gen; gains)
+    SynchJulia.export_c(dir, SynchToolkit.node(gen.compiled))
+    mangled = SynchJulia.mangle("top", Bool, typeof(p.gains), typeof(p.auto))
     for f in ("qube_hw.c", "qube_hw.h", "qube_log.c", "qube_log.h",
               "qube_traj.c", "qube_traj.h")
         cp(joinpath(dirname(QUBE_HW_SRC), f), joinpath(dir, f); force = true)
@@ -89,8 +91,8 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
         cp(traj.file, joinpath(dir, basename(traj.file)); force = true)
         traj = ProgramTrajectory(basename(traj.file), traj.column)
     end
-    emit_hardware_harness(dir; gen.Ts, Tf, arm_deg, card_options, mangled, gen.log, traj,
-                          r.gains, r.auto)
+    emit_c_harness(dir; gen.Ts, Tf, arm_deg, card_options, mangled, gen.log, traj,
+                   p.gains, p.auto)
     # `export_c` copies `synchjulia.h` out of the package depot, which is read-only, and
     # preserves its mode. Everything here is a build output, so leave nothing unwritable:
     # otherwise a later export or `scp` into the same directory cannot replace it. Only the
@@ -101,7 +103,7 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
         (m & 0o200) == 0 && chmod(f, m | 0o200)
     end
     files = sort!(filter(f -> isfile(joinpath(dir, f)), readdir(dir)))
-    return (; dir, mangled, files, r.gains, r.auto)
+    return (; dir, mangled, files, p.gains, p.auto)
 end
 
 # How the exported node declares its two parameter-block arguments, read out of `top.h`.
@@ -118,15 +120,15 @@ end
 function _step_param_types(dir, mangled)
     header = joinpath(dir, "top.h")
     isfile(header) ||
-        error("emit_hardware_harness: $header does not exist. The node has to be exported into \
-               `dir` first (`instantiate(gen; export_dir = dir)`), since the emitted config has \
-               to match how its header declares the parameter blocks.")
+        error("emit_c_harness: $header does not exist. The node has to be exported into `dir` \
+               first (`SynchJulia.export_c`), since the emitted config has to match how its \
+               header declares the parameter blocks.")
     m = match(Regex("\\b" * mangled * "_step\\s*\\(([^)]*)\\)"), read(header, String))
     m === nothing &&
-        error("emit_hardware_harness: no `$(mangled)_step` prototype in $header")
+        error("emit_c_harness: no `$(mangled)_step` prototype in $header")
     params = strip.(split(m.captures[1], ','))
     length(params) >= 3 ||
-        error("emit_hardware_harness: `$(mangled)_step` declares $(length(params)) parameters, \
+        error("emit_c_harness: `$(mangled)_step` declares $(length(params)) parameters, \
                expected at least 3 (the clock tick, the gains and the auto parameters)")
     # Drop the parameter name, keeping a `*` if the parameter is a pointer.
     strip_name(p) = strip(replace(p, r"\s*\*?\s*[A-Za-z_][A-Za-z0-9_]*\s*$" =>
@@ -135,7 +137,7 @@ function _step_param_types(dir, mangled)
 end
 
 """
-    emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log, arm_deg=0.0, card_options=nothing)
+    emit_c_harness(dir; Ts, Tf, mangled, gains, auto, log, arm_deg=0.0, card_options=nothing)
 
 Write `run_hardware_config.h` into `dir` and copy `csrc/run_hardware.c` and `csrc/Makefile`
 alongside it, next to the exported `top.c`/`top.h` and the C the node calls into.
@@ -159,13 +161,13 @@ into `dir` before this is called -- SynchJulia spells a parameter block either a
 Note what is *not* here any more: the loop does not read the node's output struct at all, so
 it needs no knowledge of the program's outputs and serves any program built for this rig.
 """
-function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLog,
-                               traj::Union{Nothing, ProgramTrajectory} = nothing,
-                               arm_deg = 0.0, card_options = nothing)
+function emit_c_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLog,
+                        traj::Union{Nothing, ProgramTrajectory} = nothing,
+                        arm_deg = 0.0, card_options = nothing)
     words(obj) = join(("0x" * string(w; base = 16, pad = 16) * "ULL" for w in _param_words(obj)), ", ")
     gains_ty, auto_ty = _step_param_types(dir, mangled)
     config = """
-    /* Auto-generated by QuanserComponents.emit_hardware_harness — do not edit by hand.
+    /* Auto-generated by QuanserComponents.emit_c_harness — do not edit by hand.
      * Everything here depends on the compiled program; run_hardware.c is a normal
      * checked-in C file that includes this. */
     #ifndef RUN_HARDWARE_CONFIG_H
@@ -223,7 +225,7 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLo
 end
 
 """
-    compile_hardware_harness(dir; quanser_dir="/opt/quanser/hil_sdk") -> exe_path
+    compile_c_harness(dir; quanser_dir="/opt/quanser/hil_sdk") -> exe_path
 
 Compile the emitted `run_hardware.c` + `top.c` + the C the node calls into (`qube_hw.c`,
 `qube_log.c`, `qube_traj.c`) in `dir` into a
@@ -232,14 +234,14 @@ falling back to `gcc`). Linking uses the static SDK libraries, so this does not 
 hardware to be connected — it doubles as a build check for the generated sources, including
 that the node's `extern qube_hw_*` and `extern qube_log_row` declarations resolve.
 """
-function compile_hardware_harness(dir; quanser_dir = QUANSER_HIL_DIR)
+function compile_c_harness(dir; quanser_dir = QUANSER_HIL_DIR)
     @info "Compiling hardware harness"
     cc = Sys.which("cc")
     cc === nothing && (cc = Sys.which("gcc"))
-    cc === nothing && error("compile_hardware_harness: no C compiler (cc/gcc) found on PATH")
+    cc === nothing && error("compile_c_harness: no C compiler (cc/gcc) found on PATH")
     sdk = quanser_sdk_flags(; quanser_dir)
     sdk.found || error("""
-        compile_hardware_harness: no Quanser HIL SDK found (looked for
+        compile_c_harness: no Quanser HIL SDK found (looked for
         $(joinpath(quanser_dir, "include", "hil.h")) and /usr/include/quanser/hil.h).""")
     exe = abspath(joinpath(dir, "run_hardware"))
     args = [cc, "-I$dir", sdk.cflags..., "-O2", "-Wall", "-DQUBE_HW_HAVE_HIL",
@@ -252,13 +254,13 @@ function compile_hardware_harness(dir; quanser_dir = QUANSER_HIL_DIR)
 end
 
 """
-    run_hardware_harness(exe) -> log_path
+    run_c_harness(exe) -> log_path
 
 Execute the compiled `run_hardware` binary, blocking for its baked-in run duration `Tf`. The
 binary controls the physical pendulum and the program inside it writes the log in its working
 directory; that path is returned.
 """
-function run_hardware_harness(exe; log_name = SWINGUP_LOG_FILE)
+function run_c_harness(exe; log_name = SWINGUP_LOG_FILE)
     @info "Running hardware harness"
     exe = abspath(exe)
     dir = dirname(exe)
@@ -325,7 +327,7 @@ function launch_live_plot(dir; cmd = "kst2", config = "kst2config.kst",
     _close_stale_plotters(cmd, cfg)
     csv = isabspath(log) ? log : joinpath(dir, log)
     # Advisory only, and the log may be truncated or rewritten by the run's task at this very
-    # moment (see `run_hardware_harness_remote`): whatever goes wrong here must not take the
+    # moment (see `run_c_harness_remote`): whatever goes wrong here must not take the
     # hardware run down with it.
     try
         _check_plot_fields(cfg, csv)
@@ -400,7 +402,7 @@ end
 ## Deployment
 # ---------------------------------------------------------------------------
 """
-    deploy_hardware_harness(dir; host, remote_dir="furuta_c", ssh=`ssh`, scp=`scp`) -> remote_dir
+    deploy_c_harness(dir; host, remote_dir="furuta_c", ssh=`ssh`, scp=`scp`) -> remote_dir
 
 Copy the exported sources to `host` and build them there. Returns `remote_dir`.
 
@@ -413,12 +415,11 @@ host with the older HIL SDK and on a Raspberry Pi with the `quanser-sdk` package
 `host` is anything ssh accepts, e.g. `"fredrikb@192.168.1.49"`. Requires non-interactive ssh
 (key-based auth) since nothing here can answer a prompt.
 """
-function deploy_hardware_harness(dir; host, remote_dir = "furuta_c",
-                                 ssh = `ssh`, scp = `scp`)
+function deploy_c_harness(dir; host, remote_dir = "furuta_c", ssh = `ssh`, scp = `scp`)
     @info "Deploying hardware harness"
     missing_files = [f for f in HARNESS_FILES if !isfile(joinpath(dir, f))]
     isempty(missing_files) ||
-        error("deploy_hardware_harness: $dir is missing $(join(missing_files, ", ")) — \
+        error("deploy_c_harness: $dir is missing $(join(missing_files, ", ")) — \
                run the export first")
     @info "Creating remote dir"
     # Clear the destinations too. An earlier deploy may have left `synchjulia.h` mode 444 (it
@@ -435,7 +436,7 @@ function deploy_hardware_harness(dir; host, remote_dir = "furuta_c",
 end
 
 """
-    run_hardware_harness_remote(host, remote_dir; local_dir, log_name, stream_log=false, ssh=`ssh`, scp=`scp`) -> log_path
+    run_c_harness_remote(host, remote_dir; local_dir, log_name, stream_log=false, ssh=`ssh`, scp=`scp`) -> log_path
 
 Run the harness on `host`, blocking for its baked-in duration, then copy the log back into
 `local_dir` and return the local path.
@@ -444,9 +445,9 @@ With `stream_log`, the remote log is followed over ssh into `local_dir` *while t
 progress*, so a live plotter watching the local file sees the run as it happens rather than
 only the copy made afterwards.
 """
-function run_hardware_harness_remote(host, remote_dir; local_dir,
-                                     log_name = SWINGUP_LOG_FILE, stream_log = false,
-                                     ssh = `ssh`, scp = `scp`)
+function run_c_harness_remote(host, remote_dir; local_dir,
+                              log_name = SWINGUP_LOG_FILE, stream_log = false,
+                              ssh = `ssh`, scp = `scp`)
     @info "Running hardware harness on remote"
     csv = joinpath(local_dir, log_name)
     remote_csv = "$remote_dir/$log_name"
@@ -491,7 +492,7 @@ function run_hardware_harness_remote(host, remote_dir; local_dir,
 end
 
 # ---------------------------------------------------------------------------
-## The four targets
+## Running as C, and the choice of target
 # ---------------------------------------------------------------------------
 """
     HardwareRun
@@ -550,21 +551,70 @@ function run_target(; run::Bool, export_c::Bool, deploy_host::AbstractString)
 end
 
 """
-    run_on_target(gen, names; run, export_c, backend, output_dir, Tf, arm_deg,
-                  card_options, deploy_host, deploy_dir, live_plot, live_plot_cmd,
-                  live_plot_config, gains) -> HardwareRun
+    run_c!(gen; Tf, output_dir="furuta_c", arm_deg=0.0, card_options=nothing, deploy_host="",
+           deploy_dir="furuta_c", live_plot=false, live_plot_cmd="kst2",
+           live_plot_config="kst2config.kst", gains=(;)) -> HardwareRun
+
+Run a compiled program as standalone C: export it into `output_dir`
+([`export_program_c`](@ref)), build it and run the binary for `Tf` seconds, either on this
+machine or -- with a `deploy_host` -- on the machine the QUBE is attached to, from which the log
+is fetched back into `output_dir`. The other way of running a program on the rig is
+[`run_inprocess!`](@ref); an analysis chooses between the two through [`run_on_target`](@ref).
+
+`gains` overrides the runtime-settable parameters, baked into the harness as struct bytes. With
+`live_plot` a viewer is started on the log while the run is in progress -- for a remote run the
+log is streamed back during the run for that purpose, so the viewer watches this run rather than
+the copy fetched afterwards. See [`launch_live_plot`](@ref) for `live_plot_cmd` and
+`live_plot_config`.
+"""
+function run_c!(gen::CompiledProgram; Tf, output_dir = "furuta_c", arm_deg = 0.0,
+                card_options::Union{Nothing, AbstractString} = nothing,
+                deploy_host::AbstractString = "", deploy_dir = "furuta_c",
+                live_plot::Bool = false, live_plot_cmd = "kst2",
+                live_plot_config = "kst2config.kst", gains = (;))
+    res = export_program_c(gen, output_dir; Tf, arm_deg, card_options, gains)
+    log_name = basename(gen.log.file)
+    expected = round(Int, Tf / gen.Ts)
+    start_plot() = live_plot ? launch_live_plot(output_dir; cmd = live_plot_cmd,
+                                                config = live_plot_config, log = log_name) :
+                   nothing
+    if !isempty(deploy_host)
+        # Build and run on another machine (e.g. a Raspberry Pi with the QUBE attached).
+        deploy_c_harness(output_dir; host = deploy_host, remote_dir = deploy_dir)
+        task = @async run_c_harness_remote(deploy_host, deploy_dir; local_dir = output_dir,
+                                           log_name, stream_log = live_plot)
+        plotter = start_plot()
+        log = fetch(task)
+        return HardwareRun(true, :remote_c, log, _log_rows(log), expected, log_timing(log),
+                           output_dir, res.files, res.mangled, plotter)
+    end
+    exe = compile_c_harness(output_dir)
+    # With `live_plot` the harness runs on a task so the viewer can be brought up while the run
+    # is in progress rather than after it. `fetch` rethrows whatever the harness threw, so
+    # failures still surface.
+    task = @async run_c_harness(exe; log_name)
+    plotter = start_plot()
+    log = fetch(task)
+    return HardwareRun(true, :local_c, log, _log_rows(log), expected, log_timing(log),
+                       output_dir, res.files, res.mangled, plotter)
+end
+
+"""
+    run_on_target(gen; run, export_c, backend, output_dir, Tf, arm_deg, card_options,
+                  deploy_host, deploy_dir, live_plot, live_plot_cmd, live_plot_config,
+                  gains, mode) -> HardwareRun
 
 Put a compiled program on hardware the way the analysis parameters ask for, and report what
-happened. This is the shared body of both analyses' `run_analysis`; see
-`QubeHardwareRunBase` (dyad/qube_hardware_run.dyad) for the parameters, which are the same
-here.
+happened: in this process ([`run_inprocess!`](@ref)) or as C ([`run_c!`](@ref)), or export the C
+and stop -- see [`run_target`](@ref) for which parameters mean which. This is the shared body of
+the analyses' `run_analysis`; see `QubeHardwareRunBase` (dyad/qube_hardware_run.dyad) for the
+parameters, which are the same here.
 
-`names` are the field names for the program's outputs, needed only by the in-process runtime.
 `gains` overrides the runtime-settable parameters. Anything that has to happen before the
 device is touched (designing a gain) or after the log exists (fitting a model) belongs to the
 caller, not here.
 """
-function run_on_target(gen, names::Tuple{Vararg{Symbol}}; run::Bool = false,
+function run_on_target(gen::CompiledProgram; run::Bool = false,
                        export_c::Bool = false, backend::Symbol = :julia,
                        output_dir = "furuta_c", Tf, arm_deg = 0.0,
                        card_options::Union{Nothing, AbstractString} = nothing,
@@ -573,49 +623,26 @@ function run_on_target(gen, names::Tuple{Vararg{Symbol}}; run::Bool = false,
                        live_plot_config = "kst2config.kst", gains = (;),
                        mode::Symbol = :hil)
     target = run_target(; run, export_c, deploy_host)
-    log_name = basename(gen.log.file)
     no_timing = (; median_dt = NaN, max_dt = NaN)
-    start_plot(dir; log) = live_plot ? launch_live_plot(dir; cmd = live_plot_cmd,
-                                                        config = live_plot_config, log) : nothing
-
-    if target in (:export_only, :local_c, :remote_c)
+    if target === :export_only
         res = export_program_c(gen, output_dir; Tf, arm_deg, card_options, gains)
-        target === :export_only &&
-            return HardwareRun(false, :none, nothing, 0, 0, no_timing, output_dir,
-                               res.files, res.mangled, nothing)
-        expected = round(Int, Tf / gen.Ts)
-        if target === :remote_c
-            # Build and run on another machine (e.g. a Raspberry Pi with the QUBE attached).
-            # The log is streamed back during the run when a live plot is wanted, so the
-            # viewer watches this run rather than the copy fetched afterwards.
-            deploy_hardware_harness(output_dir; host = deploy_host, remote_dir = deploy_dir)
-            task = @async run_hardware_harness_remote(deploy_host, deploy_dir;
-                                                      local_dir = output_dir, log_name,
-                                                      stream_log = live_plot)
-            plotter = start_plot(output_dir; log = log_name)
-            log = fetch(task)
-            return HardwareRun(true, :remote_c, log, _log_rows(log), expected,
-                               log_timing(log), output_dir, res.files, res.mangled, plotter)
-        end
-        exe = compile_hardware_harness(output_dir)
-        # With `live_plot` the harness runs on a task so the viewer can be brought up while
-        # the run is in progress rather than after it. `fetch` rethrows whatever the harness
-        # threw, so failures still surface.
-        task = @async run_hardware_harness(exe; log_name)
-        plotter = start_plot(output_dir; log = log_name)
-        log = fetch(task)
-        return HardwareRun(true, :local_c, log, _log_rows(log), expected, log_timing(log),
-                           output_dir, res.files, res.mangled, plotter)
+        return HardwareRun(false, :none, nothing, 0, 0, no_timing, output_dir, res.files,
+                           res.mangled, nothing)
+    elseif target in (:local_c, :remote_c)
+        return run_c!(gen; Tf, output_dir, arm_deg, card_options, deploy_host, deploy_dir,
+                      live_plot, live_plot_cmd, live_plot_config, gains)
+    elseif target === :none
+        return HardwareRun(false, :none, nothing, 0, 0, no_timing, nothing, String[], "",
+                           nothing)
     end
-
-    target === :none && return HardwareRun(false, :none, nothing, 0, 0, no_timing, nothing,
-                                          String[], "", nothing)
-    ctrl = make_runtime(gen, names; backend, gains)
+    ctrl = ProgramRuntime(gen; backend, gains...)
     # The loop below does not yield, so the viewer is launched first; it waits for the log on
     # its own (see `launch_live_plot`) rather than on this thread, which would never get back
     # to it until the run was over.
-    plotter = start_plot(dirname(abspath(gen.log.file)); log = abspath(gen.log.file))
-    r = run_program!(ctrl; Tf, arm_deg, card_options, mode)
+    plotter = live_plot ? launch_live_plot(dirname(abspath(gen.log.file)); cmd = live_plot_cmd,
+                                           config = live_plot_config,
+                                           log = abspath(gen.log.file)) : nothing
+    r = run_inprocess!(ctrl; Tf, arm_deg, card_options, mode)
     return HardwareRun(true, :inprocess, r.log_file, r.rows, r.ticks, r.timing, nothing,
                        String[], "", plotter)
 end
@@ -682,7 +709,7 @@ function run_trace(r::HardwareRun)
 end
 
 """
-    run_on_target(gen, names, spec; Tf, gains = (;)) -> HardwareRun
+    run_on_target(gen, spec; Tf, gains = (;)) -> HardwareRun
 
 Put a compiled program on hardware the way an analysis' spec asks for.
 
@@ -692,9 +719,8 @@ What is left for the caller is what only it knows: how long to run (`Tf`, since 
 reads it off a trajectory file and another off a reference schedule) and any runtime-settable
 `gains` it designed.
 """
-run_on_target(gen, names::Tuple{Vararg{Symbol}}, spec::AbstractQubeHardwareRunBaseSpec;
-              Tf, gains = (;)) =
-    run_on_target(gen, names; spec.run, spec.export_c, backend = program_backend(spec),
+run_on_target(gen::CompiledProgram, spec::AbstractQubeHardwareRunBaseSpec; Tf, gains = (;)) =
+    run_on_target(gen; spec.run, spec.export_c, backend = program_backend(spec),
                   spec.output_dir, Tf, spec.arm_deg,
                   card_options = isempty(spec.card_options) ? nothing : spec.card_options,
                   spec.deploy_host, spec.deploy_dir, spec.live_plot, spec.live_plot_cmd,

@@ -33,8 +33,8 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 [sources]
 DiscreteComponents = {rev = "mpccomponents/multirate-mpc", url = "https://github.com/JuliaComputing/DiscreteComponents.git"}
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
-MPCComponents = {path = "../../../../../MPCComponents"}
-MultibodyComponents = {path = "../../../../../MultibodyComponents"}
+MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
+MultibodyComponents = {path = "../../MultibodyComponents"}
 QuanserComponents = {path = ".."}
 SynchToolkit = {rev = "mpccomponents/sj0.8", url = "https://github.com/JuliaComputing/SynchToolkit.jl.git"}
 acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}

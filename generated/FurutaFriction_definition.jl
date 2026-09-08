@@ -18,8 +18,8 @@ experiment with the `FurutaFrictionExperiment` analysis.
 
 Everything is inside the program: `HardwareMeasurement` reads the encoders,
 `HardwareCommand` writes the motor, `DataLogger` writes the file. So the driver
-supplies nothing but a clock tick — see `generate_friction_controller` and
-`FrictionController` in src/friction.jl.
+supplies nothing but a clock tick — see `compile_program` in src/program.jl and
+the program's `ProgramSpec` in src/friction.jl.
 
 `K` and `Ti` are parameters *here*, bound down into `velocity_pi` with `final`, so that
 the `FurutaFrictionExperiment` analysis can forward its own `K`/`Ti` into the model the
@@ -28,7 +28,7 @@ the compiled program's runtime-settable `TuningGains`, which requires them to be
 *unbound* — hence root parameters bound downwards rather than `velocity_pi`'s own.
 Because the binding makes `velocity_pi.K` an expression in `K`, SynchToolkit substitutes
 it away entirely: the node reads one `K`, with no second copy in `AutoPars` that could
-fall out of step. So `FrictionController(; K, Ti)` retunes without recompiling.
+fall out of step. So `ProgramRuntime(gen; K, Ti)` retunes without recompiling.
 
 Two things about the experiment that matter more than the model does:
 

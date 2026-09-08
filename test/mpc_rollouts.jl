@@ -121,7 +121,7 @@ end
 ## Run
 # ---------------------------------------------------------------------------
 @time "prediction model" dyn = QC.furuta_mpc_dynamics()
-@time "compile FurutaMPCHardware" ctrl = QC.MPCController(; Ts)
+@time "compile FurutaMPCHardware" ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaMPCHardware; Ts))
 # The simulated plant: the prediction model itself, or the same model with other parameters.
 plant_params = PLANT === :identified ? nothing :
                PLANT === :nominal ? QC.nominal :

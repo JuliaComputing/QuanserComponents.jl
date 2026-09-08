@@ -1,17 +1,17 @@
 #=
 This script runs the MPC controller on the physical Furuta pendulum. The controller is the
-generated synchronous program `QuanserComponents.MPCController` (the `FurutaMPCHardware`
-model): an `MPCComponents.ACADOSMPC` that swings the pendulum up and balances it -- a
+`FurutaMPCHardware` model compiled to a synchronous program with `compile_program`: an
+`MPCComponents.ACADOSMPC` that swings the pendulum up and balances it -- a
 nonlinear MPC whose prediction model is the multibody `QubePendulum` itself, differentiated
 with ForwardDiff (the `jacobian_backend = ForwardDiff` option of `ACADOSMPC`), with the motor
 voltage and the arm angle constrained.
 
-Like `SwingupController`, the program does its own I/O and its own logging, so there is
-nothing for this script to do but hand the program to `run_program!`. The log has the
+Like the swing-up program, this one does its own I/O and its own logging, so there is
+nothing for this script to do but hand the program to `run_inprocess!`. The log has the
 swing-up log's first six columns plus acados' `exitflag` of every solve.
 
 The second part runs the same model against the device as a simulation instead
-(`run_mpc_hardware_model`: the model paces itself in real time and records the MPC's
+(`run_ode!`: the model paces itself in real time and records the MPC's
 predicted trajectories and solver residuals) and opens `MPCComponents.mpc_gui` on the
 result -- one panel per state and control with the history up to a slider time and the
 prediction from that tick, and a solver panel. That needs GLMakie in the environment.
@@ -19,17 +19,18 @@ prediction from that tick, and a solver panel. That needs GLMakie in the environ
 There is no homing: the arm starts wherever it is. Before starting, let the pendulum hang
 straight down and pass how far the arm is from centre as `arm_deg`.
 
-ENVIRONMENT: the branch checks in a Manifest.toml that resolves the whole stack, with
-MPCComponents (branch fix/acados-single-solve) and MultibodyComponents expected as
-`../MPCComponents` and `../MultibodyComponents` next to this repository; see the "Nonlinear
-MPC" section of the README. Then
+ENVIRONMENT: the repository checks in a Manifest.toml that resolves the whole stack, with
+MultibodyComponents expected as `../MultibodyComponents` next to this repository; see the
+"Nonlinear MPC" section of the README. Then
 
   julia --project=. test/hardware_mpc.jl
 =#
 
 using QuanserComponents
-using QuanserComponents: MPCController, run_program!, read_log, hardware_counters,
-                         build_qube_hw!, have_hil, MPC_LOG_COLUMNS
+using QuanserComponents: compile_program, ProgramRuntime, run_inprocess!, run_ode!, program_spec,
+                         read_log, hardware_counters, build_qube_hw!, have_hil, MPC_LOG_COLUMNS
+using ModelingToolkit: mtkcompile, ODEProblem
+using SynchToolkit
 using Printf
 using Statistics
 using Plots
@@ -40,12 +41,14 @@ logfile = "run_mpc.csv"
 have_hil() || build_qube_hw!(; hil = true, force = true)
 
 # Compiling the model (the multibody plant twice over: once as the prediction model, once
-# as the acados solver's model) takes a while; keep the controller around between runs.
+# as the acados solver's model) takes a while; keep the compiled program around between runs.
 # `Np` is the horizon in samples, `umax` the MPC's voltage bound; the MPC's weights are
 # set with Dyad override paths, e.g. `control_system__Q1 = diagm([100.0, 100.0, 1.0, 1.0])`.
 # `command_umax` clamps the command before the amplifier and can be changed without a
-# recompile (`MPCController(...; command_umax = 5.0)`) -- a first run at reduced voltage.
-@time "compile FurutaMPCHardware" ctrl = MPCController(; Ts, Np = 60, log_file = logfile)
+# recompile (`ProgramRuntime(gen; command_umax = 5.0)`) -- a first run at reduced voltage.
+@time "compile FurutaMPCHardware" gen = compile_program(FurutaMPCHardware; Ts, Np = 60,
+                                                        log_file = logfile)
+ctrl = ProgramRuntime(gen)
 
 function plotD(D, th = 0.2)
     size(D, 2) > 200 * 200 && return
@@ -61,10 +64,10 @@ end
 
 # --- main --------------------------------------------------------------------
 # Pendulum hanging, arm wherever it is: `arm_deg` is where the arm physically is now.
-# `run_program!` switches the garbage collector off for the run so no collection lands inside
+# `run_inprocess!` switches the garbage collector off for the run so no collection lands inside
 # a 5 ms period; this program allocates a few MB per tick in acados' Julia callbacks, which a
 # 10 s run can afford. For a long run pass `disable_gc = false`.
-r = run_program!(ctrl; Tf = 10, arm_deg = 0)
+r = run_inprocess!(ctrl; Tf = 10, arm_deg = 0)
 
 log = read_log(r.log_file)
 D = permutedims(reduce(hcat, [getproperty(log, Symbol(c)) for c in MPC_LOG_COLUMNS[1:4]]))
@@ -90,13 +93,21 @@ cnt = hardware_counters()
 # The same model, run against the device as a simulation: an ODE solver steps the clocked
 # partition, `HardwareDiagnostics(realtime = true)` holds each tick to the wall clock, and the
 # MPC records what it predicted at every tick (`output_trajectories = true`). Pendulum hanging,
-# arm where it is, as above. Overrides reach the model the same way as for `MPCController`.
+# arm where it is, as above. The model and the problem are built here so that they can be kept
+# between runs; `spec.ode_kwargs` is `realtime = true, output_trajectories = true`.
 using GLMakie
 using MPCComponents: mpc_gui
-@time gui = run_mpc_hardware_model(; Tf = 3, Ts, Np = 60, arm_deg = 0, log_file = "run_mpc_gui.csv")
-fig, tslider = mpc_gui(gui.model, gui.sol)   # drag the slider, or set tslider[] = 2.0
+spec = program_spec(FurutaMPCHardware)
+gui_log = "run_mpc_gui.csv"
+@time "compile the model" begin
+    model = FurutaMPCHardware(; name = spec.name, Ts, Np = 60, log_file = gui_log, spec.ode_kwargs...)
+    ssys = mtkcompile(model; additional_passes = [SynchToolkit.compile_lustre])
+    prob = ODEProblem(ssys, Pair[], (0.0, 3.0); build_initializeprob = false)
+end
+@time "run" sol = run_ode!(FurutaMPCHardware, prob; arm_deg = 0, log_file = gui_log)
+fig, tslider = mpc_gui(model, sol)   # drag the slider, or set tslider[] = 2.0
 display(fig)
 # The solution also carries the pacing diagnostics: how late each tick was, in seconds.
-late = gui.sol[gui.sol.prob.f.sys.diagnostics.late]
+late = sol[ssys.diagnostics.late]
 @printf("simulated run: %d ticks, late ticks %d, max lateness %.2f ms\n",
         length(late), count(>(0), late), 1e3maximum(late))
