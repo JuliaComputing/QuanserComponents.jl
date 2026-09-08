@@ -31,6 +31,14 @@ SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 ThermalComponents = "084a29d9-4f48-4925-95b4-b7d4c79725f4"
 TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 
+[sources]
+DiscreteComponents = {rev = "mpccomponents/multirate-mpc", url = "https://github.com/JuliaComputing/DiscreteComponents.git"}
+LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
+MultibodyComponents = {path = "../MultibodyComponents"}
+SynchToolkit = {rev = "mpccomponents/sj0.8", url = "https://github.com/JuliaComputing/SynchToolkit.jl.git"}
+acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
+tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_renderer_jll.jl"}
+
 [compat]
 BlockComponents = "4.6.0"
 ControlSystemsBase = "1"
@@ -41,7 +49,7 @@ DyadInterface = "7.1.0"
 ElectricalComponents = "2.2.1"
 HydraulicComponents = "2.0.3"
 LinearAlgebra = "1.12.0"
-MPCComponents = "0.1"
+MPCComponents = "0.1.0"
 Markdown = "1"
 ModelingToolkit = "11"
 Moshi = "0.3"
@@ -62,29 +70,6 @@ TranslationalComponents = "2.4.2"
 [dyad]
 kernel = "2.3.0"
 
-# MPCComponents is not registered, and the MPC stack it needs is not all released. What each pin
-# is for:
-#
-#   SynchToolkit  `mpccomponents/sj0.8` has both the `Latest` clock-crossing operator
-#                 (JuliaComputing/SynchToolkit.jl#199), which `SubSampler` and so the multirate
-#                 model need, and array clocked variables in `stkcompile` (#185), without which
-#                 `FurutaMPCHardware` fails with
-#                 `KeyError: key (control_system₊mpc₊u(t))[1] not found`. Neither `main` nor
-#                 registry 0.5.0 has both: `main` carries #199 but dropped `lookup_var_clock`
-#                 with the #186 clock rework and never re-landed #185, and 0.5.0 has neither.
-#                 `MPCController` checks for `lookup_var_clock` and says so.
-#   DiscreteComponents  an interim integration branch: `main` plus two open pull requests that
-#                 the multirate model needs. JuliaComputing/DiscreteComponents.jl#119 adds
-#                 `AlphaBetaGammaFilter`, the velocity estimator, and #121 replaces `LastValue`
-#                 with `Latest`, the clock transition, and moves that package to SynchJulia 0.8.
-#                 Repoint at `main` once both merge. It supersedes `mpccomponents/with-d-compat`,
-#                 whose `with_D` commits have since landed on `main`.
-#   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
-#
-# SynchJulia is no longer pinned: 0.8.1 is in DyadRegistry, and SynchCompiler is gone entirely,
-# merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
-#
-# These sources take effect when this project (or one that copies them) is the active environment.
 [extras]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
@@ -93,15 +78,6 @@ Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
 tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
-
-[sources]
-MPCComponents = {path = "../MPCComponents"}
-MultibodyComponents = {path = "../MultibodyComponents"}
-DiscreteComponents = {url = "https://github.com/JuliaComputing/DiscreteComponents.git", rev = "mpccomponents/multirate-mpc"}
-SynchToolkit = {url = "https://github.com/JuliaComputing/SynchToolkit.jl.git", rev = "mpccomponents/sj0.8"}
-LinearMPC = {url = "https://github.com/baggepinnen/LinearMPC.jl.git", rev = "feat/disturbance-cross-term"}
-acados_jll = {url = "https://github.com/baggepinnen/acados_jll.jl", rev = "main"}
-tera_renderer_jll = {url = "https://github.com/baggepinnen/tera_renderer_jll.jl", rev = "main"}
 
 [targets]
 test = ["CSV", "DataFrames", "Plots", "Test"]
