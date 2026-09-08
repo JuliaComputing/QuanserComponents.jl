@@ -20,6 +20,26 @@ pkg> add https://github.com/JuliaComputing/QuanserComponents.jl
 
 or, for development, clone the repository and `pkg> dev path/to/QuanserComponents`.
 
+### The simulation-only branch
+
+Those commands resolve `main` only for someone who can reach the repositories the MPC
+controller is pinned to: MPCComponents is not registered, and `[sources]` names branch
+builds of SynchToolkit, SynchJulia, DiscreteComponents and LinearMPC, two unregistered
+acados JLLs and two local checkouts (see [Environment](#environment) below). Everyone
+else installs the branch `simulation-only`, which is `main` as of the commit before the
+MPC work and resolves entirely to registered versions:
+
+```julia
+pkg> registry add https://github.com/JuliaComputing/DyadRegistry
+pkg> add https://github.com/JuliaComputing/QuanserComponents.jl#simulation-only
+```
+
+`Manifest.toml` and `test/Manifest.toml` are checked in there and contain no repository
+revisions, so a clone plus `Pkg.instantiate()` reproduces the versions the branch was
+verified against. It carries the multibody plant, the energy swing-up and balancing
+controller, the hardware programs and the C export -- everything but `FurutaMPC` and its
+closed loops -- and its test suite passes with no device attached.
+
 ## Simulating the swing-up
 
 `FurutaSwingup` is the closed loop: the multibody `QubePendulum` plant, the discrete-time
