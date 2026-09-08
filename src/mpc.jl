@@ -28,7 +28,8 @@ using MPCComponents
 using MPCComponents: continuous_dynamics, ContinuousDynamics
 
 export furuta_mpc_dynamics, generate_mpc_controller, MPCController, mpc_log,
-       run_mpc_hardware_model
+       run_mpc_hardware_model, run_mpc_multirate_hardware_model,
+       generate_mpc_multirate_controller, MPCMultirateController
 
 # ---------------------------------------------------------------------------
 ## The prediction model
@@ -104,6 +105,15 @@ const MPC_TUNABLES = OrderedDict{Any, Symbol}(
     (nsys -> nsys.velocity_filter) => :velocity_filter,
 )
 
+# The same two knobs for `FurutaMPCMultirateHardware`, whose estimator is an alpha-beta-gamma
+# tracker rather than a difference through an exponential filter: `velocity_alpha` is its position
+# correction gain, and the rate and acceleration gains follow from it, so there is still one knob
+# for the estimation.
+const MPC_MULTIRATE_TUNABLES = OrderedDict{Any, Symbol}(
+    (nsys -> nsys.command_umax) => :command_umax,
+    (nsys -> nsys.velocity_alpha) => :velocity_alpha,
+)
+
 # Node outputs, in the order the runtime reports them: the swing-up program's four, then
 # acados' status. The four are the same signals of the same components, so they are taken
 # from there rather than restated.
@@ -132,14 +142,18 @@ function generate_mpc_controller(; Ts = 0.01, Np = 60, log_file = MPC_LOG_FILE,
                                   param_overrides = nothing, overrides...)
     # The MPC's `u` is an array variable of the clocked partition. Registry SynchToolkit 0.5.0
     # indexes its clock table by the array element and fails inside `stkcompile` with
-    # `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch MPCComponents pins
-    # (JuliaComputing/SynchToolkit.jl#185) looks the element up through `lookup_var_clock`.
+    # `KeyError: key (control_system₊mpc₊u(t))[1] not found`; the branch this package pins
+    # (JuliaComputing/SynchToolkit.jl#185) looks the element up through `lookup_var_clock`, so
+    # that function's presence is the feature test. SynchToolkit `main` would fail it: it
+    # dropped `lookup_var_clock` with the #186 clock rework and never re-landed #185, which is
+    # why the pin is a branch and not `main` even though `main` has the `Latest` operator the
+    # multirate model needs.
     isdefined(SynchToolkit, :lookup_var_clock) ||
         error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) cannot \
                compile a program with array clocked variables, which the MPC's outputs are. \
-               Resolve SynchToolkit from the mpccomponents/compat-synchjulia-0.6 branch -- the \
-               [sources] of this package's Project.toml pin it and the rest of the MPC stack; \
-               see the README's \"Nonlinear MPC\" section.")
+               Resolve SynchToolkit from the mpccomponents/sj0.8 branch -- the [sources] of this \
+               package's Project.toml pin it and the rest of the MPC stack; see the README's \
+               \"Nonlinear MPC\" section.")
     return compile_program(FurutaMPCHardware; name = :mpc_controller, Ts, Np,
                            tunables = MPC_TUNABLES, outputs = _mpc_outputs,
                            log = mpc_log(log_file), param_overrides, overrides...)
@@ -158,7 +172,7 @@ it at a device with [`open_hardware!`](@ref) or at a simulator with [`bind_hardw
 first; [`run_program!`](@ref) does the opening, the timing and the closing for a real run.
 
 Only `backend = :julia` is available: the AD Jacobian backend the multibody prediction model
-needs has no symbolic form for SynchCompiler to render. `command_umax` (the clamp on the
+needs has no symbolic form for SynchJulia to render. `command_umax` (the clamp on the
 command before the amplifier) and `velocity_filter` override the model's values at
 instantiation; the rest of the model, the MPC included, is set with `overrides` at
 compile time (see [`generate_mpc_controller`](@ref)).
@@ -172,6 +186,69 @@ function MPCController(; Ts = 0.01, Np = 60, backend::Symbol = :julia,
                              exported to C"))
     gen = generate_mpc_controller(; Ts, Np, log_file, kwargs...)
     return make_runtime(gen, MPC_OUTPUT_NAMES; backend, gains = (; command_umax, velocity_filter))
+end
+
+"""
+    generate_mpc_multirate_controller(; Ts=0.008, Ts_fast=0.001, Np=75, log_file=MPC_LOG_FILE, overrides...)
+
+[`generate_mpc_controller`](@ref) for `FurutaMPCMultirateHardware`: the encoders read and the
+state estimated at `Ts_fast`, the MPC solved at `Ts`.
+
+`Ts` must be an integer multiple of `Ts_fast`, and a power-of-two multiple keeps the two clocks
+ticking simultaneously without floating-point drift. The ratio is what reaches
+[`compile_program`](@ref) as `divisors`, not `Ts` itself, so the two periods the model and the
+node are built with cannot disagree in a bit.
+
+The node takes one boolean per clock -- `(tick_fast, tick_slow, gains, auto)` -- and
+[`ProgramRuntime`](@ref) generates that pattern from the ratio, so the caller still ticks once per
+`Ts_fast`. Outputs on the MPC's clock are `nothing` on the seven ticks out of eight where it does
+not fire.
+"""
+function generate_mpc_multirate_controller(; Ts = 0.008, Ts_fast = 0.001, Np = 75,
+                                            log_file = MPC_LOG_FILE,
+                                            param_overrides = nothing, overrides...)
+    ratio = Ts / Ts_fast
+    isinteger(ratio) && ratio >= 2 ||
+        throw(ArgumentError("generate_mpc_multirate_controller: Ts ($Ts) must be an integer \
+                             multiple of at least 2 of Ts_fast ($Ts_fast), got a ratio of $ratio"))
+    isdefined(SynchToolkit, :lookup_var_clock) ||
+        error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) cannot \
+               compile a program with array clocked variables, which the MPC's outputs are; see \
+               `generate_mpc_controller`.")
+    isdefined(SynchToolkit, :Latest) ||
+        error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) has no \
+               `Latest` operator, which the multirate model's clock transitions need. Resolve it \
+               from the mpccomponents/sj0.8 branch -- the [sources] of this package's Project.toml \
+               pin it; see the README's \"Nonlinear MPC\" section.")
+    # The model is built with `Ts` (its MPC period) while the program is ticked at `Ts_fast`,
+    # which is what `base_Ts` is for.
+    return compile_program(FurutaMPCMultirateHardware; name = :mpc_multirate_controller,
+                           Ts, base_Ts = Ts_fast, Ts_fast, Np, divisors = [Int(ratio)],
+                           tunables = MPC_MULTIRATE_TUNABLES, outputs = _mpc_outputs,
+                           log = mpc_log(log_file), param_overrides, overrides...)
+end
+
+"""
+    MPCMultirateController(; Ts=0.008, Ts_fast=0.001, Np=75, backend=:julia, log_file=MPC_LOG_FILE, command_umax=nothing, velocity_alpha=nothing, overrides...)
+
+[`MPCController`](@ref) for the multirate program. Advance one *fast* tick with
+`out = controller()`; the MPC fires on every `Ts / Ts_fast`-th of them, and on the others the
+outputs it produces come back as `nothing`.
+
+`velocity_alpha` replaces `velocity_filter` as the estimator's runtime knob: it is the position
+correction gain of the two `AlphaBetaGammaFilter`s, and their rate and acceleration gains follow
+from it (see `FurutaMPCMultirate`).
+"""
+function MPCMultirateController(; Ts = 0.008, Ts_fast = 0.001, Np = 75, backend::Symbol = :julia,
+                                 log_file = MPC_LOG_FILE, command_umax = nothing,
+                                 velocity_alpha = nothing, kwargs...)
+    backend === :julia ||
+        throw(ArgumentError("MPCMultirateController runs on the :julia backend only: the \
+                             multibody prediction model needs the AD Jacobian backend, which \
+                             cannot be exported to C, and the C harness drives a single clock \
+                             tick besides"))
+    gen = generate_mpc_multirate_controller(; Ts, Ts_fast, Np, log_file, kwargs...)
+    return make_runtime(gen, MPC_OUTPUT_NAMES; backend, gains = (; command_umax, velocity_alpha))
 end
 
 # ---------------------------------------------------------------------------
@@ -230,6 +307,46 @@ function run_mpc_hardware_model(; Tf, Ts = 0.01, Np = 60, arm_deg = 0.0,
     sol = with_rig(; mode, arm_deg, card_options, log = mpc_log(log_file), disable_gc,
                     prepare = warmup > 0 ? warm : nothing) do
         solve(prob; dt = Ts)
+    end
+    return (; model, sol)
+end
+
+"""
+    run_mpc_multirate_hardware_model(; Tf, Ts=0.008, Ts_fast=0.001, Np=75, arm_deg=0.0, card_options=nothing, mode=:hil, log_file=MPC_LOG_FILE, warmup=0.2, disable_gc=true, overrides...)
+
+[`run_mpc_hardware_model`](@ref) for `FurutaMPCMultirateHardware`: the multirate MPC run against
+the device as a *simulation*, returning `(; model, sol)` ready for `MPCComponents.mpc_gui(model, sol)`.
+
+Everything the single-rate version documents applies. What differs is the base step: the model has
+two clocks, so the solver is stepped at `Ts_fast` and the MPC's partition fires every
+`Ts / Ts_fast`-th step. `Ts` should be a power-of-two multiple of `Ts_fast` so the two clocks tick
+simultaneously without floating-point drift.
+
+Note that `realtime = true` paces the MPC's clock only, so the eight fast reads of each period
+bunch just before its slot instead of spreading over it -- fine for inspecting the MPC's
+predictions, which is what this route is for, and not representative of the compiled program's
+timing. See `FurutaMPCMultirateHardware`.
+"""
+function run_mpc_multirate_hardware_model(; Tf, Ts = 0.008, Ts_fast = 0.001, Np = 75,
+                                           arm_deg = 0.0,
+                                           card_options::Union{Nothing, AbstractString} = nothing,
+                                           mode::Symbol = :hil, log_file = MPC_LOG_FILE,
+                                           warmup = 0.2, disable_gc::Bool = true, overrides...)
+    ensure_qube_hw()
+    ensure_qube_log()
+    model = FurutaMPCMultirateHardware(; name = :mpc_multirate_hardware, Ts, Ts_fast, Np, log_file,
+                                        realtime = true, output_trajectories = true, overrides...)
+    ssys = mtkcompile(model; additional_passes = [SynchToolkit.compile_lustre])
+    prob = ODEProblem(ssys, Pair[], (0.0, Float64(Tf)); build_initializeprob = false)
+    function warm()
+        wp = ODEProblem(ssys, Pair[ssys.command_umax => 0.0], (0.0, Float64(warmup));
+                        build_initializeprob = false)
+        solve(wp; dt = Ts_fast)
+        return nothing
+    end
+    sol = with_rig(; mode, arm_deg, card_options, log = mpc_log(log_file), disable_gc,
+                    prepare = warmup > 0 ? warm : nothing) do
+        solve(prob; dt = Ts_fast)
     end
     return (; model, sol)
 end

@@ -3,8 +3,8 @@ import QuanserComponents as QC
 # reach for `QuanserComponents.` directly in about a hundred places.
 import QuanserComponents
 using Test
-# SynchCompiler ≥ 0.4 provides its C compiler through a package extension; the `:c`
-# backend and C export used below require Clang_unified_jll to be loaded.
+# SynchJulia provides its C compiler through a package extension; the `:c` backend and
+# C export used below require Clang_unified_jll to be loaded.
 using Clang_unified_jll
 using ModelingToolkit
 using SymbolicIndexingInterface: default_values
@@ -824,7 +824,9 @@ import DyadCompilerPasses
     @testset "past the end of the trajectory" begin
         dir = mktempdir()
         short = joinpath(dir, "short.csv")
-        write(short, "time\tu\n0.0\t1.0\n0.005\t2.0\n")
+        # One column, like input_design.csv: the `time` column was dropped from the format
+        # because it only ever restated `(k-1) * Ts`, and the replay is indexed by tick.
+        write(short, "u\n1.0\n2.0\n")
         ctrl = QuanserComponents.IdentificationController(; Ts, backend = :julia,
                             traj_file = short, log_file = joinpath(dir, "l.csv"))
         QuanserComponents.bind_hardware!(measure = () -> (0.0, 0.0), control = u -> nothing)
@@ -853,7 +855,7 @@ import DyadCompilerPasses
         @test isfile(joinpath(dir, basename(trajfile)))
         cfg = read(joinpath(dir, "run_hardware_config.h"), String)
         @test occursin("#define QUBE_TRAJ_FILE   \"$(basename(trajfile))\"", cfg)
-        @test occursin("#define QUBE_TRAJ_COLUMN 2", cfg)
+        @test occursin("#define QUBE_TRAJ_COLUMN 1", cfg)
         @test occursin("#define QUBE_LOG_NCOLS  8", cfg)
         @test Set(nameof.(DI.AnalysisSolutionMetadata(sol).artifacts)) == Set([:GeneratedFiles])
         @test_throws ArgumentError DI.artifacts(sol, :Trace)

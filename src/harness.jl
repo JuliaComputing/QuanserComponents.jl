@@ -64,9 +64,18 @@ Returns `(; dir, mangled, files, gains, auto)`, where `mangled` is the base symb
 the emitted `<mangled>_step` / `<mangled>_reset` functions.
 """
 function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, gains = (;))
+    # A multirate node takes one boolean per clock, so both the mangled symbol below and
+    # `csrc/run_hardware.c`'s single `QUBE_STEP(true, ...)` would have to grow a tick per clock
+    # and a divisor counter in the loop. Nothing needs that yet -- the only multirate program is
+    # the MPC, which runs on the Julia backend because its prediction model has no symbolic form
+    # to render -- so this refuses rather than emitting a harness that cannot call its own node.
+    length(get(gen, :divisors, (1,))) == 1 ||
+        throw(ArgumentError("export_program_c: this program has $(length(gen.divisors)) clocks, \
+                             and the C harness drives a single clock tick. Export a single-rate \
+                             program, or teach csrc/run_hardware.c one tick per clock."))
     mkpath(dir)
     r = instantiate(gen; gains, export_dir = dir)
-    mangled = SynchCompiler.mangle("top", Bool, r.SG, r.AP)
+    mangled = SynchJulia.mangle("top", Bool, r.SG, r.AP)
     for f in ("qube_hw.c", "qube_hw.h", "qube_log.c", "qube_log.h",
               "qube_traj.c", "qube_traj.h")
         cp(joinpath(dirname(QUBE_HW_SRC), f), joinpath(dir, f); force = true)
@@ -95,6 +104,36 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
     return (; dir, mangled, files, r.gains, r.auto)
 end
 
+# How the exported node declares its two parameter-block arguments, read out of `top.h`.
+#
+# SynchJulia >= 0.8 declares a parameter block whose layout is C-representable as a typed
+# pointer (`TuningGains *`) where 0.6 emitted an opaque `int64_t`. The bytes are the same --
+# the pointer points where the integer did -- so only the *cast* in the emitted config has to
+# follow the header. It cannot be hardcoded either way: whether a block qualifies depends on
+# its fields, so two programs can differ, and an integer-to-pointer cast is a constraint
+# violation that GCC 14 rejects outright rather than warning about.
+#
+# Returns the two type spellings with the parameter names stripped, ready to paste into a cast:
+# `TuningGains *gains` gives `"TuningGains *"`, `int64_t gains` gives `"int64_t"`.
+function _step_param_types(dir, mangled)
+    header = joinpath(dir, "top.h")
+    isfile(header) ||
+        error("emit_hardware_harness: $header does not exist. The node has to be exported into \
+               `dir` first (`instantiate(gen; export_dir = dir)`), since the emitted config has \
+               to match how its header declares the parameter blocks.")
+    m = match(Regex("\\b" * mangled * "_step\\s*\\(([^)]*)\\)"), read(header, String))
+    m === nothing &&
+        error("emit_hardware_harness: no `$(mangled)_step` prototype in $header")
+    params = strip.(split(m.captures[1], ','))
+    length(params) >= 3 ||
+        error("emit_hardware_harness: `$(mangled)_step` declares $(length(params)) parameters, \
+               expected at least 3 (the clock tick, the gains and the auto parameters)")
+    # Drop the parameter name, keeping a `*` if the parameter is a pointer.
+    strip_name(p) = strip(replace(p, r"\s*\*?\s*[A-Za-z_][A-Za-z0-9_]*\s*$" =>
+                                     t -> occursin('*', t) ? " *" : ""))
+    return strip_name(params[2]), strip_name(params[3])
+end
+
 """
     emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log, arm_deg=0.0, card_options=nothing)
 
@@ -112,7 +151,10 @@ The loop is only timing: `qube_hw_open(QUBE_HW_MODE_HIL, ...)` (home the arm and
 pendulum hang before starting), `qube_log_open` for the program to write its rows into, then
 every `Ts` seconds a single `_step` call, which reads the encoders, computes, writes the motor
 and logs the row itself. The `gains`/`auto` parameter objects are serialized to raw bytes and
-embedded so `_step` sees the exact byte layout it was compiled against.
+embedded so `_step` sees the exact byte layout it was compiled against. How the node's header
+declares those two parameters is read back out of `top.h`, so the node has to have been exported
+into `dir` before this is called -- SynchJulia spells a parameter block either as an opaque
+`int64_t` or as a typed pointer depending on its fields, and the cast has to match.
 
 Note what is *not* here any more: the loop does not read the node's output struct at all, so
 it needs no knowledge of the program's outputs and serves any program built for this rig.
@@ -121,6 +163,7 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLo
                                traj::Union{Nothing, ProgramTrajectory} = nothing,
                                arm_deg = 0.0, card_options = nothing)
     words(obj) = join(("0x" * string(w; base = 16, pad = 16) * "ULL" for w in _param_words(obj)), ", ")
+    gains_ty, auto_ty = _step_param_types(dir, mangled)
     config = """
     /* Auto-generated by QuanserComponents.emit_hardware_harness — do not edit by hand.
      * Everything here depends on the compiled program; run_hardware.c is a normal
@@ -164,8 +207,11 @@ function emit_hardware_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLo
      * model constants), serialized so the byte offsets match top.c exactly. */
     static const uint64_t gains_words[] = { $(words(gains)) };
     static const uint64_t auto_words[]  = { $(words(auto)) };
-    #define GAINS_PTR ((int64_t)(intptr_t)gains_words)
-    #define AUTO_PTR  ((int64_t)(intptr_t)auto_words)
+    /* How the node's own header spells those two parameters; see `_step_param_types`. */
+    #define QUBE_GAINS_ARG $(gains_ty)
+    #define QUBE_AUTO_ARG  $(auto_ty)
+    #define GAINS_PTR ((QUBE_GAINS_ARG)(uintptr_t)gains_words)
+    #define AUTO_PTR  ((QUBE_AUTO_ARG)(uintptr_t)auto_words)
 
     #endif /* RUN_HARDWARE_CONFIG_H */
     """

@@ -52,7 +52,7 @@ function build_qube_log!(; force::Bool = false)
     end
     cc = _c_compiler()
     cc === nothing && error("""
-        No C compiler found (tried cc, gcc, clang and SynchCompiler's Clang_unified_jll).
+        No C compiler found (tried cc, gcc, clang and SynchJulia's Clang_unified_jll).
         One is needed to build $QUBE_LOG_SRC, the data logging the generated
         program calls into.""")
     run(`$cc -O2 -Wall -fPIC -shared -o $QUBE_LOG_LIB $QUBE_LOG_SRC`)

@@ -172,16 +172,54 @@ balanced, catch median 2.2 s, 90 % 5 s, arm median 2.2 rad).
 `qp_cond_N = 5` and the `ForwardDiff` Jacobian backend are both measured optima; the sweep behind
 them, and why the sparse AD backends are of no use to this model, are in NOTES.md.
 
+### Multirate: 1 kHz estimation, 125 Hz control
+
+`FurutaMPCMultirate` splits the controller across two clocks -- the encoders read and the state
+estimated at `Ts_fast` (1 ms), the MPC solved at `Ts` (8 ms) -- with `FurutaMPCMultirateSwingup`
+and `FurutaMPCMultirateHardware` as the simulated and hardware loops. The single-rate models are
+unchanged.
+
+Sampling faster is not what makes it better. `VelocityEstimator` is a backward difference through
+an exponential filter, which assumes the velocity is locally constant; a swinging pendulum's is
+not, so its estimate carries an acceleration-induced bias that no filter tuning removes, and
+running it at 1 ms instead of 10 ms measures *worse* while balancing. Estimating the acceleration
+as well removes the bias: the two `DiscreteComponents.AlphaBetaGammaFilter`s score 0.035 rad/s RMS
+balancing and 0.243 during the swing-up, against 0.141 and 1.280 for the 10 ms baseline. And a
+window long enough to do that is only affordable at 1 ms. The measurements, the two metrics that
+turned out to be misleading, and the cost of a third-order tracker on a fast disturbance are in
+NOTES.md.
+
+The clock transition is `DiscreteComponents.Latest`. It does not *relate* the two clocks: both are
+declared separately, and only convention makes one eight times the other. A block cannot derive one
+clock from another, so an integer rate relationship that is stated once and checked belongs at the
+compiler level instead.
+
+```julia
+@named model = FurutaMPCMultirateSwingup(; Ts = 0.008, Ts_fast = 0.001)
+ssys = multibody(model, additional_passes = [SynchToolkit.compile_lustre])
+sol = solve(ODEProblem(ssys, Pair[ssys.qubependulum.elbow_joint.phi => deg2rad(0.15)],
+                       (0.0, 4.0)); dt = 0.001)          # step the *fastest* clock
+
+ctrl = MPCMultirateController(; Ts = 0.008, Ts_fast = 0.001, Np = 75)
+out = ctrl()        # one 1 ms tick; the MPC fires on every 8th, `nothing` in between
+```
+
+`Np` is 75 rather than 60 so the horizon stays the 0.6 s that was tuned at 10 ms. The compiled node
+takes one boolean per clock and `ProgramRuntime` generates that pattern, so the driver still ticks
+once per `Ts_fast`; there is no C harness for it, since `run_hardware.c` drives a single tick.
+
 ### Environment
 
-MPCComponents is not registered; its `main` has the AD Jacobian backend and its branch
-`fix/acados-single-solve` (JuliaComputing/MPCComponents.jl#16) the one-solve-per-tick step,
-`reset_on_failure` and the soft nonlinear terminal constraints this controller uses. It pins
-branch builds of its own dependencies:
-SynchJulia/SynchCompiler 0.6, a SynchToolkit that supports array clocked variables in
-`stkcompile` (JuliaComputing/SynchToolkit.jl#185), a DiscreteComponents branch, a LinearMPC
-fork and unregistered acados JLLs. **Registry SynchToolkit 0.5.0 does not have the array
-support**: with it, compiling `FurutaMPCHardware` fails inside `stkcompile` with
+MPCComponents is not registered, and the MPC stack it needs is not all released. The pins that
+matter are SynchToolkit's branch `mpccomponents/sj0.8`, which is the only one with both the
+`Latest` clock-crossing operator the multirate model needs
+(JuliaComputing/SynchToolkit.jl#199) and array clocked variables in `stkcompile` (#185); a
+DiscreteComponents integration branch carrying `AlphaBetaGammaFilter`
+(JuliaComputing/DiscreteComponents.jl#119) until that merges; and unregistered LinearMPC and
+acados forks. SynchJulia is *not* pinned -- 0.8.1 is in DyadRegistry -- and SynchCompiler no
+longer exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
+**Registry SynchToolkit 0.5.0 does not have the array support**: with it, compiling
+`FurutaMPCHardware` fails inside `stkcompile` with
 
 ```
 KeyError: key (control_system₊mpc₊u(t))[1] not found
@@ -190,15 +228,17 @@ KeyError: key (control_system₊mpc₊u(t))[1] not found
 (`MPCController` checks for this and says so). This branch therefore checks in `Manifest.toml`
 and `test/Manifest.toml`, resolved against the pinned stack, with the two packages that have to
 come from local checkouts recorded relative to this repository: `../MPCComponents` (at
-`fix/acados-single-solve`) and `../MultibodyComponents` (the `~/.julia/dev` checkout;
-the registered release does not resolve against these pins). With both next to the repo,
+`feat/synchjulia-0.8`, which drops SynchCompiler) and `../MultibodyComponents` (the
+`~/.julia/dev` checkout; the registered release does not resolve against these pins). With both
+next to the repo,
 
 ```
 julia --project=path/to/QuanserComponents -e 'using Pkg; Pkg.instantiate()'   # the package
 julia --project=path/to/QuanserComponents/test test/hardware_mpc.jl           # the scripts
 ```
 
-is all it takes; check with `using SynchToolkit; isdefined(SynchToolkit, :lookup_var_clock)`.
+is all it takes; check with `using SynchToolkit` that both
+`isdefined(SynchToolkit, :lookup_var_clock)` and `isdefined(SynchToolkit, :Latest)` hold.
 For an environment of your own, copy the `[sources]` block (and the `[extras]` entries they
 refer to) from Project.toml into it. The first `using` precompiles the multibody and acados
 trees, a few minutes.
