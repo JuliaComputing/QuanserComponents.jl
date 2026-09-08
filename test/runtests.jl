@@ -1,4 +1,7 @@
 import QuanserComponents as QC
+# Also bind the full name: `import ... as QC` binds only the alias, and the tests below
+# reach for `QuanserComponents.` directly in about a hundred places.
+import QuanserComponents
 using Test
 # SynchCompiler ≥ 0.4 provides its C compiler through a package extension; the `:c`
 # backend and C export used below require Clang_unified_jll to be loaded.
@@ -259,7 +262,6 @@ import DyadCompilerPasses
     # `QubeHardwareRunBaseSpec`. It has to land on the right base spec, and say so rather than
     # guess when it cannot tell.
     @testset "shared analysis base" begin
-        QC = QC
         @test QC.QubeHardwareRunBaseSpec(; Ts, Q1 = [1.0, 2, 3, 4], Q2 = 3.0) isa
               QC.FurutaSwingupBaseSpec
         @test QC.QubeHardwareRunBaseSpec(; Ts, settle = 0.5) isa QC.FurutaFrictionBaseSpec
