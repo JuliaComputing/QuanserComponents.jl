@@ -89,7 +89,7 @@ end
 
     # The rate transition itself, in isolation and away from acados: a 1 ms clock feeding an 8 ms
     # one through the operator the model is built on.
-    @test isdefined(QC.SynchToolkit, :Latest)      # `SubSampler` needs it; see dyad/subsampler.dyad
+    @test isdefined(QC.SynchToolkit, :Latest)      # DiscreteComponents.Latest is built on it
 
     ctrl = QC.MPCMultirateController(; Ts, Ts_fast, Np = 75)
     @test ctrl.divisors == (1, 8)

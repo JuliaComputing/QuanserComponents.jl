@@ -19,14 +19,13 @@ four and five times better at once. See NOTES.md for the comparison and its meth
 
 The tracker's own position estimate feeds the MPC, not the raw encoder angle, so the state the
 solver sees is one filter's coherent (position, velocity) pair rather than a raw angle beside a
-filtered rate. Feeding the raw angle instead is a rewire of `subsampler_shoulder_angle.u`.
+filtered rate. Feeding the raw angle instead is a rewire of `latest_shoulder_angle.u`.
 
-The bridge to the slow clock is four `SubSampler`s, one per MPC state input.
-`SynchToolkit.Latest` keeps each source on the fast clock and puts the result on the reader's, so
-the MPC sees the newest value the fast partition produced at each of its own ticks. When the slow
-period is a power-of-two multiple of the fast one the two clocks tick simultaneously with no
-floating-point drift, so the MPC reads a value computed in the same instant: the crossing adds no
-delay and the `SubSampler`s' `init` values are never observed.
+The transition to the slow clock is four `DiscreteComponents.Latest` blocks, one per MPC state
+input. Each keeps its input on the fast clock and puts its output on the MPC's, so the MPC reads
+the most recent value the fast partition produced. The slow period is a power-of-two multiple of
+the fast one, so the two clocks tick at the same instants with no floating-point drift, and the
+MPC reads a value produced at that same instant. The transition therefore adds no delay.
 
 The pendulum angle is wrapped *after* it is sub-sampled. `mod` is memoryless so the value is the
 same either way, and this order leaves every `Latest` source a variable of the fast partition
@@ -55,10 +54,10 @@ component FurutaMPCMultirate
   exitflag = Dyad.RealOutput() {^exitflag}
   estimator_shoulder = DiscreteComponents.AlphaBetaGammaFilter(final alpha = velocity_alpha) {^estimator_shoulder}
   estimator_elbow = DiscreteComponents.AlphaBetaGammaFilter(final alpha = velocity_alpha) {^estimator_elbow}
-  subsampler_shoulder_angle = SubSampler() {^subsampler_shoulder_angle}
-  subsampler_elbow_angle = SubSampler() {^subsampler_elbow_angle}
-  subsampler_shoulder_rate = SubSampler() {^subsampler_shoulder_rate}
-  subsampler_elbow_rate = SubSampler() {^subsampler_elbow_rate}
+  latest_shoulder_angle = DiscreteComponents.Latest() {^latest_shoulder_angle}
+  latest_elbow_angle = DiscreteComponents.Latest() {^latest_elbow_angle}
+  latest_shoulder_rate = DiscreteComponents.Latest() {^latest_shoulder_rate}
+  latest_elbow_rate = DiscreteComponents.Latest() {^latest_elbow_rate}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
   mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final state_variables = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_OUTPUTS, final Ts = Ts, final Np = Np, final Q1 = furuta_mpc_weight(Q1, energy_weight), final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), integrator_stages = 2, final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
   zero = BlockComponents.Sources.Constant(final k = 0) {^zero}
@@ -107,17 +106,17 @@ component FurutaMPCMultirate
 relations
   connect(shoulder_angle, estimator_shoulder.u) {^id1}
   connect(elbow_angle, estimator_elbow.u) {^id2}
-  connect(estimator_shoulder.y, subsampler_shoulder_angle.u) {^id3}
-  connect(estimator_elbow.y, subsampler_elbow_angle.u) {^id4}
-  connect(estimator_shoulder.rate, subsampler_shoulder_rate.u) {^id5}
-  connect(estimator_elbow.rate, subsampler_elbow_rate.u) {^id6}
+  connect(estimator_shoulder.y, latest_shoulder_angle.u) {^id3}
+  connect(estimator_elbow.y, latest_elbow_angle.u) {^id4}
+  connect(estimator_shoulder.rate, latest_shoulder_rate.u) {^id5}
+  connect(estimator_elbow.rate, latest_elbow_rate.u) {^id6}
   # Wrapped after the sub-sample, not before: `mod` is memoryless so the value is the same, and
   # this leaves every `Latest` source a variable of the fast partition.
-  connect(subsampler_elbow_angle.y, anglenormalization.u) {^id7}
-  connect(subsampler_shoulder_angle.y, mpc.x[1]) {^id8}
+  connect(latest_elbow_angle.y, anglenormalization.u) {^id7}
+  connect(latest_shoulder_angle.y, mpc.x[1]) {^id8}
   connect(anglenormalization.y, mpc.x[2]) {^id9}
-  connect(subsampler_shoulder_rate.y, mpc.x[3]) {^id10}
-  connect(subsampler_elbow_rate.y, mpc.x[4]) {^id11}
+  connect(latest_shoulder_rate.y, mpc.x[3]) {^id10}
+  connect(latest_elbow_rate.y, mpc.x[4]) {^id11}
   # The reference is the upright state: arm centred, pendulum at π, at rest, and the energy of rest upright.
   connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]) {^id12}
   connect(upright.y, mpc.r[2]) {^id13}
@@ -145,16 +144,16 @@ metadata {
     "estimator_elbow": {
       "Dyad": {"placement": {"diagram": {"x1": 80, "x2": 180, "y1": 600, "y2": 700}}}
     },
-    "subsampler_shoulder_angle": {
+    "latest_shoulder_angle": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 100, "y2": 200}}}
     },
-    "subsampler_shoulder_rate": {
+    "latest_shoulder_rate": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 260, "y2": 360}}}
     },
-    "subsampler_elbow_angle": {
+    "latest_elbow_angle": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 560, "y2": 660}}}
     },
-    "subsampler_elbow_rate": {
+    "latest_elbow_rate": {
       "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 400, "y1": 720, "y2": 820}}}
     },
     "anglenormalization": {
@@ -280,12 +279,12 @@ The encoders are read at `Ts_fast` and the state estimated there; the MPC solves
 
 `HardwareDiagnostics` sits on the MPC's clock and not on the sensing clock because its `dep` port
 is what orders its reads after the motor write -- `exec` is latched by the write -- and a
-`SubSampler` between them would be a partition boundary rather than a data dependency, so that
+a `Latest` block between them would be a partition boundary rather than a data dependency, so that
 ordering would be lost.
 
 The `DataLogger` is on the MPC's clock too, one row per solve in the `MPC_LOG_COLUMNS` order, so
 the file is the single-rate program's file and every reader of it works unchanged. Two
-`SubSampler`s bring the measured angles onto that clock; they read the same sources at the same
+`Latest` blocks bring the measured angles onto that clock; they read the same inputs at the same
 reading clock as the controller's own sub-samplers, so the logged angles are exactly the ones the
 MPC solved with.
 
@@ -317,8 +316,8 @@ component FurutaMPCMultirateHardware
   command = HardwareCommand(final umax = command_umax) {^command}
   diagnostics = HardwareDiagnostics(final realtime = realtime) {^diagnostics}
   logger = DataLogger(final n = MPC_LOG_NCOLS, final filename = log_file, final header = MPC_LOG_HEADER) {^logger}
-  log_shoulder = SubSampler() {^log_shoulder}
-  log_elbow = SubSampler() {^log_elbow}
+  log_shoulder = DiscreteComponents.Latest() {^log_shoulder}
+  log_elbow = DiscreteComponents.Latest() {^log_elbow}
   fastclock = DiscreteComponents.PeriodicClock(final dt = Ts_fast) {^fastclock}
   slowclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^slowclock}
   "Sample time of the MPC"

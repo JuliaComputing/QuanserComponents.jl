@@ -209,37 +209,3 @@ const FURUTA_MPC_OUTPUTS = [FURUTA_MPC_STATES; FURUTA_MPC_ENERGY_SIGNAL]
 # The MPC's stage weight over those outputs: the state weight `Q1` (design_lqr's, 4 × 4) extended with
 # the weight on the energy error, so that the LQR matrices stay a separate, recognizable knob.
 furuta_mpc_weight(Q1::AbstractMatrix, energy_weight::Real) = [Q1 zeros(4, 1); zeros(1, 4) energy_weight]
-
-# ---------------------------------------------------------------------------
-## Rate transition
-# ---------------------------------------------------------------------------
-# The Julia body of the `SubSampler` external component (dyad/subsampler.dyad). Here rather than
-# in src/ because this is the file the Dyad-generated module includes before the generated
-# `SubSampler_definition.jl` stub, which is how DiscreteComponents carries the bodies of
-# `PeriodicClock`, `Sampler` and `LastValue`.
-#
-# `SynchToolkit` is not in scope at this point -- src/program.jl is what `using`s it, and that
-# loads after the generated module -- so it is imported here. The body would resolve without
-# this by accident, since it only runs once the module is loaded, but that is the ordering
-# hazard the header comment in src/QuanserComponents.jl warns about.
-import SynchToolkit
-
-"""
-    SubSampler(; name, init = 0.0)
-
-Body of the `SubSampler` component: one `SynchToolkit.Latest` term. Its `input_timedomain` leaves
-`u` in its own clock partition and puts `init` and the result in the reader's, which is what makes
-the equation a rate transition rather than an alias.
-
-`init` arrives as a plain Julia number, since it is a Dyad *structural* parameter, so the operator
-term carries a literal as in SynchToolkit's own tests. A symbolic parameter would have no clock and
-could not satisfy the operator's second input domain.
-"""
-@component function SubSampler(; name, init = 0.0)
-    vars = @variables begin
-        u(t), [input = true]
-        y(t), [output = true]
-    end
-    equations = [y ~ SynchToolkit.Latest()(u, init)]
-    return System(equations, t, vars, []; name)
-end

@@ -217,7 +217,7 @@ function generate_mpc_multirate_controller(; Ts = 0.008, Ts_fast = 0.001, Np = 7
                `generate_mpc_controller`.")
     isdefined(SynchToolkit, :Latest) ||
         error("this SynchToolkit ($(pkgversion(SynchToolkit)) at $(pkgdir(SynchToolkit))) has no \
-               `Latest` operator, which `SubSampler` and so the multirate model need. Resolve it \
+               `Latest` operator, which the multirate model's clock transitions need. Resolve it \
                from the mpccomponents/sj0.8 branch -- the [sources] of this package's Project.toml \
                pin it; see the README's \"Nonlinear MPC\" section.")
     # The model is built with `Ts` (its MPC period) while the program is ticked at `Ts_fast`,

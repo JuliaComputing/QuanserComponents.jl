@@ -73,11 +73,12 @@ kernel = "2.3.0"
 #                 registry 0.5.0 has both: `main` carries #199 but dropped `lookup_var_clock`
 #                 with the #186 clock rework and never re-landed #185, and 0.5.0 has neither.
 #                 `MPCController` checks for `lookup_var_clock` and says so.
-#   DiscreteComponents  an interim integration branch: `main` plus `AlphaBetaGammaFilter`
-#                 (JuliaComputing/DiscreteComponents.jl#119, the multirate velocity estimator)
-#                 plus a compat bump admitting SynchJulia 0.8. Repoint at `main` once #119
-#                 merges. It supersedes `mpccomponents/with-d-compat`, whose `with_D` commits
-#                 have since landed on `main`.
+#   DiscreteComponents  an interim integration branch: `main` plus two open pull requests that
+#                 the multirate model needs. JuliaComputing/DiscreteComponents.jl#119 adds
+#                 `AlphaBetaGammaFilter`, the velocity estimator, and #121 replaces `LastValue`
+#                 with `Latest`, the clock transition, and moves that package to SynchJulia 0.8.
+#                 Repoint at `main` once both merge. It supersedes `mpccomponents/with-d-compat`,
+#                 whose `with_D` commits have since landed on `main`.
 #   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
 #
 # SynchJulia is no longer pinned: 0.8.1 is in DyadRegistry, and SynchCompiler is gone entirely,

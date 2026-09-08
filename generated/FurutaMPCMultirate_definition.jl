@@ -27,14 +27,13 @@ four and five times better at once. See NOTES.md for the comparison and its meth
 
 The tracker's own position estimate feeds the MPC, not the raw encoder angle, so the state the
 solver sees is one filter's coherent (position, velocity) pair rather than a raw angle beside a
-filtered rate. Feeding the raw angle instead is a rewire of `subsampler_shoulder_angle.u`.
+filtered rate. Feeding the raw angle instead is a rewire of `latest_shoulder_angle.u`.
 
-The bridge to the slow clock is four `SubSampler`s, one per MPC state input.
-`SynchToolkit.Latest` keeps each source on the fast clock and puts the result on the reader's, so
-the MPC sees the newest value the fast partition produced at each of its own ticks. When the slow
-period is a power-of-two multiple of the fast one the two clocks tick simultaneously with no
-floating-point drift, so the MPC reads a value computed in the same instant: the crossing adds no
-delay and the `SubSampler`s' `init` values are never observed.
+The transition to the slow clock is four `DiscreteComponents.Latest` blocks, one per MPC state
+input. Each keeps its input on the fast clock and puts its output on the MPC's, so the MPC reads
+the most recent value the fast partition produced. The slow period is a power-of-two multiple of
+the fast one, so the two clocks tick at the same instants with no floating-point drift, and the
+MPC reads a value produced at that same instant. The transition therefore adds no delay.
 
 The pendulum angle is wrapped *after* it is sub-sampled. `mod` is memoryless so the value is the
 same either way, and this order leaves every `Latest` source a variable of the fast partition
@@ -151,18 +150,18 @@ worth re-sweeping.
   __no_namespace_estimator_elbow = ModelingToolkit.toggle_namespacing(estimator_elbow, false)
   __estimator_elbow_alpha = Symbolics.unwrap(__no_namespace_estimator_elbow.alpha)::Symbolics.SymbolicT
   delete!(__estimator_elbow_ics, __estimator_elbow_alpha)
-  # Subcomponent subsampler_shoulder_angle of type QuanserComponents.SubSampler
-  subsampler_shoulder_angle_overrides = __pop_subcomponent_overrides!(__overrides, "subsampler_shoulder_angle")
-  push!(__systems, @named subsampler_shoulder_angle = QuanserComponents.SubSampler(; subsampler_shoulder_angle_overrides...))
-  # Subcomponent subsampler_elbow_angle of type QuanserComponents.SubSampler
-  subsampler_elbow_angle_overrides = __pop_subcomponent_overrides!(__overrides, "subsampler_elbow_angle")
-  push!(__systems, @named subsampler_elbow_angle = QuanserComponents.SubSampler(; subsampler_elbow_angle_overrides...))
-  # Subcomponent subsampler_shoulder_rate of type QuanserComponents.SubSampler
-  subsampler_shoulder_rate_overrides = __pop_subcomponent_overrides!(__overrides, "subsampler_shoulder_rate")
-  push!(__systems, @named subsampler_shoulder_rate = QuanserComponents.SubSampler(; subsampler_shoulder_rate_overrides...))
-  # Subcomponent subsampler_elbow_rate of type QuanserComponents.SubSampler
-  subsampler_elbow_rate_overrides = __pop_subcomponent_overrides!(__overrides, "subsampler_elbow_rate")
-  push!(__systems, @named subsampler_elbow_rate = QuanserComponents.SubSampler(; subsampler_elbow_rate_overrides...))
+  # Subcomponent latest_shoulder_angle of type DiscreteComponents.Latest
+  latest_shoulder_angle_overrides = __pop_subcomponent_overrides!(__overrides, "latest_shoulder_angle")
+  push!(__systems, @named latest_shoulder_angle = DiscreteComponents.Latest(; latest_shoulder_angle_overrides...))
+  # Subcomponent latest_elbow_angle of type DiscreteComponents.Latest
+  latest_elbow_angle_overrides = __pop_subcomponent_overrides!(__overrides, "latest_elbow_angle")
+  push!(__systems, @named latest_elbow_angle = DiscreteComponents.Latest(; latest_elbow_angle_overrides...))
+  # Subcomponent latest_shoulder_rate of type DiscreteComponents.Latest
+  latest_shoulder_rate_overrides = __pop_subcomponent_overrides!(__overrides, "latest_shoulder_rate")
+  push!(__systems, @named latest_shoulder_rate = DiscreteComponents.Latest(; latest_shoulder_rate_overrides...))
+  # Subcomponent latest_elbow_rate of type DiscreteComponents.Latest
+  latest_elbow_rate_overrides = __pop_subcomponent_overrides!(__overrides, "latest_elbow_rate")
+  push!(__systems, @named latest_elbow_rate = DiscreteComponents.Latest(; latest_elbow_rate_overrides...))
   # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
   anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
   push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
@@ -228,15 +227,15 @@ worth re-sweeping.
   ### Equations
   push!(__eqs, connect(shoulder_angle, estimator_shoulder.u))
   push!(__eqs, connect(elbow_angle, estimator_elbow.u))
-  push!(__eqs, connect(estimator_shoulder.y, subsampler_shoulder_angle.u))
-  push!(__eqs, connect(estimator_elbow.y, subsampler_elbow_angle.u))
-  push!(__eqs, connect(estimator_shoulder.rate, subsampler_shoulder_rate.u))
-  push!(__eqs, connect(estimator_elbow.rate, subsampler_elbow_rate.u))
-  push!(__eqs, connect(subsampler_elbow_angle.y, anglenormalization.u))
-  push!(__eqs, connect(subsampler_shoulder_angle.y, mpc.x[1]))
+  push!(__eqs, connect(estimator_shoulder.y, latest_shoulder_angle.u))
+  push!(__eqs, connect(estimator_elbow.y, latest_elbow_angle.u))
+  push!(__eqs, connect(estimator_shoulder.rate, latest_shoulder_rate.u))
+  push!(__eqs, connect(estimator_elbow.rate, latest_elbow_rate.u))
+  push!(__eqs, connect(latest_elbow_angle.y, anglenormalization.u))
+  push!(__eqs, connect(latest_shoulder_angle.y, mpc.x[1]))
   push!(__eqs, connect(anglenormalization.y, mpc.x[2]))
-  push!(__eqs, connect(subsampler_shoulder_rate.y, mpc.x[3]))
-  push!(__eqs, connect(subsampler_elbow_rate.y, mpc.x[4]))
+  push!(__eqs, connect(latest_shoulder_rate.y, mpc.x[3]))
+  push!(__eqs, connect(latest_elbow_rate.y, mpc.x[4]))
   push!(__eqs, connect(zero.y, mpc.r[1], mpc.r[3], mpc.r[4]))
   push!(__eqs, connect(upright.y, mpc.r[2]))
   push!(__eqs, connect(level.y, mpc.r[5]))

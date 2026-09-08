@@ -189,11 +189,10 @@ window long enough to do that is only affordable at 1 ms. The measurements, the 
 turned out to be misleading, and the cost of a third-order tracker on a fast disturbance are in
 NOTES.md.
 
-The clock crossing is `SubSampler` (dyad/subsampler.dyad), a deliberately temporary block on
-`SynchToolkit.Latest`. It does not *relate* the two clocks -- both are declared separately, and
-only convention makes one eight times the other -- which is why the equivalent blocks were rejected
-from DiscreteComponents (#114) in favour of compiler-level operators (SynchToolkit.jl#190). Delete
-it when those land.
+The clock transition is `DiscreteComponents.Latest`. It does not *relate* the two clocks: both are
+declared separately, and only convention makes one eight times the other. A block cannot derive one
+clock from another, so an integer rate relationship that is stated once and checked belongs at the
+compiler level instead.
 
 ```julia
 @named model = FurutaMPCMultirateSwingup(; Ts = 0.008, Ts_fast = 0.001)

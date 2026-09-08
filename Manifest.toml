@@ -660,7 +660,7 @@ version = "0.7.21"
 
 [[deps.DiscreteComponents]]
 deps = ["BlockComponents", "DyadData", "DyadInterface", "LinearAlgebra", "Markdown", "ModelingToolkit", "Moshi", "OrdinaryDiffEqDefault", "PrecompileTools", "RuntimeGeneratedFunctions", "StableRNGs", "SymbolicUtils", "Symbolics", "SynchJulia", "SynchToolkit"]
-git-tree-sha1 = "69a9e5cc2935ab86a68ca7eba30acbd434271f4b"
+git-tree-sha1 = "e1b7c20e8995fcd81019aa28dfb7d61bd9f09cd3"
 repo-rev = "mpccomponents/multirate-mpc"
 repo-url = "https://github.com/JuliaComputing/DiscreteComponents.git"
 uuid = "b5590941-51af-4a5a-9bca-5ae7cd448b75"

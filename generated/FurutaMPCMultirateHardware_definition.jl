@@ -15,12 +15,12 @@ The encoders are read at `Ts_fast` and the state estimated there; the MPC solves
 
 `HardwareDiagnostics` sits on the MPC's clock and not on the sensing clock because its `dep` port
 is what orders its reads after the motor write -- `exec` is latched by the write -- and a
-`SubSampler` between them would be a partition boundary rather than a data dependency, so that
+a `Latest` block between them would be a partition boundary rather than a data dependency, so that
 ordering would be lost.
 
 The `DataLogger` is on the MPC's clock too, one row per solve in the `MPC_LOG_COLUMNS` order, so
 the file is the single-rate program's file and every reader of it works unchanged. Two
-`SubSampler`s bring the measured angles onto that clock; they read the same sources at the same
+`Latest` blocks bring the measured angles onto that clock; they read the same inputs at the same
 reading clock as the controller's own sub-samplers, so the logged angles are exactly the ones the
 MPC solved with.
 
@@ -142,12 +142,12 @@ next fast ticks back to back, so the cost is jitter on the sensing clock rather 
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
   push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, logger_overrides...))
-  # Subcomponent log_shoulder of type QuanserComponents.SubSampler
+  # Subcomponent log_shoulder of type DiscreteComponents.Latest
   log_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "log_shoulder")
-  push!(__systems, @named log_shoulder = QuanserComponents.SubSampler(; log_shoulder_overrides...))
-  # Subcomponent log_elbow of type QuanserComponents.SubSampler
+  push!(__systems, @named log_shoulder = DiscreteComponents.Latest(; log_shoulder_overrides...))
+  # Subcomponent log_elbow of type DiscreteComponents.Latest
   log_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "log_elbow")
-  push!(__systems, @named log_elbow = QuanserComponents.SubSampler(; log_elbow_overrides...))
+  push!(__systems, @named log_elbow = DiscreteComponents.Latest(; log_elbow_overrides...))
   # Subcomponent fastclock of type DiscreteComponents.PeriodicClock
   fastclock_overrides = __pop_subcomponent_overrides!(__overrides, "fastclock")
   push!(__systems, @named fastclock = DiscreteComponents.PeriodicClock(; dt=Ts_fast, fastclock_overrides...))
