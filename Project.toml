@@ -13,6 +13,7 @@ DyadInterface = "99806f68-afab-45ca-9d8c-ceff6bc61f54"
 ElectricalComponents = "3fc4c519-469d-4ff5-98c9-d4d06b1514a2"
 HydraulicComponents = "b6ec4bdb-baef-4449-8ab3-f7a9cc7f1342"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
 MPCComponents = "aba2bcdf-b216-4bf2-af71-aceb9999ebd9"
 Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
@@ -30,13 +31,26 @@ SynchJulia = "a1b2c3d4-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
 SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 ThermalComponents = "084a29d9-4f48-4925-95b4-b7d4c79725f4"
 TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
+acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
+tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
 
 # MPCComponents is not registered, and the MPC stack it needs is not all released. What each pin
 # is for:
 #
 #   MPCComponents  its `main`, which has to include JuliaComputing/MPCComponents.jl#31: without it
 #                 the multibody prediction model is rejected as time-varying.
-#   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
+#   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on. They are listed under
+#                 `[deps]` rather than `[extras]` even though nothing here calls them: a `[sources]`
+#                 entry binds only for a package the active project depends on, so with them in
+#                 `[extras]` the resolver had no version to place for `acados_jll`, which
+#                 MPCComponents requires, and every `Pkg.resolve` failed with `has no known
+#                 versions`. LinearMPC failed more quietly still -- it is registered, so the
+#                 resolver silently took the release in place of the fork with the disturbance
+#                 cross term.
+#
+# MultibodyComponents is no longer taken from a local checkout: the registered 0.2.4 resolves
+# against the rest of this stack, so a sibling `../MultibodyComponents` is no longer needed and
+# this environment resolves from nothing but the registries and the sources below.
 #
 # DiscreteComponents is no longer pinned either: 0.4.0 has both `AlphaBetaGammaFilter`, the velocity
 # estimator (JuliaComputing/DiscreteComponents.jl#119), and `Latest`, the clock transition (#121),
@@ -55,7 +69,6 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 [sources]
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
 MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
-MultibodyComponents = {path = "../MultibodyComponents"}
 acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
 tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_renderer_jll.jl"}
 
@@ -69,11 +82,12 @@ DyadInterface = "7.1.0"
 ElectricalComponents = "2.2.1"
 HydraulicComponents = "2.0.3"
 LinearAlgebra = "1.12.0"
+LinearMPC = "0.10"
 MPCComponents = "0.1.0"
 Markdown = "1"
 ModelingToolkit = "11"
 Moshi = "0.3"
-MultibodyComponents = "0.2.2"
+MultibodyComponents = "0.2.4"
 OrderedCollections = "1.8"
 OrdinaryDiffEqDefault = "2"
 PrecompileTools = "1"
@@ -86,6 +100,8 @@ SynchJulia = "0.8"
 SynchToolkit = "0.5.1"
 ThermalComponents = "2.0.5"
 TranslationalComponents = "2.4.2"
+acados_jll = "0.6.0"
+tera_renderer_jll = "0.2"
 
 [dyad]
 kernel = "2.3.0"
@@ -93,11 +109,8 @@ kernel = "2.3.0"
 [extras]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
-tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
 
 [targets]
 test = ["CSV", "DataFrames", "Plots", "Test"]

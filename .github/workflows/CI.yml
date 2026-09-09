@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  pull_request:
+
+env:
+  JULIA_PKG_SERVER: internal.juliahub.com
+  # The MPC stack is not all registered: MPCComponents, the LinearMPC fork and the acados JLLs
+  # are cloned from Git, which needs the CLI client rather than libgit2 for the credentials the
+  # registry step installs.
+  JULIA_PKG_USE_CLI_GIT: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+
+    # This repository is public, and the org's `Default` runner group has
+    # `allows_public_repositories: false`, so a bare `runs-on: self-hosted` job never resolves and
+    # queues forever. Public repositories are served by the `public` runner group, whose scale sets
+    # advertise no bare `self-hosted` label and have to be named: the tiers are
+    # `self-hosted-{2vcpu-4gb,4vcpu-8gb,8vcpu-16gb,8vcpu-32gb}-public`. This suite compiles the
+    # multibody models and builds acados, so it takes the heavy-compute tier.
+    runs-on: self-hosted-8vcpu-16gb-public
+
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - "1.12"
+        os:
+          - self-hosted-8vcpu-16gb-public
+        arch:
+          - x64
+
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+
+      - uses: julia-actions/setup-julia@5c9647d97b78a5debe5164e9eec09d653d29bd71 # v2.6.1
+        with:
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
+
+      - name: "Set up private JuliaHub registries"
+        uses: "JuliaComputing/set-up-private-juliahub-registries@2f465506027adbe8086afc41dd3514e9020d1577" # v2.0.0
+        with:
+          encoded-juliahub-token: "${{ secrets.JULIAHUB_TOKEN_ENCODED }}"
+          ssh-key: "${{ secrets.JULIASIM_REGISTRY_SSH_KEY }}"
+          enable-JuliaHubRegistry: "true"
+
+      - uses: julia-actions/julia-buildpkg@e3eb439fad4f9aba7da2667e7510e4a46ebc46e1 # v1
+
+      - uses: julia-actions/julia-runtest@b67f25cc97aa716a662fc9586ea6d5d7bf6c2da3 # v1

@@ -30,9 +30,9 @@ pkg> add ModelingToolkit MultibodyComponents SynchToolkit OrdinaryDiffEqDefault
 ### The simulation-only branch
 
 Those commands resolve `main` only for someone who can reach the repositories the MPC
-controller is pinned to: MPCComponents is not registered, and `[sources]` names branch
-a branch build of LinearMPC, two unregistered acados JLLs and one local checkout
-(see [Environment](#environment) below). Everyone
+controller is pinned to: MPCComponents is not registered, and `[sources]` names a branch
+build of LinearMPC and two unregistered acados JLLs (see [Environment](#environment) below).
+Everyone
 else installs the branch `simulation-only`, which is `main` as of the commit before the
 MPC work and resolves entirely to registered versions:
 
@@ -272,22 +272,28 @@ JuliaComputing/SynchToolkit.jl#186, the array clocked variables the MPC's output
 KeyError: key (control_system₊mpc₊u(t))[1] not found
 ```
 
-This branch checks in `Manifest.toml` and `test/Manifest.toml`, resolved against the pinned stack.
-MPCComponents comes from its GitHub `main` (which has to include
+MPCComponents comes from its GitHub `main`, which has to include
 [JuliaComputing/MPCComponents.jl#31](https://github.com/JuliaComputing/MPCComponents.jl/pull/31):
-without it the multibody prediction model is rejected as time-varying), and one package has to
-come from a local checkout recorded relative to this repository: `../MultibodyComponents` (the
-`~/.julia/dev` checkout; the registered release does not resolve against these pins). With both
-next to the repo,
+without it the multibody prediction model is rejected as time-varying. Nothing comes from a local
+checkout any more -- the registered MultibodyComponents 0.2.4 resolves against this stack -- so
 
 ```
 julia --project=path/to/QuanserComponents -e 'using Pkg; Pkg.instantiate()'   # the package
 julia --project=path/to/QuanserComponents/test test/hardware_mpc.jl           # the scripts
 ```
 
-is all it takes. For an environment of your own, copy the `[sources]` block (and the `[extras]`
-entries they refer to) from Project.toml into it. The first `using` precompiles the multibody and
-acados trees, a few minutes.
+is all it takes, from a clone and nothing else. `Manifest.toml` and `test/Manifest.toml` are still
+checked in, so an instantiate reproduces the stack the tests ran against, but both environments now
+also resolve from scratch.
+
+The unregistered packages are listed under `[deps]` rather than `[extras]`, which is what makes
+that true. A `[sources]` entry binds only for a package the active project depends on, so while
+`acados_jll` sat in `[extras]` the resolver had no version to place for it -- MPCComponents
+requires it -- and `Pkg.resolve` failed with `acados_jll has no known versions`. LinearMPC failed
+less visibly: it is registered, so the resolver quietly took the release instead of the fork
+carrying the disturbance cross term. For an environment of your own, copy the `[sources]` block
+and the `[deps]` entries it names. The first `using` precompiles the multibody and acados trees,
+a few minutes.
 
 ## Layout
 
