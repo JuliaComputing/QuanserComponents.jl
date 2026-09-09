@@ -36,12 +36,12 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 #
 #   MPCComponents  its `main`, which has to include JuliaComputing/MPCComponents.jl#31: without it
 #                 the multibody prediction model is rejected as time-varying.
-#   DiscreteComponents  an interim integration branch: `main` plus two open pull requests that
-#                 the multirate model needs. JuliaComputing/DiscreteComponents.jl#119 adds
-#                 `AlphaBetaGammaFilter`, the velocity estimator, and #121 replaces `LastValue`
-#                 with `Latest`, the clock transition, and moves that package to SynchJulia 0.8.
-#                 Repoint at `main` once both merge.
 #   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
+#
+# DiscreteComponents is no longer pinned either: 0.4.0 has both `AlphaBetaGammaFilter`, the velocity
+# estimator (JuliaComputing/DiscreteComponents.jl#119), and `Latest`, the clock transition (#121),
+# which are what the multirate model took the integration branch for. The bound is `0.4` and not
+# `0.3` because that release removed `LastValue`.
 #
 # Neither SynchJulia nor SynchToolkit is pinned any more. SynchJulia 0.8.1 is in DyadRegistry, and
 # SynchCompiler is gone entirely, merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
@@ -53,7 +53,6 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 # These sources take effect when this project (or one that copies them) is the active environment.
 # Pkg rewrites this file on every resolve and drops these comments; restore them from git afterwards.
 [sources]
-DiscreteComponents = {rev = "mpccomponents/multirate-mpc", url = "https://github.com/JuliaComputing/DiscreteComponents.git"}
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
 MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
 MultibodyComponents = {path = "../MultibodyComponents"}
@@ -64,7 +63,7 @@ tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_re
 BlockComponents = "4.6.0"
 ControlSystemsBase = "1"
 ControlSystemsMTK = "2.6"
-DiscreteComponents = "0.3"
+DiscreteComponents = "0.4"
 DyadData = "2"
 DyadInterface = "7.1.0"
 ElectricalComponents = "2.2.1"
