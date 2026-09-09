@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "31282feed9c2d549e579b5b5251f7778259b1b27"
+project_hash = "6a9d131f83a1a39324b8d14109939508810f1219"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -154,9 +154,9 @@ version = "1.11.0"
 
 [[deps.Atomix]]
 deps = ["UnsafeAtomics"]
-git-tree-sha1 = "b8651b2eb5796a386b0398a20b519a6a6150f75c"
+git-tree-sha1 = "1bbcf97714051f302b3beafab65bcdeb6044c4df"
 uuid = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
-version = "1.1.3"
+version = "1.2.1"
 
     [deps.Atomix.extensions]
     AtomixCUDAExt = "CUDA"
@@ -1364,9 +1364,9 @@ weakdeps = ["ChainRulesCore", "SparseArrays", "Statistics"]
 
 [[deps.LinearSolve]]
 deps = ["AMD", "ArrayInterface", "ConcreteStructs", "DocStringExtensions", "EnumX", "GPUArraysCore", "InteractiveUtils", "Krylov", "LHLFactorization", "Libdl", "LinearAlgebra", "MKL_jll", "Markdown", "OpenBLAS_jll", "PrecompileTools", "Preferences", "PureKLU", "RecursiveArrayTools", "Reexport", "SciMLBase", "SciMLLogging", "SciMLOperators", "SciMLStructures", "Setfield", "SparseArrays", "SparseColumnPivotedQR", "StaticArraysCore"]
-git-tree-sha1 = "cae07ee3eb7eb63a14ebab34be82baac1bb8ae63"
+git-tree-sha1 = "0a6eb67268e9179ff2b5950f17d921589c3f53e4"
 uuid = "7ed4a6bd-45f5-4d41-b270-4a48e9bafcae"
-version = "5.16.0"
+version = "5.17.0"
 
     [deps.LinearSolve.extensions]
     LinearSolveAMDGPUExt = "AMDGPU"
@@ -1691,7 +1691,7 @@ version = "0.2.7"
 
 [[deps.MultibodyComponents]]
 deps = ["BlockComponents", "CoordinateTransformations", "DelimitedFiles", "DyadCompilerPasses", "DyadData", "DyadInterface", "ElectricalComponents", "FileIO", "ForwardDiff", "HydraulicComponents", "LinearAlgebra", "Markdown", "MeshIO", "ModelingToolkit", "ModelingToolkitBase", "ModelingToolkitTearing", "Moshi", "OrdinaryDiffEqDefault", "OrdinaryDiffEqNonlinearSolve", "OrdinaryDiffEqRosenbrock", "OrdinaryDiffEqTsit5", "PrecompileTools", "RotationalComponents", "Rotations", "RuntimeGeneratedFunctions", "Setfield", "SimpleNonlinearSolve", "SparseArrays", "StateSelection", "StaticArrays", "Symbolics", "ThermalComponents", "TrajectoryLimiters", "TranslationalComponents"]
-path = "../../../../MultibodyComponents"
+git-tree-sha1 = "519c84ff35a852b98a71f1a3cc1d6a34042ab5eb"
 uuid = "01883e52-22cd-4538-b14d-b44f958a131d"
 version = "0.2.4"
 
@@ -2154,7 +2154,7 @@ version = "2.11.3"
     Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 
 [[deps.QuanserComponents]]
-deps = ["BlockComponents", "ControlSystemsBase", "ControlSystemsMTK", "DiscreteComponents", "DyadData", "DyadInterface", "ElectricalComponents", "HydraulicComponents", "LinearAlgebra", "MPCComponents", "Markdown", "ModelingToolkit", "Moshi", "MultibodyComponents", "OrderedCollections", "OrdinaryDiffEqDefault", "PrecompileTools", "Printf", "RecipesBase", "RotationalComponents", "RuntimeGeneratedFunctions", "SymbolicIndexingInterface", "SynchJulia", "SynchToolkit", "ThermalComponents", "TranslationalComponents"]
+deps = ["BlockComponents", "ControlSystemsBase", "ControlSystemsMTK", "DiscreteComponents", "DyadData", "DyadInterface", "ElectricalComponents", "HydraulicComponents", "LinearAlgebra", "LinearMPC", "MPCComponents", "Markdown", "ModelingToolkit", "Moshi", "MultibodyComponents", "OrderedCollections", "OrdinaryDiffEqDefault", "PrecompileTools", "Printf", "RecipesBase", "RotationalComponents", "RuntimeGeneratedFunctions", "SymbolicIndexingInterface", "SynchJulia", "SynchToolkit", "ThermalComponents", "TranslationalComponents", "acados_jll", "tera_renderer_jll"]
 path = "."
 uuid = "d44921f8-446f-4040-8b54-e37c69fd1e29"
 version = "0.1.0"
