@@ -31,7 +31,6 @@ SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
-DiscreteComponents = {rev = "mpccomponents/multirate-mpc", url = "https://github.com/JuliaComputing/DiscreteComponents.git"}
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
 MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
 MultibodyComponents = {path = "../../MultibodyComponents"}

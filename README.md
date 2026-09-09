@@ -31,8 +31,8 @@ pkg> add ModelingToolkit MultibodyComponents SynchToolkit OrdinaryDiffEqDefault
 
 Those commands resolve `main` only for someone who can reach the repositories the MPC
 controller is pinned to: MPCComponents is not registered, and `[sources]` names branch
-builds of DiscreteComponents and LinearMPC, two unregistered acados JLLs and one local
-checkout (see [Environment](#environment) below). Everyone
+a branch build of LinearMPC, two unregistered acados JLLs and one local checkout
+(see [Environment](#environment) below). Everyone
 else installs the branch `simulation-only`, which is `main` as of the commit before the
 MPC work and resolves entirely to registered versions:
 
@@ -253,12 +253,14 @@ harness for it, since `run_hardware.c` drives a single tick.
 ### Environment
 
 MPCComponents is not registered, and the MPC stack it needs is not all released. What is still
-pinned is a DiscreteComponents integration branch carrying `AlphaBetaGammaFilter`
-(JuliaComputing/DiscreteComponents.jl#119) and the `Latest` clock transition
-(JuliaComputing/DiscreteComponents.jl#121) until both merge, and unregistered LinearMPC and
-acados forks.
+pinned is an unregistered LinearMPC fork and the two acados JLLs.
 
-The whole Synch stack comes from DyadRegistry. SynchJulia is 0.8.1, and SynchCompiler no longer
+DiscreteComponents comes from DyadRegistry as of 0.4.0, which carries both `AlphaBetaGammaFilter`,
+the velocity estimator of the multirate model (JuliaComputing/DiscreteComponents.jl#119), and
+`Latest`, its clock transition (JuliaComputing/DiscreteComponents.jl#121). The bound is `0.4`
+rather than `0.3` because that release removed `LastValue`, which `Latest` replaces.
+
+The whole Synch stack comes from DyadRegistry too. SynchJulia is 0.8.1, and SynchCompiler no longer
 exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.jl#205. SynchToolkit is
 0.5.1 (JuliaComputing/SynchToolkit.jl#214), which has both the `Latest` clock-crossing operator
 the multirate model needs (JuliaComputing/SynchToolkit.jl#199) and, through the clock rework of
