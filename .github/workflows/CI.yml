@@ -23,7 +23,13 @@ jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
 
-    runs-on: self-hosted
+    # This repository is public, and the org's `Default` runner group has
+    # `allows_public_repositories: false`, so a bare `runs-on: self-hosted` job never resolves and
+    # queues forever. Public repositories are served by the `public` runner group, whose scale sets
+    # advertise no bare `self-hosted` label and have to be named: the tiers are
+    # `self-hosted-{2vcpu-4gb,4vcpu-8gb,8vcpu-16gb,8vcpu-32gb}-public`. This suite compiles the
+    # multibody models and builds acados, so it takes the heavy-compute tier.
+    runs-on: self-hosted-8vcpu-16gb-public
 
     strategy:
       fail-fast: false
@@ -31,7 +37,7 @@ jobs:
         version:
           - "1.12"
         os:
-          - self-hosted
+          - self-hosted-8vcpu-16gb-public
         arch:
           - x64
 
