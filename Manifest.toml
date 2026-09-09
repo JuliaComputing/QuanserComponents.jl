@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "744ee9b384aa9de1393294dab05cb3c1fec89daa"
+project_hash = "f3615959e59377768a03395292fd74eac910511d"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1693,7 +1693,7 @@ version = "0.2.7"
 
 [[deps.MultibodyComponents]]
 deps = ["BlockComponents", "CoordinateTransformations", "DelimitedFiles", "DyadCompilerPasses", "DyadData", "DyadInterface", "ElectricalComponents", "FileIO", "ForwardDiff", "HydraulicComponents", "LinearAlgebra", "Markdown", "MeshIO", "ModelingToolkit", "ModelingToolkitBase", "ModelingToolkitTearing", "Moshi", "OrdinaryDiffEqDefault", "OrdinaryDiffEqNonlinearSolve", "OrdinaryDiffEqRosenbrock", "OrdinaryDiffEqTsit5", "PrecompileTools", "RotationalComponents", "Rotations", "RuntimeGeneratedFunctions", "Setfield", "SimpleNonlinearSolve", "SparseArrays", "StateSelection", "StaticArrays", "Symbolics", "ThermalComponents", "TrajectoryLimiters", "TranslationalComponents"]
-path = "../MultibodyComponents"
+path = "../../../../MultibodyComponents"
 uuid = "01883e52-22cd-4538-b14d-b44f958a131d"
 version = "0.2.4"
 
@@ -2832,11 +2832,9 @@ version = "0.8.1"
 
 [[deps.SynchToolkit]]
 deps = ["FunctionWrappers", "Graphs", "Logging", "ModelingToolkit", "ModelingToolkitBase", "ModelingToolkitTearing", "Moshi", "OrderedCollections", "OrdinaryDiffEqTsit5", "PrecompileTools", "RuntimeGeneratedFunctions", "SciMLBase", "Setfield", "SimpleGraphs", "SimplePosets", "StaticArrays", "SymbolicIndexingInterface", "Symbolics", "SynchJulia", "UUIDs"]
-git-tree-sha1 = "21c49caa0736041a5cd20fd9b5d0d4148c92b1dc"
-repo-rev = "mpccomponents/sj0.8"
-repo-url = "https://github.com/JuliaComputing/SynchToolkit.jl.git"
+git-tree-sha1 = "14d4bda0dc466df0f2ffc3de1a7f3ec219dae305"
 uuid = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
-version = "0.5.0"
+version = "0.5.1"
 weakdeps = ["DyadInterface"]
 
     [deps.SynchToolkit.extensions]

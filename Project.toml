@@ -36,14 +36,6 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 #
 #   MPCComponents  its `main`, which has to include JuliaComputing/MPCComponents.jl#31: without it
 #                 the multibody prediction model is rejected as time-varying.
-#   SynchToolkit  `mpccomponents/sj0.8` has both the `Latest` clock-crossing operator
-#                 (JuliaComputing/SynchToolkit.jl#199), which `DiscreteComponents.Latest` and so the
-#                 multirate model need, and array clocked variables in `stkcompile` (#185), without
-#                 which `FurutaMPCHardware` fails with
-#                 `KeyError: key (control_system₊mpc₊u(t))[1] not found`. Neither `main` nor
-#                 registry 0.5.0 has both: `main` carries #199 but dropped `lookup_var_clock`
-#                 with the #186 clock rework and never re-landed #185, and 0.5.0 has neither.
-#                 `compile_program` checks for `lookup_var_clock` and says so.
 #   DiscreteComponents  an interim integration branch: `main` plus two open pull requests that
 #                 the multirate model needs. JuliaComputing/DiscreteComponents.jl#119 adds
 #                 `AlphaBetaGammaFilter`, the velocity estimator, and #121 replaces `LastValue`
@@ -51,8 +43,12 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 #                 Repoint at `main` once both merge.
 #   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
 #
-# SynchJulia is no longer pinned: 0.8.1 is in DyadRegistry, and SynchCompiler is gone entirely,
-# merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
+# Neither SynchJulia nor SynchToolkit is pinned any more. SynchJulia 0.8.1 is in DyadRegistry, and
+# SynchCompiler is gone entirely, merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
+# SynchToolkit 0.5.1 (JuliaComputing/SynchToolkit.jl#214) is the release of the `main` that carries
+# the `Latest` clock-crossing operator (#199), which `DiscreteComponents.Latest` and so the
+# multirate model need; its #186 clock rework also compiles the MPC's array clocked variables,
+# which `mpccomponents/sj0.8` carried #185 for. Registry 0.5.0 has neither, hence the `0.5.1` bound.
 #
 # These sources take effect when this project (or one that copies them) is the active environment.
 # Pkg rewrites this file on every resolve and drops these comments; restore them from git afterwards.
@@ -61,7 +57,6 @@ DiscreteComponents = {rev = "mpccomponents/multirate-mpc", url = "https://github
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
 MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
 MultibodyComponents = {path = "../MultibodyComponents"}
-SynchToolkit = {rev = "mpccomponents/sj0.8", url = "https://github.com/JuliaComputing/SynchToolkit.jl.git"}
 acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
 tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_renderer_jll.jl"}
 
@@ -89,7 +84,7 @@ RotationalComponents = "2.0.0"
 RuntimeGeneratedFunctions = "0.5"
 SymbolicIndexingInterface = "0.3.51"
 SynchJulia = "0.8"
-SynchToolkit = "0.5"
+SynchToolkit = "0.5.1"
 ThermalComponents = "2.0.5"
 TranslationalComponents = "2.4.2"
 
