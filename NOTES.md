@@ -96,8 +96,9 @@ Jacobian is only an approximation.
 ## The multirate MPC: what the fast clock actually buys
 
 `FurutaMPCMultirate` samples the encoders and estimates the state at 1 ms while the MPC solves at
-8 ms. The obvious reading -- that sampling faster gives a better velocity estimate -- is wrong, and
-measuring it was what led to the design.
+5 ms (8 ms when the measurements below were taken; the ratio is what they are about). The obvious
+reading -- that sampling faster gives a better velocity estimate -- is wrong, and measuring it was
+what led to the design.
 
 The metric below is the RMS error of the velocity estimate against the truth, on an angle quantized
 to real encoder counts, over trajectories the controller actually sees. It folds lag and noise into
@@ -164,13 +165,13 @@ Three findings from making the multirate program, none of them documented upstre
     as `step!(exe, tick_fast, tick_slow, gains, auto)`.
   - **An output on a clock that did not tick comes back as `nothing`**, so slow-clock outputs are
     `Union{Nothing, Float64}`. That is why `MPC_OUTPUT_NAMES`' `u` and `exitflag` are empty on
-    seven ticks out of eight.
+    four ticks out of five.
   - **`InputClock(clk; name = ...)` does not work** on this SynchToolkit: `build_input` calls
     `insert_clock(::LustreTranslator, ...)`, which has only a `Dict` method. The clocks are left
     unnamed. Fixed upstream by SynchToolkit.jl#189, which is on `main` but not on the branch this
     package pins.
 
-The 8 ms clock cannot be *derived* inside the node instead: `VariableClock`/`ClockValue` codegen
+The MPC's clock cannot be *derived* inside the node instead: `VariableClock`/`ClockValue` codegen
 dereferences a `_runtime` that only `compile_sim` installs, so those clocks are simulation-only,
 and any clock that is not declared as an `InputClock` is emitted as an unbound identifier.
 
@@ -181,17 +182,93 @@ it back.
 
 ## The 1 ms slot does not hold the MPC solve
 
-Per 8 ms period the work is eight fast ticks -- an encoder read and two filter updates each, tens
-of microseconds -- plus one solve of about 0.97 ms at the median. That is roughly 20 % utilization,
-so the *loop* is comfortable. The *slot* is not: the tick that carries the solve costs about 1.0 ms
-in a 1.0 ms slot, and 2.3 ms at the 99th percentile eats the next one or two fast slots, which then
-fire back to back. Two or three of every eight encoder samples therefore arrive with a `dt` of
-about 0 and about 2.3 ms rather than 1 ms -- on the very clock whose purpose is a clean 1 kHz
-estimate. The 40 to 150 ms tail ticks (0.3 % of solves) swallow 40 to 150 fast slots.
+Per 5 ms period the work is five fast ticks -- an encoder read and two filter updates each, a
+microsecond at the median -- plus one solve of about 0.98 ms. That is roughly 20 % utilization, so
+the *loop* is comfortable. The *slot* is not: the tick that carries the solve costs 0.98 ms of a
+1.0 ms slot before the encoder read is counted, and 1.8 ms at the 99th percentile eats the next
+fast slot, which then fires back to back. One of every five encoder samples therefore arrives with
+a `dt` of about 0 rather than 1 ms -- on the very clock whose purpose is a clean 1 kHz estimate.
+The 100 to 750 ms tail ticks (0.3 % of solves, the allocation problem above) swallow 100 to 750
+fast slots.
 
 `run_inprocess!` keeps an absolute schedule and never skips, so this is jitter rather than failure,
 and the `dt` and `exec` log columns measure it directly. If a rig run shows it mattering, `Ts_fast`
-is structural: a 2 ms base with a divisor of 4 keeps the 8 ms MPC and puts the solve at half a
-slot. Worth checking first is whether the device sustains 1 kHz reads at all -- each `hil_read` is
-a transaction of order 100 to 300 us, and the `exec` column of an existing 5 ms swing-up log gives
-the real number.
+is structural: a 2.5 ms base with a divisor of 2 keeps the 5 ms MPC and puts the solve at a third
+of a slot. Worth checking first is whether the device sustains 1 kHz reads at all -- each
+`hil_read` is a transaction of order 100 to 300 us, and the `exec` column of an existing 5 ms
+swing-up log gives the real number.
+
+## The non-uniform shooting grid: the effect of the rate, and of the horizon
+
+The MPC's period and its prediction horizon used to be one number: `Np` uniform intervals of
+length `Ts`, so the 0.6 s horizon cost 75 decision variables at 8 ms and would have cost 120 at
+5 ms. JuliaComputing/MPCComponents.jl#44 breaks that link. `ACADOSMPC`'s `time_steps` gives the
+length of each shooting interval separately, and `linear_time_steps(Ts, Np, Tf)` grows them by a
+constant increment from `Ts` to cover `Tf`; the first interval stays at `Ts`, since its control is
+the one the component applies and holds for a clock period, and the stage cost of interval `k` is
+weighted by `Δt_k / Ts` so that a long interval counts for as much as the short ones it replaces.
+`FurutaMPCMultirate` therefore has a `horizon` parameter beside `Ts` and `Np`, and at its defaults
+60 intervals grow from 5 ms to 15 ms and span 0.6 s.
+
+Measured with `test/mpc_rollouts.jl` in its multirate mode -- the compiled program ticked against
+the simulated pendulum with the QUBE's encoder quantization, 50 rollouts of 10 s from the same
+seeds, the identified plant, `qp_cond_N = 5` -- every configuration below swung up and balanced in
+all 50, from rest near hanging and from the random operating space alike:
+
+| `Ts` / `Np` / horizon | grid | catch median / 90 % / max [s] | solve median / 99 % [ms] | status ≠ 0 |
+| --- | --- | --- | --- | --- |
+| 8 ms / 75 / 0.60 s (the previous default) | uniform | 1.04 / 1.64 / 2.19 | 1.23 / 2.78 | 0 of 62 500 |
+| 5 ms / 60 / 0.60 s (the default now) | linear, 5 → 15 ms | 0.35 / 1.19 / 4.16 | 0.98 / 1.77 | 0 of 100 000 |
+| 5 ms / 60 / 0.60 s, `integrator_stages = 4` | linear | 0.42 / 1.03 / 7.67 | 1.62 / 2.77 | 0 of 100 000 |
+| 5 ms / 60 / 0.30 s | uniform | 0.34 / 0.55 / 1.10 | 0.98 / 1.23 | 0 of 100 000 |
+
+and from the random operating space, where a long horizon should have the most to say:
+
+| `Ts` / `Np` / horizon | catch median / 90 % / max [s] | arm median [rad] | solve median / 99 % [ms] | status ≠ 0 |
+| --- | --- | --- | --- | --- |
+| 8 ms / 75 / 0.60 s, uniform | 1.14 / 1.88 / 3.51 | 2.81 | 1.24 / 2.92 | 98 of 62 500 |
+| 5 ms / 60 / 0.60 s, linear | 0.99 / 1.74 / 5.99 | 2.32 | 0.98 / 2.21 | 226 of 100 000 |
+| 5 ms / 60 / 0.30 s, uniform | 0.80 / 1.26 / 1.56 | 2.33 | 0.98 / 1.94 | 176 of 100 000 |
+
+Four things fall out of it:
+
+1. **The rate accounts for the improvement.** Against the 8 ms controller the solve falls from 1.23 to 0.98 ms at
+   the median and from 2.78 to 1.77 at the 99th percentile while the horizon stays 0.6 s, the
+   swing-up from rest is caught in a third of the time, and the arm goes past the end stops in 7 of
+   50 rest starts instead of 27. The period is 3 ms shorter, so utilization rises from 15 % to
+   20 %; the loop is still far from full.
+2. **The horizon does not.** A uniform grid at the same `Ts` and `Np` -- half the span, 0.3 s --
+   catches sooner at every quantile that matters (0.80 against 0.99 s at the median from random
+   starts, 1.26 against 1.74 at the 90th percentile, 1.56 against 5.99 in the worst rollout) and
+   returns a nonzero acados status on 0.18 % of solves against 0.23 %, at the same solve time.
+   `energy_weight = 1e5` on the pendulum's energy error makes the stage cost a shaping term that
+   plans the pump without needing to see the catch, and stretching the grid both dilutes that
+   near-term shaping with stage weights of up to 3 and pushes the terminal LQR cost -- the only
+   term that knows about balancing -- twice as far out. `horizon = Np * Ts` is the whole change
+   back. The horizon is kept at 0.6 s because that is what the 8 ms controller had and what the
+   weights were tuned against, not because the measurements favour it.
+3. **The grid is stretched only as far as the integrator can follow.** acados integrates every
+   interval with one step of the same scheme, so the last interval is integrated three times more
+   coarsely than the first. Against a finely integrated reference over the states a swing-up
+   traverses, one step of the 2-stage scheme is off by at most
+
+   | interval | 5 ms (the first) | 8 ms (the previous default, everywhere) | 15 ms (the last) | 27 ms |
+   | --- | --- | --- | --- | --- |
+   | 2-stage ERK | 0.034 | 0.128 | 0.600 | 4.08 |
+   | 4-stage ERK | 0.0010 | 0.0044 | 0.0326 | 0.332 |
+
+   in rad/s of state error. At 15 ms the worst interval of the horizon is a factor of five coarser
+   than what the previous default accepted on every interval, which is the reason the horizon is
+   0.6 s and not longer: at `horizon = 0.8` and `Np = 50` the last interval is 27 ms and its error
+   is 4 rad/s, which is no longer a prediction of anything. Recovering the accuracy with
+   `integrator_stages = 4` costs 66 % more solve time and does not swing up better (the median
+   catch is worse and the worst rollout is worse), so the default stays 2.
+4. **`qp_cond_N = 5` survives the change.** Re-swept on this grid (12 rollouts from rest, 24 000
+   solves each), the median is 1.02 / 0.98 / 0.98 / 1.01 / 1.30 ms and the 99th percentile
+   2.67 / 2.16 / 2.19 / 2.44 / 4.61 for 2 / 3 / 5 / 10 / -1 -- the same shape as at `Np = 60` on
+   the single-rate controller: 3 to 10 within a few percent, 2 and the uncondensed horizon worse.
+
+The grid reaches the whole controller, not only the solver: with `reference_preview` a preview
+block would be tied to the shooting nodes rather than to multiples of `Ts` (this controller
+previews nothing), and `penalize_increments` is refused outright on a non-uniform grid, which is
+why `FurutaMPC`'s `penalize_increments = false` is load-bearing here.

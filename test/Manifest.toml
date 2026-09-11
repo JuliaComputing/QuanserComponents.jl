@@ -1990,7 +1990,7 @@ version = "0.4.17"
 
 [[deps.MPCComponents]]
 deps = ["ADTypes", "BlockComponents", "ControlSystemsBase", "DifferentiationInterface", "DiscreteComponents", "Downloads", "DyadData", "DyadInterface", "FiniteDiff", "ForwardDiff", "JSON", "Libdl", "LinearAlgebra", "LinearMPC", "Logging", "Markdown", "ModelingToolkit", "Moshi", "OrdinaryDiffEqDefault", "PrecompileTools", "RuntimeGeneratedFunctions", "SHA", "Scratch", "SparseConnectivityTracer", "SparseMatrixColorings", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "SynchJulia", "SynchToolkit", "acados_jll", "tera_renderer_jll"]
-git-tree-sha1 = "780013dfefed539006026823435a525a0c31d609"
+git-tree-sha1 = "abccd72b9219c04d612994414c99169973e46c49"
 repo-rev = "main"
 repo-url = "https://github.com/JuliaComputing/MPCComponents.jl"
 uuid = "aba2bcdf-b216-4bf2-af71-aceb9999ebd9"
