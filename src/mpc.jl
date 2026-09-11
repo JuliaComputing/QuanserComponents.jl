@@ -141,8 +141,10 @@ program_spec(::typeof(FurutaMPCHardware)) = ProgramSpec(;
 # runtime-settable parameter for the estimation. The model declares two clocks, `Ts_fast` for
 # the measurement and `Ts` for the MPC; `compile_program` reads them off the model, so the
 # compiled node takes one boolean per clock and the runtime ticks the fast one. `Ts` has to be an
-# integer multiple of `Ts_fast`, and a power-of-two multiple keeps the two clocks ticking at the
-# same instants without floating-point drift.
+# integer multiple of `Ts_fast`, and the two products have to agree to the last bit so that the
+# clocks keep ticking at the same instants -- at the defaults `m * 0.005 == 5m * 0.001` for every
+# `m`. `horizon` is the span the MPC's `Np` shooting intervals cover, which is not `Np * Ts`: the
+# grid is non-uniform (see `FurutaMPCMultirate`).
 program_spec(::typeof(FurutaMPCMultirateHardware)) = ProgramSpec(;
     name = :mpc_multirate_controller,
     tunables = OrderedDict{Any, Symbol}((nsys -> nsys.command_umax) => :command_umax,

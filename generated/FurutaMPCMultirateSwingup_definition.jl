@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCMultirateSwingup(; name, Ts, Ts_fast, Np, gray)
+   FurutaMPCMultirateSwingup(; name, Ts, Ts_fast, Np, horizon, integrator_stages, gray)
 
 `FurutaMPCMultirate` closed around the simulated `QubePendulum`: the multirate counterpart of
 `FurutaMPCSwingup`, which is unchanged and still the single-rate loop.
@@ -16,8 +16,9 @@ and not on the sensing clock. Two `PeriodicClock`s declare the two rates, the fa
 measurement net and the slow one on the command net; both are needed, since nothing else pins the
 MPC's partition.
 
-`Ts` should be a power-of-two multiple of `Ts_fast` so the two clocks tick simultaneously without
-floating-point drift -- at the defaults 0.008 is exactly 8 x 0.001.
+`Ts` must be an integer multiple of `Ts_fast`, and one whose tick instants coincide exactly in
+floating point so that the two clocks tick simultaneously and no drift accumulates -- at the
+defaults 0.005 is exactly 5 x 0.001, and `m * Ts == 5m * Ts_fast` for every `m`.
 
 Compile with `multibody(model, additional_passes = [SynchToolkit.compile_lustre])` and simulate
 with `dt = Ts_fast`: the base step has to resolve the fastest clock.
@@ -26,12 +27,14 @@ with `dt = Ts_fast`: the base step has to resolve the fastest clock.
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Ts`         | Sample time of the MPC                         | --  |   0.008 |
+| `Ts`         | Sample time of the MPC                         | --  |   0.005 |
 | `Ts_fast`         | Sample time of the encoder sampling and the state estimators                         | --  |   0.001 |
-| `Np`         | Prediction horizon in shooting intervals; 75 * 8 ms is the 0.6 s horizon of the 10 ms controller                         | --  |   75 |
+| `Np`         | Number of shooting intervals (see `FurutaMPCMultirate`)                         | --  |   50 |
+| `horizon`         | Prediction horizon [s]; the Np intervals grow linearly from Ts to cover it                         | --  |   0.8 |
+| `integrator_stages`         | Stages of the MPC's explicit Runge-Kutta integrator (see `FurutaMPCMultirate`)                         | --  |   2 |
 | `gray`         |                          | --  |   [0.9, 0.9, 0.9, 1] |
 """
-@component function FurutaMPCMultirateSwingup(; name = nothing, Ts=0.008, Ts_fast=0.001, Np=75, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
+@component function FurutaMPCMultirateSwingup(; name = nothing, Ts=0.005, Ts_fast=0.001, Np=50, horizon=0.8, integrator_stages=2, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -80,7 +83,7 @@ with `dt = Ts_fast`: the base step has to resolve the fastest clock.
   ### Components
   # Subcomponent control_system of type QuanserComponents.FurutaMPCMultirate
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPCMultirate(; Ts=Ts, Np=Np, control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPCMultirate(; Ts=Ts, Np=Np, horizon=horizon, integrator_stages=integrator_stages, control_system_overrides...))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
   qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
   push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; idparams=QuanserComponents.identified, qubependulum_overrides...))

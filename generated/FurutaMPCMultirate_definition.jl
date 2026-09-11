@@ -5,14 +5,14 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCMultirate(; name, dynamics, Ts, Np, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, energy_weight, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_alpha)
+   FurutaMPCMultirate(; name, dynamics, Ts, Np, horizon, integrator_stages, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, energy_weight, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_alpha)
 
 `FurutaMPC` split across two clocks: the encoders are read and the state estimated on a fast
 clock, the MPC solves on a slow one.
 
 The point is that the velocity estimate no longer has to trade lag against the MPC's period. At
 10 ms the single-rate controller has to run its estimator nearly unfiltered (`velocity_filter`
-0.8, a 6.2 ms time constant) because more lag destabilizes the balancing; estimating eight times
+0.8, a 6.2 ms time constant) because more lag destabilizes the balancing; estimating five times
 per MPC tick removes that constraint.
 
 What replaces the estimator matters more than the extra rate. `VelocityEstimator` is a backward
@@ -31,9 +31,10 @@ filtered rate. Feeding the raw angle instead is a rewire of `latest_shoulder_ang
 
 The transition to the slow clock is four `DiscreteComponents.Latest` blocks, one per MPC state
 input. Each keeps its input on the fast clock and puts its output on the MPC's, so the MPC reads
-the most recent value the fast partition produced. The slow period is a power-of-two multiple of
-the fast one, so the two clocks tick at the same instants with no floating-point drift, and the
-MPC reads a value produced at that same instant. The transition therefore adds no delay.
+the most recent value the fast partition produced. The slow period is an integer multiple of the
+fast one whose tick instants coincide exactly in floating point -- at the defaults every multiple
+of `Ts` is a multiple of `Ts_fast` to the last bit -- so the MPC reads a value produced at that
+same instant. The transition therefore adds no delay.
 
 The pendulum angle is wrapped *after* it is sub-sampled. `mod` is memoryless so the value is the
 same either way, and this order leaves every `Latest` source a variable of the fast partition
@@ -46,18 +47,37 @@ Both are load-bearing -- without the slow one nothing pins the MPC's partition a
 reads have no reading clock. `Ts` must equal the slow clock's period, since it is also the MPC's
 shooting interval.
 
+The horizon is laid out on a *non-uniform* shooting grid. `MPCComponents.linear_time_steps`
+divides the `horizon` into `Np` intervals that grow by a constant increment from `Ts`, so the
+horizon costs `Np` decision variables instead of the `horizon/Ts` a uniform grid of the same
+resolution would need -- 50 against 160 at the defaults. The first interval stays at `Ts`, since
+its control is the one that is applied and held for one clock period, and the stage cost of each
+interval is weighted by its length over `Ts`, so a long interval counts for as much as the short
+ones it replaces.
+
+The grid's cost is accuracy far out: acados integrates every interval with one step of the same
+`integrator_stages`-stage explicit Runge-Kutta scheme, and the last interval is
+`2*horizon/Np - Ts`, 5.4 times the first at the defaults. Measured against a finely integrated
+reference over the states a swing-up traverses, one 27 ms step of the 2-stage scheme is off by up
+to 4 rad/s against 0.03 for one 5 ms step. It does not matter in closed loop:
+`integrator_stages = 4` costs 65 % more solve time (1.36 ms at the median against 0.82) and swings
+up no better. See NOTES.md, which also records that the 0.8 s horizon is *not* what the rate
+increase buys -- a uniform 0.25 s grid at the same `Ts` and `Np` (`horizon = Np * Ts`) catches
+sooner and leaves the solver healthier.
+
 Everything else -- the energy-shaping stage cost, the soft state bounds, `reset_on_failure`, the
-terminal LQR cost -- is `FurutaMPC`'s and is documented there. `Np` is 75 rather than 60 so the
-horizon stays the 0.6 s that was tuned at 10 ms; `qp_cond_N` was measured at `Np = 60` and is
-worth re-sweeping.
+terminal LQR cost -- is `FurutaMPC`'s and is documented there.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `dynamics`         | Prediction model of the MPC: a `ContinuousDynamics` built from `FurutaPredictionModel` with an AD Jacobian backend (see `furuta_mpc_dynamics`). The default is the `QubePendulum` with the identified parameters                         | --  |   furuta_mpc_dynamics() |
-| `Ts`         | Sample time of the MPC; its shooting interval, so it must equal the slow clock's period                         | --  |   0.008 |
-| `Np`         | Prediction horizon in shooting intervals; the horizon is Np * Ts. 75 * 8 ms is the 0.6 s the 10 ms controller had over 60 intervals                         | --  |   75 |
+| `Ts`         | Sample time of the MPC; the first shooting interval, so it must equal the slow clock's period                         | --  |   0.005 |
+| `Np`         | Number of shooting intervals, the MPC's decision variables                         | --  |   50 |
+| `horizon`         | Prediction horizon [s]. The Np shooting intervals grow linearly from Ts to cover it; horizon = Np * Ts is the uniform grid                         | --  |   0.8 |
+| `time_steps`         | Lengths of the Np shooting intervals, laid out over the horizon by `MPCComponents.linear_time_steps`                         | --  |   linear_time...p, horizon) |
+| `integrator_stages`         | Stages of the explicit Runge-Kutta integrator acados discretizes each shooting interval with. One sub-step per interval, so the longest interval of a stretched grid is integrated in one step of this scheme; see `FurutaMPCMultirate`'s documentation for what that costs                         | --  |   2 |
 | `umax`         | Motor voltage bound of the MPC [V]. The swing-up needs 10 (clamp the command with `command_umax` instead of lowering this)                         | --  |   10.0 |
 | `arm_limit`         | Arm angle the MPC keeps the arm within (softly, over its horizon) [rad]; inside the end stops at ±1.92. The swing-up under LQR weights violates it, see `FurutaMPC`                         | --  |   1.7 |
 | `velocity_limit_shoulder`         | Arm velocity the MPC keeps its predictions within [rad/s]; a soft bound that keeps the real-time iterates where the linearization is meaningful                         | --  |   20.0 |
@@ -68,7 +88,7 @@ worth re-sweeping.
 | `warm_start`         | Initial guess of the NLP at every tick (see `FurutaMPC`)                         | --  |   MPCComponen...art.Shift() |
 | `max_iter`         | Maximum SQP iterations per tick (SQP only). Structural here, since acados sizes its memory by it                         | --  |   30 |
 | `levenberg_marquardt`         | Levenberg-Marquardt regularization of the Gauss-Newton Hessian                         | --  |   1.0 |
-| `qp_cond_N`         | Horizon of HPIPM's partially condensed QP; -1 keeps the full horizon Np. 5 is the optimum measured at Np = 60 (see NOTES.md) and is worth re-sweeping for 75                         | --  |   5 |
+| `qp_cond_N`         | Horizon of HPIPM's partially condensed QP; -1 keeps the full horizon Np. Re-measured at Np = 50: 3 to 10 are within a few percent of each other and 1, 2 and the uncondensed horizon are worse, as at Np = 60 (see NOTES.md)                         | --  |   5 |
 | `output_trajectories`         | Record the MPC's predicted trajectories, KKT residuals and iteration count at every tick, what `MPCComponents.mpc_gui` shows                         | --  |   false |
 | `Q1`         | Stage weight on the deviation from upright in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]: `design_lqr`'s (see `FurutaMPC`)                         | --  |   diagonal([1... 1.0, 1.0]) |
 | `Q2`         | Control weight: `design_lqr`'s                         | --  |   diagonal([100.0]) |
@@ -81,7 +101,7 @@ worth re-sweeping.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `exitflag` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function FurutaMPCMultirate(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.008, Np=75, umax=Float64(10.0), arm_limit=1.7, velocity_limit_shoulder=Float64(20.0), velocity_limit_elbow=Float64(30.0), energy_weight=Float64(100000.0), soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=Float64(1.0), qp_cond_N=5, output_trajectories=false, Q1=diagonal([1000.0, 10.0, 1.0, 1.0]), Q2=diagonal([100.0]), velocity_alpha=0.5, kwargs...)
+@component function FurutaMPCMultirate(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.005, Np=50, horizon=0.8, integrator_stages=2, umax=Float64(10.0), arm_limit=1.7, velocity_limit_shoulder=Float64(20.0), velocity_limit_elbow=Float64(30.0), energy_weight=Float64(100000.0), soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=Float64(1.0), qp_cond_N=5, output_trajectories=false, Q1=diagonal([1000.0, 10.0, 1.0, 1.0]), Q2=diagonal([100.0]), velocity_alpha=0.5, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -102,6 +122,7 @@ worth re-sweeping.
   ### Structural Parameters (functions)
 
   ### Structural Parameters (Final)
+  time_steps = linear_time_steps(Ts, Np, horizon)
 
   ### Path Parameters (functions)
 
@@ -167,7 +188,7 @@ worth re-sweeping.
   push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
-  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
+  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, time_steps=time_steps, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=integrator_stages, backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
   __bindings[mpc.Q1] = furuta_mpc_weight(Q1, energy_weight)
   __bindings[mpc.Q2] = Q2
   __bindings[mpc.operating_point] = [Float64(0), pi, Float64(0), Float64(0)]

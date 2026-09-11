@@ -1,12 +1,14 @@
 #=
-Monte Carlo verification of the MPC controller (`FurutaMPCHardware`) in simulation: the
-compiled synchronous program -- the very node that runs on the rig -- is ticked against a
-simulated Furuta pendulum from about a thousand random initial conditions, and every rollout is
-checked for a swing-up that holds within 10 s.
+Monte Carlo verification of the MPC controller in simulation: the compiled synchronous program
+-- the very node that runs on the rig -- is ticked against a simulated Furuta pendulum from about
+a thousand random initial conditions, and every rollout is checked for a swing-up that holds
+within 10 s. Either program runs: `rate = single` ticks `FurutaMPCHardware`, `rate = multi` ticks
+`FurutaMPCMultirateHardware`, whose encoder reads and state estimators run on a clock faster than
+the MPC's.
 
 The plant simulator is the multibody `QubePendulum` ODE (the same model the MPC predicts
-with, taken from `furuta_mpc_dynamics()`), integrated with RK4 at five sub-steps per
-controller period, with the encoder quantization of the QUBE (2048 counts per revolution)
+with, taken from `furuta_mpc_dynamics()`), integrated with RK4 at five sub-steps per tick of the
+program's fastest clock, with the encoder quantization of the QUBE (2048 counts per revolution)
 applied to the measured angles. The program reads the simulator through `bind_hardware!`,
 exactly as the tests do, so the velocity estimators, the angle wrapping and the MPC itself all
 run as compiled.
@@ -34,11 +36,16 @@ datasheet set, which is far off (a third of the identified acceleration per volt
 expected to work.
 
 Writes the plots and a summary to `outdir` (default `mpc_rollouts/` in the current directory)
-and prints the statistics. Runtime is dominated by the MPC solves (one real-time iteration
-over a 60-interval horizon), about a millisecond per tick, 1000 ticks per rollout.
+and prints the statistics. Runtime is dominated by the MPC solves (one real-time iteration over
+the horizon), about a millisecond each.
+
+Every `key=value` argument after `rate` is passed to `compile_program` as it stands, which is how
+one configuration is measured against another from the same seeds: `Ts=0.005 Np=50 horizon=0.8`,
+or `integrator_stages=4`. What is not given is the model's own default, so this script never
+measures a configuration the models have moved away from.
 
 ENVIRONMENT: as for test/hardware_mpc.jl (see the README's "Nonlinear MPC" section):
-  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | perturbed | random | nominal] [starts = random | hanging]
+  julia --project=<env> test/mpc_rollouts.jl [nrollouts] [outdir] [plant = identified | perturbed | random | nominal] [starts = random | hanging] [rate = single | multi] [key=value ...]
 =#
 
 using QuanserComponents
@@ -46,12 +53,19 @@ import QuanserComponents as QC
 using Statistics, Random, Printf
 using Plots
 
-const Ts = 0.01
 const Tf = 10.0
 const NROLL = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1000
 const OUTDIR = length(ARGS) >= 2 ? ARGS[2] : "mpc_rollouts"
 const PLANT = length(ARGS) >= 3 ? Symbol(ARGS[3]) : :identified
 const STARTS = length(ARGS) >= 4 ? Symbol(ARGS[4]) : :random
+const RATE = length(ARGS) >= 5 ? Symbol(ARGS[5]) : :single
+RATE in (:single, :multi) || error("rate must be single or multi")
+# Structural parameters of the program, straight to its constructor. The harness does not carry
+# the models' defaults: the periods it needs are read off the compiled program below.
+const TRAILING = ARGS[min(6, end + 1):end]
+all(a -> occursin('=', a), TRAILING) || error("arguments after `rate` must be key=value, got $TRAILING")
+const OVERRIDES = Dict(Symbol(k) => something(tryparse(Int, v), parse(Float64, v)) for (k, v) in
+                       (split(a, '=', limit = 2) for a in TRAILING))
 const ARM_LIMIT = 1.9198621771937625        # the rig's end stops (110 deg); FurutaMPC's soft bound sits inside them
 const CATCH_TOL = 0.1                       # rad from upright counted as balanced
 const HOLD = 1.0                            # s the pendulum must stay balanced at the end
@@ -98,15 +112,24 @@ function rollout!(ctrl, s::FurutaSim, x0; Tf = Tf)
     QC.bind_hardware!(measure = () -> measure(s), control = u -> (applied[] = u))
     QC.SynchToolkit.reset!(ctrl)
     N = round(Int, Tf / s.Ts)
-    X = zeros(4, N); U = zeros(N); flag = zeros(N); texec = zeros(N)
+    X = zeros(4, N); U = zeros(N)
+    flag = Float64[]; tmpc = Float64[]; tfast = Float64[]
     for i in 1:N
         t0 = time_ns()
         out = ctrl()
-        texec[i] = (time_ns() - t0) / 1e9
-        X[:, i] .= s.x; U[i] = applied[]; flag[i] = out.exitflag
+        dt = (time_ns() - t0) / 1e9
+        # A clocked output only has a value on a tick of its own clock, so on a fast tick between
+        # solves the MPC's outputs are `nothing`; the voltage the plant sees is the one the last
+        # solve wrote, which `applied` still holds. A single-rate program solves on every tick.
+        if out.exitflag === nothing
+            push!(tfast, dt)
+        else
+            push!(flag, out.exitflag); push!(tmpc, dt)
+        end
+        X[:, i] .= s.x; U[i] = applied[]
         step!(s, applied[])
     end
-    return (; X, U, flag, texec)
+    return (; X, U, flag, tmpc, tfast)
 end
 
 "Time from which the pendulum stays within `tol` of upright to the end (NaN if it does not hold for `hold` s)."
@@ -121,7 +144,23 @@ end
 ## Run
 # ---------------------------------------------------------------------------
 @time "prediction model" dyn = QC.furuta_mpc_dynamics()
-@time "compile FurutaMPCHardware" ctrl = QC.ProgramRuntime(QC.compile_program(QC.FurutaMPCHardware; Ts))
+@time "compile the program" prog = RATE === :multi ?
+    QC.compile_program(QC.FurutaMPCMultirateHardware; OVERRIDES...) :
+    QC.compile_program(QC.FurutaMPCHardware; OVERRIDES...)
+ctrl = QC.ProgramRuntime(prog)
+# `Ts` is the period of the program's fastest clock -- what a driver ticks, and what the plant is
+# stepped at. On the multirate program that is the sensing clock, and the MPC solves every
+# `last(divisors)` ticks of it; the single-rate program has one clock and a divisor of 1.
+const Ts = prog.Ts
+const TS_MPC = Ts * last(prog.divisors)
+# What the run is of, for the summary: the periods from the compiled program, the grid from the
+# arguments, since a `CompiledProgram` does not carry the model's parameter values.
+const REST = sort!([kv for kv in OVERRIDES if !(first(kv) in (:Ts, :Ts_fast))]; by = first)
+const CONFIG = string(
+    @sprintf("Ts = %.4f s", TS_MPC),
+    RATE === :multi ? @sprintf(", sensing at %.4f s (divisor %d)", Ts, last(prog.divisors)) : "",
+    isempty(REST) ? ", everything else at the model's defaults" : "",
+    (", $k = $v" for (k, v) in REST)...)
 # The simulated plant: the prediction model itself, or the same model with other parameters.
 plant_params = PLANT === :identified ? nothing :
                PLANT === :nominal ? QC.nominal :
@@ -146,7 +185,8 @@ plants = [plant_for_rollout(rng) for _ in 1:NROLL]
 
 tcatch = fill(NaN, NROLL); armmax = zeros(NROLL); umax = zeros(NROLL)
 nbadflag = zeros(Int, NROLL); nmaxiter = zeros(Int, NROLL)
-exec = Float64[]
+exec = Float64[]                           # the solving ticks, the only ones that carry an MPC solve
+exec_fast = Float64[]                      # the ticks between them: an encoder read and two filter updates
 NKEEP = min(NROLL, 100)                    # trajectories kept for the overlay plot
 kept = Vector{Any}(undef, NKEEP)
 twall = @elapsed for (i, x0) in enumerate(x0s)
@@ -156,7 +196,7 @@ twall = @elapsed for (i, x0) in enumerate(x0s)
     armmax[i] = maximum(abs, r.X[1, :])
     umax[i] = maximum(abs, r.U)
     nbadflag[i] = count(!=(0), r.flag); nmaxiter[i] = count(==(2), r.flag)
-    append!(exec, r.texec)
+    append!(exec, r.tmpc); append!(exec_fast, r.tfast)
     i <= NKEEP && (kept[i] = r)
     i % 50 == 0 && (@printf("%4d/%d rollouts, %d successes so far\n", i, NROLL, count(!isnan, tcatch[1:i])); flush(stdout))
 end
@@ -165,21 +205,28 @@ success = .!isnan.(tcatch)
 q(v, p) = isempty(v) ? NaN : quantile(v, p)
 med(v) = isempty(v) ? NaN : median(v)
 mx(v) = isempty(v) ? NaN : maximum(v)
+# The ticks that carry no solve exist only in the multirate program.
+FAST_LINE = RATE === :multi ?
+    @sprintf("\nfast tick [ms]: median %.3f, 99%% %.3f, max %.3f; %d of %d beyond the %.1f ms sensing period",
+             1e3median(exec_fast), 1e3quantile(exec_fast, 0.99), 1e3maximum(exec_fast),
+             count(>(Ts), exec_fast), length(exec_fast), 1e3Ts) : ""
 summary = @sprintf("""
-    MPC Monte Carlo: %d rollouts of %.0f s, Ts = %.3f s, Np = 60, plant = %s, starts = %s
+    MPC Monte Carlo: %d rollouts of %.0f s, %s, plant = %s, starts = %s
+    MPC: %s
     successes (upright within %.2f rad for the last %.1f s): %d / %d = %.1f%%
     catch time [s]: median %.2f, 90%% %.2f, max %.2f
     arm excursion max |phi| [rad]: median %.2f, max %.2f (end stops at %.2f); rollouts beyond the stops: %d
     |u| max over all rollouts: %.2f V
-    acados exitflag != 0 on %d of %d ticks (status 2, iteration limit, on %d)
-    tick execution time [ms]: median %.3f, 99%% %.3f, max %.3f
+    acados exitflag != 0 on %d of %d solves (status 2, iteration limit, on %d)
+    solve tick [ms]: median %.3f, 99%% %.3f, max %.3f; %d of %d beyond the %.1f ms MPC period%s
     wall time %.1f min (%.2f ms per tick incl. the plant simulation)
-    """, NROLL, Tf, Ts, PLANT, STARTS, CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
+    """, NROLL, Tf, RATE === :multi ? "multirate" : "single-rate", PLANT, STARTS, CONFIG,
+    CATCH_TOL, HOLD, count(success), NROLL, 100mean(success),
     med(tcatch[success]), q(tcatch[success], 0.9), mx(tcatch[success]),
     median(armmax), maximum(armmax), ARM_LIMIT, count(>(ARM_LIMIT), armmax), maximum(umax),
-    sum(nbadflag), NROLL * round(Int, Tf / Ts), sum(nmaxiter),
-    1e3med(exec), 1e3q(exec, 0.99), 1e3mx(exec),
-    twall / 60, 1e3twall / (NROLL * Tf / Ts))
+    sum(nbadflag), length(exec), sum(nmaxiter),
+    1e3med(exec), 1e3q(exec, 0.99), 1e3mx(exec), count(>(TS_MPC), exec), length(exec), 1e3TS_MPC,
+    FAST_LINE, twall / 60, 1e3twall / (NROLL * Tf / Ts))
 println(summary)
 write(joinpath(OUTDIR, "summary.txt"), summary)
 open(joinpath(OUTDIR, "rollouts.csv"), "w") do io
@@ -190,8 +237,9 @@ open(joinpath(OUTDIR, "rollouts.csv"), "w") do io
 end
 # Raw tick times, for re-plotting without re-running.
 open(joinpath(OUTDIR, "exec_times.tsv"), "w") do io
-    println(io, "exec_ms")
-    for v in exec; println(io, 1e3v); end
+    println(io, "exec_ms\tkind")
+    for v in exec; println(io, 1e3v, "\tsolve"); end
+    for v in exec_fast; println(io, 1e3v, "\tfast"); end
 end
 
 # ---------------------------------------------------------------------------
@@ -231,12 +279,21 @@ any(!, success) && scatter!(p3, [x[2] for x in x0s[.!success]], [x[1] for x in x
                             color = ORANGE, markersize = 6, markershape = :x, label = "failed")
 savefig(p3, joinpath(OUTDIR, "initial_conditions.png"))
 
-# 4. Per-tick execution time. Ticks beyond the axis are counted in the title.
-tmax = 1e3Ts
-nover = count(>(tmax), 1e3exec)
-p4 = histogram(1e3exec, bins = 0:(tmax / 100):tmax, color = BLUE, linecolor = :white, label = "",
-               xlabel = "controller execution time per tick [ms]", ylabel = "ticks",
-               title = @sprintf("Tick execution time; %d of %d ticks beyond the %.0f ms clock period", nover, length(exec), tmax))
+# 4. Per-tick execution time, the solving ticks against the MPC period and, when the program is
+# multirate, the ticks in between against the sensing period. Ticks beyond the axis are counted in
+# the title.
+function exec_histogram(v, period, what)
+    tmax = 1e3period
+    nover = count(>(tmax), 1e3v)
+    histogram(1e3v, bins = 0:(tmax / 100):tmax, color = BLUE, linecolor = :white, label = "",
+              xlabel = "execution time per tick [ms]", ylabel = "ticks",
+              title = @sprintf("%s; %d of %d beyond the %.1f ms period", what, nover, length(v), tmax))
+end
+p4 = exec_histogram(exec, TS_MPC, "MPC solve tick")
+if RATE === :multi
+    p4 = plot(p4, exec_histogram(exec_fast, Ts, "Fast tick (encoder read and estimators)"),
+              layout = (2, 1), size = (900, 650))
+end
 savefig(p4, joinpath(OUTDIR, "exec_times.png"))
 
 # 5. Arm excursion against the end stops, the MPC's constraint.

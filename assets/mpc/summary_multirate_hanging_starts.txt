@@ -1,0 +1,10 @@
+MPC Monte Carlo: 50 rollouts of 10 s, multirate, plant = identified, starts = hanging
+MPC: Ts = 0.0050 s, sensing at 0.0010 s (divisor 5), everything else at the model's defaults
+successes (upright within 0.10 rad for the last 1.0 s): 50 / 50 = 100.0%
+catch time [s]: median 0.36, 90% 1.36, max 2.09
+arm excursion max |phi| [rad]: median 1.54, max 4.08 (end stops at 1.92); rollouts beyond the stops: 16
+|u| max over all rollouts: 10.00 V
+acados exitflag != 0 on 2 of 100000 solves (status 2, iteration limit, on 0)
+solve tick [ms]: median 0.836, 99% 1.705, max 95.944; 219 of 100000 beyond the 5.0 ms MPC period
+fast tick [ms]: median 0.001, 99% 0.003, max 2.850; 1 of 400000 beyond the 1.0 ms sensing period
+wall time 1.8 min (0.22 ms per tick incl. the plant simulation)
