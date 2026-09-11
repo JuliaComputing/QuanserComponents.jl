@@ -193,7 +193,9 @@ against a simulated pendulum (the multibody model with encoder quantization, RK4
 sub-steps per period, optionally with perturbed parameters) from random initial conditions (arm
 within ±1.5 rad, pendulum anywhere, arm velocity within ±3 rad/s, pendulum velocity within
 ±10 rad/s) or from rest near hanging as the rig starts, and counts the rollouts in which the
-pendulum stays within 0.1 rad of upright for the last second of 10 s. The summaries of four such runs are in assets/mpc/ (the compiled program at the defaults above):
+pendulum stays within 0.1 rad of upright for the last second of 10 s. The summaries of four such
+single-rate runs are in assets/mpc/ (the compiled program at the defaults above; the two multirate
+summaries beside them belong to the section below):
 
 | rollouts | plant | starts | balanced within 10 s | catch time median / 90 % | arm past the stops |
 |---|---|---|---|---|---|
@@ -213,10 +215,10 @@ balanced, catch median 2.2 s, 90 % 5 s, arm median 2.2 rad).
 `qp_cond_N = 5` and the `ForwardDiff` Jacobian backend are both measured optima; the sweep behind
 them, and why the sparse AD backends are of no use to this model, are in NOTES.md.
 
-### Multirate: 1 kHz estimation, 125 Hz control
+### Multirate: 1 kHz estimation, 200 Hz control
 
 `FurutaMPCMultirate` splits the controller across two clocks -- the encoders read and the state
-estimated at `Ts_fast` (1 ms), the MPC solved at `Ts` (8 ms) -- with `FurutaMPCMultirateSwingup`
+estimated at `Ts_fast` (1 ms), the MPC solved at `Ts` (5 ms) -- with `FurutaMPCMultirateSwingup`
 and `FurutaMPCMultirateHardware` as the simulated and hardware loops. The single-rate models are
 unchanged.
 
@@ -231,24 +233,37 @@ turned out to be misleading, and the cost of a third-order tracker on a fast dis
 NOTES.md.
 
 The clock transition is `DiscreteComponents.Latest`. It does not *relate* the two clocks: both are
-declared separately, and only convention makes one eight times the other. A block cannot derive one
+declared separately, and only convention makes one five times the other. A block cannot derive one
 clock from another, so an integer rate relationship that is stated once and checked belongs at the
 compiler level instead.
 
 ```julia
-@named model = FurutaMPCMultirateSwingup(; Ts = 0.008, Ts_fast = 0.001)
+@named model = FurutaMPCMultirateSwingup(; Ts = 0.005, Ts_fast = 0.001)
 ssys = multibody(model, additional_passes = [SynchToolkit.compile_lustre])
 sol = solve(ODEProblem(ssys, Pair[ssys.qubependulum.elbow_joint.phi => deg2rad(0.15)],
                        (0.0, 4.0)); dt = 0.001)          # step the *fastest* clock
 
-ctrl = ProgramRuntime(compile_program(FurutaMPCMultirateHardware; Ts = 0.008, Ts_fast = 0.001, Np = 75))
-out = ctrl()        # one 1 ms tick; the MPC fires on every 8th, `nothing` in between
+ctrl = ProgramRuntime(compile_program(FurutaMPCMultirateHardware; Ts = 0.005, Ts_fast = 0.001,
+                                      Np = 50, horizon = 0.8))
+out = ctrl()        # one 1 ms tick; the MPC fires on every 5th, `nothing` in between
 ```
 
-`Np` is 75 rather than 60 so the horizon stays the 0.6 s that was tuned at 10 ms. `compile_program`
-reads the two clocks off the model, the compiled node takes one boolean per clock and
-`ProgramRuntime` generates that pattern, so the driver still ticks once per `Ts_fast`; there is no C
-harness for it, since `run_hardware.c` drives a single tick.
+The 5 ms period does not cost horizon, because the shooting grid is not uniform: `horizon` is the
+span the `Np` intervals cover, and `MPCComponents.linear_time_steps` grows them from `Ts` to cover
+it, so 0.8 s costs 50 decision variables instead of the 160 a uniform 5 ms grid would need. The
+first interval stays at `Ts`, the one whose control is applied. `horizon = Np * Ts` gives the
+uniform grid back, and NOTES.md records what each of the two is worth -- the rate, not the horizon,
+is where the improvement comes from.
+
+`test/mpc_rollouts.jl` ticks this program too, as `rate = multi`, and the two multirate summaries
+in assets/mpc/ are the counterparts of the single-rate table above: 50 of 50 balanced from both
+start sets, the catch at 0.36 s from rest and 0.97 s from the random operating space against the
+single-rate 1.08 s and 0.94 s, and the solve at 0.84 ms of the 5 ms period at the median and 1.7 to
+2.0 ms at the 99th percentile.
+
+`compile_program` reads the two clocks off the model, the compiled node takes one boolean per clock
+and `ProgramRuntime` generates that pattern, so the driver still ticks once per `Ts_fast`; there is
+no C harness for it, since `run_hardware.c` drives a single tick.
 
 ### Environment
 

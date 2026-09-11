@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCMultirateHardware(; name, Ts, Ts_fast, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_alpha)
+   FurutaMPCMultirateHardware(; name, Ts, Ts_fast, Np, horizon, integrator_stages, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_alpha)
 
 The multirate MPC closed around the physical QUBE: the counterpart of `FurutaMPCHardware`, which
 is unchanged and still the single-rate program.
@@ -36,23 +36,26 @@ Three things this costs, all easy to over-read:
     to `Ts_fast` before the write. `exec`, being read-to-write, is now close to the MPC's solve
     time rather than the whole loop body. Reading the log as a single-rate one misleads.
   - **`realtime = true` paces the MPC's clock only.** In a *simulated* run (an ODE solver
-    stepping the program, the `mpc_gui` route) the eight fast reads bunch just before each slot
+    stepping the program, the `mpc_gui` route) the five fast reads bunch just before each slot
     instead of spreading. Fine for inspecting predictions, wrong as a rig run -- a rig run goes
     through the compiled program and is timed by the driver.
 
 Whether the device sustains a `Ts_fast` of 1 ms is a measurement, not a modelling question: each
 encoder read is a HIL transaction of order 100 to 300 us, and the MPC solve itself takes about
-1 ms at the median, which does not fit inside a 1 ms slot -- the loop absorbs that by running the
-next fast ticks back to back, so the cost is jitter on the sensing clock rather than failure. The
-`dt` and `exec` columns measure both. `Ts_fast` is structural, so halving the rate is one keyword.
+0.83 ms at the median, which does not fit inside a 1 ms slot once the read is added -- the loop
+absorbs that by running the next fast ticks back to back, so the cost is jitter on the sensing
+clock rather than failure. The `dt` and `exec` columns measure both. `Ts_fast` is structural, so
+halving the rate is one keyword.
 
 ## Parameters:
 
 | Name         | Description                         | Units  |   Default value |
 | ------------ | ----------------------------------- | ------ | --------------- |
-| `Ts`         | Sample time of the MPC                         | --  |   0.008 |
+| `Ts`         | Sample time of the MPC                         | --  |   0.005 |
 | `Ts_fast`         | Sample time of the encoder reads and the state estimators                         | --  |   0.001 |
-| `Np`         | Prediction horizon in shooting intervals; 75 * 8 ms is the 0.6 s horizon of the 10 ms controller                         | --  |   75 |
+| `Np`         | Number of shooting intervals (see `FurutaMPCMultirate`)                         | --  |   50 |
+| `horizon`         | Prediction horizon [s]; the Np intervals grow linearly from Ts to cover it                         | --  |   0.8 |
+| `integrator_stages`         | Stages of the MPC's explicit Runge-Kutta integrator (see `FurutaMPCMultirate`)                         | --  |   2 |
 | `dynamics`         | Prediction model of the MPC: `FurutaPredictionModel` compiled by `furuta_mpc_dynamics`                         | --  |   furuta_mpc_dynamics() |
 | `umax`         | Motor voltage bound of the MPC [V]; the swing-up needs 10. `command_umax` clamps what reaches the amplifier                         | --  |   10.0 |
 | `arm_limit`         | Arm angle the MPC keeps the arm within [rad], inside the end stops at ±1.92                         | --  |   1.7 |
@@ -65,7 +68,7 @@ next fast ticks back to back, so the cost is jitter on the sensing clock rather 
 | `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field                         | V  |   umax |
 | `velocity_alpha`         | Position correction gain of the state estimators (see `FurutaMPCMultirate`). Runtime-settable, a `TuningGains` field                         | --  |   0.5 |
 """
-@component function FurutaMPCMultirateHardware(; name = nothing, Ts=0.008, Ts_fast=0.001, Np=75, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), qp_cond_N=5, log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_alpha=0.5, command_umax=umax, kwargs...)
+@component function FurutaMPCMultirateHardware(; name = nothing, Ts=0.005, Ts_fast=0.001, Np=50, horizon=0.8, integrator_stages=2, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), qp_cond_N=5, log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_alpha=0.5, command_umax=umax, kwargs...)
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -120,7 +123,7 @@ next fast ticks back to back, so the cost is jitter on the sensing clock rather 
   push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
   # Subcomponent control_system of type QuanserComponents.FurutaMPCMultirate
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPCMultirate(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPCMultirate(; dynamics=dynamics, Ts=Ts, Np=Np, horizon=horizon, integrator_stages=integrator_stages, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, control_system_overrides...))
   __bindings[control_system.velocity_alpha] = velocity_alpha
   # Now remove initial conditions in control_system that correspond to the bindings just added
   __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
