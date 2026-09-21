@@ -88,27 +88,27 @@ using ModelingToolkit: @named
 end
 
 # The multirate MPC (`FurutaMPCMultirateHardware`): the encoders are
-# read and the state estimated on a 1 ms clock, the MPC solves on an 8 ms one. These check the
+# read and the state estimated on a 1 ms clock, the MPC solves on a 5 ms one. These check the
 # mechanics -- that the two partitions really are separate, that the program ticks at the fast
 # rate and solves at the slow one -- not closed-loop performance, which mpc_rollouts.jl is for.
 @testset "MPC multirate program" begin
-    Ts, Ts_fast = 0.008, 0.001
+    Ts, Ts_fast = 0.005, 0.001
 
-    # The rate transition itself, in isolation and away from acados: a 1 ms clock feeding an 8 ms
+    # The rate transition itself, in isolation and away from acados: a 1 ms clock feeding a 5 ms
     # one through the operator the model is built on.
     @test isdefined(QC.SynchToolkit, :Latest)      # DiscreteComponents.Latest is built on it
 
-    gen = QC.compile_program(QC.FurutaMPCMultirateHardware; Ts, Ts_fast, Np = 75)
+    gen = QC.compile_program(QC.FurutaMPCMultirateHardware)   # the defaults, which these pin
     # The two clocks are read off the model: the driver ticks the *fast* one and the node takes
-    # a second boolean for the slow one, raised every eighth tick.
-    @test gen.divisors == (1, 8)
+    # a second boolean for the slow one, raised every fifth tick.
+    @test gen.divisors == (1, 5)
     @test gen.Ts == Ts_fast
     ctrl = QC.ProgramRuntime(gen)
-    @test ctrl.divisors == (1, 8)
+    @test ctrl.divisors == (1, 5)
     @test_throws ArgumentError QC.ProgramRuntime(gen; backend = :c)
     # A slow period that is not an integer multiple of the fast one cannot be ticked from one
     # loop, and is rejected before anything is compiled.
-    @test_throws ArgumentError QC.compile_program(QC.FurutaMPCMultirateHardware; Ts = 0.008,
+    @test_throws ArgumentError QC.compile_program(QC.FurutaMPCMultirateHardware; Ts = 0.005,
                                                   Ts_fast = 0.003)
 
     x = [0.0, 0.01, 0.0, 0.0]
@@ -116,14 +116,14 @@ end
     QC.bind_hardware!(measure = () -> (x[1], x[2]), control = u -> (applied[] = u))
     QC.SynchToolkit.reset!(ctrl)
 
-    n = 17
+    n = 16
     outs = [ctrl() for _ in 1:n]
     # One encoder read per fast tick, one motor write per MPC solve.
-    @test QC.hardware_counters() == (n_measure = n, n_write = 3)
-    # The MPC fires on the first tick and every eighth after it; on the others its outputs are
+    @test QC.hardware_counters() == (n_measure = n, n_write = 4)
+    # The MPC fires on the first tick and every fifth after it; on the others its outputs are
     # `nothing`, since a clocked output only has a value on a tick of its own clock.
     solved = findall(o -> o.exitflag !== nothing, outs)
-    @test solved == [1, 9, 17]
+    @test solved == [1, 6, 11, 16]
     @test all(o -> o.u === nothing, outs[setdiff(1:n, solved)])
     @test all(o -> isfinite(o.u) && abs(o.u) <= 10, outs[solved])
     @test all(o -> o.exitflag in (0, 1, 2, 3, 4, 5, 6, 7), outs[solved])
@@ -131,7 +131,7 @@ end
     # `reset!` puts the tick phase back, so a second run solves on the same ticks as the first.
     QC.SynchToolkit.reset!(ctrl)
     outs2 = [ctrl() for _ in 1:n]
-    @test findall(o -> o.exitflag !== nothing, outs2) == [1, 9, 17]
+    @test findall(o -> o.exitflag !== nothing, outs2) == [1, 6, 11, 16]
 
     # A multirate program has no C harness: run_hardware.c drives one clock tick.
     @test_throws ArgumentError QC.export_program_c(gen, mktempdir(); Tf = 1.0)
@@ -140,7 +140,7 @@ end
 # The simulated multirate loop: that the two clock partitions run at their own rates and that the
 # controller still swings the pendulum up.
 @testset "MPC multirate model" begin
-    Ts, Ts_fast, Tf = 0.008, 0.001, 4.0
+    Ts, Ts_fast, Tf = 0.005, 0.001, 4.0
     @named model = FurutaMPCMultirateSwingup(; Ts, Ts_fast)
     ssys = QC.MultibodyComponents.multibody(model,
                 additional_passes = [QC.SynchToolkit.compile_lustre])

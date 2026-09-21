@@ -34,8 +34,11 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 # MPCComponents is not registered, and the MPC stack it needs is not all released. What each pin
 # is for:
 #
-#   MPCComponents  its `main`, which has to include JuliaComputing/MPCComponents.jl#31: without it
-#                 the multibody prediction model is rejected as time-varying.
+#   MPCComponents  its `main`, which has to include two pull requests:
+#                 JuliaComputing/MPCComponents.jl#31, without which the multibody prediction model
+#                 is rejected as time-varying, and #44, the non-uniform shooting grid
+#                 (`time_steps`, `linear_time_steps`) the multirate controller's horizon is laid
+#                 out with.
 #   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
 #
 # DiscreteComponents is no longer pinned either: 0.4.0 has both `AlphaBetaGammaFilter`, the velocity
