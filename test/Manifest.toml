@@ -3585,18 +3585,20 @@ version = "7.39.0"
     SymPyPythonCall = "bc8888f7-b21e-4b7c-a06a-5d9c9496438c"
 
 [[deps.SynchJulia]]
-deps = ["Artifacts", "CEnum", "CompilerCaching", "Dates", "Downloads", "IRStructurizer", "Libdl", "PrecompileTools", "Preferences", "Random", "SHA", "Scratch", "UUIDs"]
-git-tree-sha1 = "e51d9bcf08920d10e9aa794b9d251bd3f8b9cc66"
+deps = ["Artifacts", "CompilerCaching", "IRStructurizer", "Libdl", "PrecompileTools", "Preferences", "SHA", "Scratch"]
+git-tree-sha1 = "14fe553e54d574402711593e45dc375eb28ab5e0"
 uuid = "a1b2c3d4-5e6f-7a8b-9c0d-e1f2a3b4c5d6"
-version = "0.8.1"
+version = "0.8.4"
 
     [deps.SynchJulia.extensions]
+    SynchJuliaArrayInterfaceExt = "ArrayInterface"
     SynchJuliaClangExt = "Clang_unified_jll"
     SynchJuliaCppcheckExt = "cppcheck_jll"
     SynchJuliaFunctionWrappersExt = "FunctionWrappers"
     SynchJuliaRunicExt = "Runic"
 
     [deps.SynchJulia.weakdeps]
+    ArrayInterface = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
     Clang_unified_jll = "ffc816e1-ba66-5fa9-9ecc-bcc5cb19bea1"
     FunctionWrappers = "069b7b12-0de2-55c6-9aab-29f3d0a68a2e"
     Runic = "62bfec6d-59d7-401d-8490-b29ee721c001"
