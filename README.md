@@ -104,7 +104,7 @@ render(model, sol; filename = "swingup.mp4")     # animation, real time at 30 fr
 `SynchToolkit.stkcompile` turns it into a standalone synchronous program. Every program in this
 package is handled the same way: `compile_program(Model; ...)` compiles it, with everything the
 program needs beyond its constructor declared once in the model's `ProgramSpec`, and the result
-is put on the rig by one of three functions, each named for how it runs the program:
+is put on the rig by one of four functions, each named for how it runs the program:
 
 ```julia
 gen  = compile_program(FurutaHardware; Ts = 0.005)
@@ -112,6 +112,10 @@ ctrl = ProgramRuntime(gen; backend = :c, umax = 5.0)   # :julia or :c; the tunab
 run_inprocess!(ctrl; Tf = 10)                          # a Julia timing loop ticks the node here
 run_c!(gen; Tf = 10, deploy_host = "pi@192.168.1.49")  # standalone C, built and run here or on the Pi
 run_ode!(FurutaMPCHardware, prob)                      # an ODE solver steps the model, paced by itself
+
+src = compile_program_source(FurutaHardware; Ts = 0.005)
+run_juliac!(src; Tf = 10, platform = "linux/arm64",    # a trimmed JuliaC binary, built here
+            deploy_host = "pi@192.168.1.49")           # and run here or on the Pi
 ```
 
 `prob` is an `ODEProblem` over the model built with the spec's `ode_kwargs` (see `run_ode!`).
@@ -122,7 +126,35 @@ picks between the in-process and the C route from the analysis' parameters). Wit
 `FurutaSwingupExperiment(; run = false)` still builds and exports.
 
 The hardware I/O calls into `csrc/qube_hw.c`, which needs the Quanser HIL SDK; the exported C
-is built on the target for the same reason. See `test/runtests.jl` for how the controller is
+is built on the target for the same reason.
+
+### JuliaC binaries
+
+`juliac = true` (with `platform`) makes the analyses compile the program with JuliaC instead:
+`compile_program_source` writes the node as Julia source, `export_program_juliac` puts it into an
+application package (depending on SynchJulia only, a copy of which is included), and
+`build_program_juliac` compiles that with `--trim=safe` into a bundle of about 100 MB whose
+executable is 3.6 MB. The node is compiled when the package is precompiled, so the binary contains
+no compiler. `bundle/bin/<App> --dry-run` runs the whole loop and writes the log without opening
+the device. Only single-rate programs that run on the C backend qualify, which excludes the MPC.
+
+On this machine the build needs Julia 1.13 as `julia` and JuliaC in the `@juliac` environment:
+
+```
+julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
+```
+
+JuliaC cannot cross-compile, so a binary for a 64-bit Raspberry Pi (`platform = "linux/arm64"`) is
+built by aarch64 Julia running under qemu-user, in a Debian bookworm root file system with the
+Quanser SDK for arm64. `deploy/arm64/setup.sh` prepares it once, without root privileges or a
+container daemon (it needs `qemu-user-static` registered with binfmt_misc and `bwrap`); a build
+then takes about six minutes. Only the bundle is copied to the Pi, which needs 64-bit Raspberry Pi
+OS bookworm or newer (glibc 2.34) and the Quanser SDK, and no Julia:
+
+```julia
+FurutaSwingupExperiment(; run = true, juliac = true, platform = "linux/arm64",
+                        deploy_host = "pi@192.168.1.49", output_dir = "furuta_juliac")
+``` See `test/runtests.jl` for how the controller is
 built, stepped and compared across backends without a device attached.
 
 ## Nonlinear MPC swing-up (experimental)
@@ -277,8 +309,10 @@ the velocity estimator of the multirate model (JuliaComputing/DiscreteComponents
 `Latest`, its clock transition (JuliaComputing/DiscreteComponents.jl#121). The bound is `0.4`
 rather than `0.3` because that release removed `LastValue`, which `Latest` replaces.
 
-The whole Synch stack comes from DyadRegistry too. SynchJulia is 0.8.1, and SynchCompiler no longer
-exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.jl#205. SynchToolkit is
+The whole Synch stack comes from DyadRegistry too. SynchJulia is 0.8.4, and bounded below by
+0.8.2, the first release that keeps the network libraries out of a JuliaC bundle
+(JuliaComputing/SynchJulia.jl#263). SynchCompiler no longer exists, having been merged into
+SynchJulia by JuliaComputing/SynchJulia.jl#205. SynchToolkit is
 0.5.1 (JuliaComputing/SynchToolkit.jl#214), which has both the `Latest` clock-crossing operator
 the multirate model needs (JuliaComputing/SynchToolkit.jl#199) and, through the clock rework of
 JuliaComputing/SynchToolkit.jl#186, the array clocked variables the MPC's outputs are. Registry
@@ -311,8 +345,9 @@ acados trees, a few minutes.
 ```
 dyad/        the Dyad models: plant, controllers (swing-up state machine and MPC), hardware I/O, analyses
 generated/   Julia code generated from dyad/ (checked in)
-src/         hand-written Julia: hardware operators, program compilation, C export, deployment
+src/         hand-written Julia: hardware operators, program compilation, C and JuliaC export, deployment
 csrc/        the C side: Quanser HIL I/O, logging, trajectory replay, the run_hardware harness
+deploy/      the rootless arm64 root file system JuliaC builds Raspberry Pi binaries in
 assets/      component icons, QUBE meshes and textures
 examples/    parameter identification scripts (their own environment, see examples/Project.toml)
 test/        test suite (its own environment, see test/Project.toml), the hardware run scripts and the MPC Monte Carlo

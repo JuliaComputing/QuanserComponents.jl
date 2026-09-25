@@ -272,3 +272,51 @@ The grid reaches the whole controller, not only the solver: with `reference_prev
 block would be tied to the shooting nodes rather than to multiples of `Ts` (this controller
 previews nothing), and `penalize_increments` is refused outright on a non-uniform grid, which is
 why `FurutaMPC`'s `penalize_increments = false` is load-bearing here.
+
+## JuliaC binaries: sizes, times, and what the arm64 build needed
+
+Measured for the swing-up controller (`FurutaHardware`, `Ts = 0.005`) with Julia 1.13.0, JuliaC
+0.3.10 and SynchJulia 0.8.4, on this x86_64 workstation.
+
+|                                | this machine (x86_64) | `linux/arm64` under qemu |
+| ------------------------------ | --------------------- | ------------------------ |
+| build (precompilation + trim)  | 40 s                  | 6.4 min                  |
+| executable                     | 3.6 MB                | 3.6 MB                   |
+| bundle                         | 100 MB                | 92 MB                    |
+| trim verifier errors           | 0                     | 0                        |
+| longest tick, `--dry-run`      | 61 µs                 | 2.7 ms (emulated)        |
+
+The arm64 build started from a depot in which none of the application's dependencies were
+precompiled. Of the bundle, 38 MB is OpenBLAS and libblastrampoline, which come in with
+LinearAlgebra, a dependency of StaticArrays, which the generated node imports; 21 MB is
+libstdc++ and 15 MB libjulia-internal. With SynchJulia 0.8.1 the bundle also carried libcurl,
+OpenSSL, libssh2 and nghttp2 (10 MB), which JuliaComputing/SynchJulia.jl#263 removed by dropping
+`Downloads` from SynchJulia's dependencies.
+
+The arm64 binary needs glibc 2.34 or newer (checked with `objdump -T`), so 64-bit Raspberry Pi OS
+bookworm (glibc 2.36) runs it and bullseye (2.31) does not. Run under qemu in the root file system,
+where the arm64 Quanser SDK is installed, it gets as far as `hil_open`, which fails with -108 for
+want of a card, and a dry run completes.
+
+Three things had to be found out to get there:
+
+  - **qemu's default CPU model breaks precompilation.** With qemu 8.2's `max` model, Julia 1.13.0
+    fails while writing *any* package image, a one-function package included, with
+    `UndefRefError` in `enqueue_specializations!` (Compiler/src/precompile.jl). Emulating a
+    Cortex-A72 (`QEMU_CPU=cortex-a72`, which `deploy/arm64/run.sh` sets) avoids it, and is also
+    the CPU of the Pi 4. The binary is compiled for `JULIA_CPU_TARGET=cortex-a72` independently of
+    that, since the emulated CPU would otherwise decide what the code may use.
+  - **A generated keyword constructor overwrote `@kwdef`'s.** When the defaults of `AutoPars`
+    read no other parameter struct, SynchToolkit emits both `@kwdef mutable struct AutoPars` and
+    `function AutoPars(; ...)`, with the same signature. Evaluated at runtime the second silently
+    replaces the first; precompiled in a package it is an error ("Method overwriting is not
+    permitted during Module precompilation"). `compile_program_source` removes the `@kwdef`
+    (`_drop_shadowed_kwdef!`).
+  - **One argument per `print`.** A varargs `print(Core.stderr, a, b, c, ...)` with more than a
+    handful of arguments of mixed types is not resolved statically, and the trim verifier rejects
+    it; the application prints its summary line one value at a time.
+
+The libraries the node calls into (`libqube_hw`, `libqube_log`, `libqube_traj`) are named without
+a path and copied into `bundle/lib`: the Julia runtime opens them from `lib/julia/libjulia-internal`,
+whose run path includes its parent directory, so the bundle is self-contained and can be copied to
+the Pi as a whole.
