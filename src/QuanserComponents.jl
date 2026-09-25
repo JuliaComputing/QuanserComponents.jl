@@ -26,6 +26,7 @@ include("../generated/module.jl")
 # open-loop replay, mpc.jl for the two MPC programs).
 include("program.jl")
 include("harness.jl")
+include("juliac.jl")
 include("codegen.jl")
 include("friction.jl")
 include("identification.jl")

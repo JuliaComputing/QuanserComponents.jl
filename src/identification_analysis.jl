@@ -49,9 +49,9 @@ function DyadInterface.run_analysis(spec::FurutaIdentificationBaseSpec)
     # file names are structural, so they are not parameters of the built system and are passed to
     # the constructor; the safety angles are converted from degrees here for the same reason they
     # are stated in degrees — that is how the arm's limits are quoted in the manual.
-    gen = compile_program(FurutaIdentification; spec.Ts, spec.traj_file, spec.traj_column,
-                          log_file, warn = deg2rad(spec.warn_deg), abort = deg2rad(spec.abort_deg),
-                          param_overrides = spec.overrides)
+    gen = compile_for_target(FurutaIdentification, spec; spec.Ts, spec.traj_file,
+                             spec.traj_column, log_file, warn = deg2rad(spec.warn_deg),
+                             abort = deg2rad(spec.abort_deg), param_overrides = spec.overrides)
     spec.run && @info "Replaying the designed input" nsamples duration_s = Tf
     hwrun = run_on_target(gen, spec; Tf)
 
@@ -74,9 +74,10 @@ function DyadInterface.AnalysisSolutionMetadata(sol::FurutaIdentificationSolutio
     arts = ArtifactMetadata[]
     if sol.hwrun.output_dir !== nothing
         push!(arts, ArtifactMetadata(:GeneratedFiles, ArtifactType.DataFrame,
-            "Generated C files",
-            "The SynchToolkit-generated C sources for the replay, with the exported \
-             step/reset symbol names."))
+            "Generated files",
+            "The files exported for the replay: the SynchToolkit-generated C sources with \
+             the exported step/reset symbol names, or the JuliaC application and its \
+             bundle."))
     end
     if sol.data !== nothing
         push!(arts, ArtifactMetadata(:Trace, ArtifactType.DataFrame,

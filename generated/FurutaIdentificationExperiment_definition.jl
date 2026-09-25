@@ -27,10 +27,16 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # the identified parameters were fitted against
   var"card_options"::String = ""
   # Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
-  # `export_c` is true, which always builds C
+  # the program is exported
   var"backend"::String = "julia"
   # Export the program as standalone C into `output_dir`, and run that instead of in-process
   var"export_c"::Bool = true
+  # Compile the program into a standalone binary with JuliaC in `output_dir`, and run that
+  # instead of in-process. Takes precedence over `export_c`
+  var"juliac"::Bool = false
+  # Platform the JuliaC binary is built for: empty for this machine, \"linux/arm64\" for a
+  # 64-bit Raspberry Pi
+  var"platform"::String = ""
   # Directory the generated C sources and the log are written to
   var"output_dir"::String = "identification_c"
   # File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
@@ -38,8 +44,8 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # Exported and deployed runs use the bare file name inside their own directory, since an
   # absolute path from this machine means nothing on the target
   var"log_file"::String = ""
-  # Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
-  # `export_c`, since C sources are what gets copied over
+  # Host to run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  # `export_c` unless `juliac` is set
   var"deploy_host"::String = "fredrikb@192.168.1.49"
   # Directory on `deploy_host` to copy the sources into
   var"deploy_dir"::String = "identification_c"
@@ -92,7 +98,7 @@ function DyadInterface.run_analysis(spec::FurutaIdentificationExperimentSpec)
   push!(overrides, no_namespace_model.umax => spec.var"umax")
   push!(overrides, no_namespace_model.pullback => spec.var"pullback")
   base_spec = QubeHardwareRunBaseSpec(;
-    name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, traj_file=spec.traj_file, traj_column=spec.traj_column, warn_deg=spec.warn_deg, abort_deg=spec.abort_deg, pullback=spec.pullback, model=spec.model
+    name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, juliac=spec.juliac, platform=spec.platform, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, traj_file=spec.traj_file, traj_column=spec.traj_column, warn_deg=spec.warn_deg, abort_deg=spec.abort_deg, pullback=spec.pullback, model=spec.model
   )
   run_analysis(base_spec)
 end

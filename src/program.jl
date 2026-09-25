@@ -36,7 +36,7 @@ using OrderedCollections: OrderedDict
 using SymbolicIndexingInterface: default_values
 
 export ProgramSpec, program_spec, ProgramLog, ProgramTrajectory, CompiledProgram,
-       compile_program, build_parameter_structs, ProgramRuntime, run_inprocess!, run_ode!,
+       compile_program, ProgramSource, compile_program_source, build_parameter_structs, ProgramRuntime, run_inprocess!, run_ode!,
        read_log
 
 # ---------------------------------------------------------------------------
@@ -301,6 +301,18 @@ result records each clock's period as an integer multiple of the fastest, and
 `Ts`.
 """
 function compile_program(ctor; log_file = nothing, param_overrides = nothing, overrides...)
+    sig = _program_signature(ctor; log_file, param_overrides, overrides...)
+    @info "Running stkcompile"
+    compiled = SynchToolkit.stkcompile(sig.sys; sig.inputs, outputs = sig.outs)
+    return CompiledProgram(sig.spec, compiled, sig.tuning_struct, sig.auto_struct,
+                           sig.tuning_defaults, sig.log, sig.traj, sig.Ts, sig.divisors)
+end
+
+# Build the model and the node signature that both ways of compiling a program share:
+# `stkcompile` for everything that runs in this process or as exported C
+# ([`compile_program`](@ref)), and the source emitter for a JuliaC binary
+# ([`compile_program_source`](@ref)).
+function _program_signature(ctor; log_file = nothing, param_overrides = nothing, overrides...)
     spec = program_spec(ctor)
     spec.prerequisites()
     # Every C library the program calls into has to exist before the `:c` backend links them
@@ -336,15 +348,177 @@ function compile_program(ctor; log_file = nothing, param_overrides = nothing, ov
     # declared and assigned Lustre names, and `clock` hits a missing branch in
     # SynchToolkit's `build_output`. So the outputs are indexed positionally.
     outs = [ClockedOutput(o) for o in spec.outputs(nsys)]
-    @info "Running stkcompile"
-    compiled = SynchToolkit.stkcompile(sys; inputs, outputs = outs)
-    return CompiledProgram(spec, compiled, tuning_struct, auto_struct, tuning_defaults, log,
-                           traj, first(clocks).dt, divisors)
+    return (; spec, sys, inputs, outs, tuning_struct, auto_struct, tuning_defaults, log, traj,
+              Ts = first(clocks).dt, divisors)
+end
+
+# ---------------------------------------------------------------------------
+## Compiling to source, for a JuliaC binary
+# ---------------------------------------------------------------------------
+"""
+    ProgramSource
+
+What [`compile_program_source`](@ref) returns: the program compiled to Julia *source* rather
+than to an evaluated module. `decls` are the top-level expressions of the module
+SynchToolkit would have evaluated -- the `using` line, the `TuningGains`/`AutoPars`
+definitions with their constructors and the `SynchJulia.@node` -- and `operators` the names of
+this library's I/O operators the node calls, which the expressions refer to by bare name. The
+remaining fields are those of [`CompiledProgram`](@ref).
+"""
+struct ProgramSource
+    spec::ProgramSpec
+    decls::Vector{Expr}
+    operators::Vector{Symbol}
+    tuning_defaults::OrderedDict{Symbol, Any}
+    log::ProgramLog
+    traj::Union{Nothing, ProgramTrajectory}
+    Ts::Float64
+    divisors::Tuple{Vararg{Int}}
+end
+
+"""
+    compile_program_source(ctor; log_file=nothing, param_overrides=nothing, overrides...) -> ProgramSource
+
+Compile one of the rig's programs to Julia source, to be written into a package and compiled
+by JuliaC (see [`export_program_juliac`](@ref)). Takes what [`compile_program`](@ref) takes.
+
+A package is required because `--trim` needs the node *defined in a package*: precompiling
+that package compiles the node and serializes its executable into the package image. A module
+evaluated into SynchToolkit at runtime has no image to be serialized into.
+
+SynchToolkit has no entry point that returns the generated module unevaluated, so the first
+half of `stkcompile` is repeated here, up to the assembly of the runtime module. Two things
+differ from what `stkcompile` evaluates:
+
+  - The node is declared as the *unexpanded* `SynchJulia.@node <source>`. SynchToolkit
+    macroexpands it in its own scope, and the expansion neither prints as loadable source nor
+    resolves in another module.
+  - References to this library's operators, which the generated code holds as function
+    objects and which print qualified (`QuanserComponents.hw_measure`), are rewritten to bare
+    names. The emitted package defines them itself as `ccall`s into the same `csrc/` code, so
+    it does not depend on this package and the modelling stack stays out of the binary.
+
+Only single-rate programs that can run on the C backend are accepted, as by
+`export_program_c`: a program restricted to the Julia backend (the MPC) calls into solver
+state that no package image can hold.
+"""
+function compile_program_source(ctor; log_file = nothing, param_overrides = nothing,
+                                overrides...)
+    spec = program_spec(ctor)
+    :c in spec.backends ||
+        throw(ArgumentError("compile_program_source: the program $(spec.name) runs on the \
+                             Julia backend in this process only (see its `program_spec`), \
+                             so it cannot be compiled into a standalone binary"))
+    sig = _program_signature(ctor; log_file, param_overrides, overrides...)
+    length(sig.divisors) == 1 ||
+        throw(ArgumentError("compile_program_source: the program $(spec.name) has \
+                             $(length(sig.divisors)) clocks, and the JuliaC application \
+                             ticks a single clock. Only single-rate programs are supported."))
+    rtmod = _runtime_module(sig.sys, sig.inputs, sig.outs)
+    operators = Set{Symbol}()
+    body = SynchToolkit.codegen_module(rtmod).args[end]::Expr
+    decls = Expr[_localize_operators(ex, operators) for ex in body.args if ex isa Expr]
+    _drop_shadowed_kwdef!(decls)
+    return ProgramSource(spec, decls, sort!(collect(operators)), sig.tuning_defaults,
+                         sig.log, sig.traj, sig.Ts, sig.divisors)
+end
+
+# `stkcompile` and `emit_runtime_module` (SynchToolkit.jl) up to the point where the runtime
+# module would be evaluated, returning its declarations with the node left unexpanded and
+# without the `top_exec = SynchModule(...)` declaration, which the application replaces by
+# its own `SynchExecutable`.
+function _runtime_module(sys, inputs, outputs)
+    STK = SynchToolkit
+    MTKTearing = ModelingToolkit.MTKTearing
+    # `stkcompile` adds inference edges for clocked inputs and outputs. The programs here
+    # declare none (their outputs are unclocked `ClockedOutput`s), which this asserts rather
+    # than reproduces.
+    for a in Iterators.flatten((inputs, outputs))
+        a isa Union{STK.ClockedInput, ClockedOutput} && STK.clockof(a) !== nothing &&
+            error("compile_program_source: clocked inputs and outputs are not supported")
+    end
+    state = MTKTearing.TearingState(ModelingToolkit.expand_connections(sys);
+                                    defer_scalarization = true)
+    ci = MTKTearing.infer_clocks!(MTKTearing.ClockInference(state))
+    tss, _, continuous_id, _ = MTKTearing.split_system(ci)
+    continuous_id == 0 ||
+        error("compile_program_source: only purely discrete systems can be code-generated")
+    clocked = STK.collect_clocked(tss)
+    SynchJulia.backend!(:julia)
+    _, result, _, rtmod = STK.do_codegen(sys, tss, ci, clocked.original_eqs,
+                                         clocked.original_ieqs, inputs, outputs)
+    push!(rtmod.declarations,
+          STK.ExprDeclaration(:(SynchJulia.@node $(STK.to_sj(result.sj_node)))))
+    return rtmod
+end
+
+# A parameter struct whose defaults are expressions of other fields, and of no other struct, is
+# declared with `@kwdef` *and* given an explicit keyword constructor, `AutoPars(; ...)`, which
+# replaces the one `@kwdef` defines. Evaluated in a module that is only a warning, but method
+# overwriting is an error during precompilation, so the shadowed `@kwdef` is removed; the
+# struct keeps its positional constructor, which the explicit one calls.
+function _drop_shadowed_kwdef!(decls)
+    kwctors = Set{Symbol}()
+    for ex in decls
+        ex.head === :function || continue
+        call = ex.args[1]
+        call isa Expr && call.head === :call && length(call.args) == 2 &&
+            call.args[2] isa Expr && call.args[2].head === :parameters &&
+            push!(kwctors, call.args[1])
+    end
+    unkw(ex) = ex isa Expr && ex.head === :macrocall && ex.args[1] === Symbol("@kwdef") &&
+               ex.args[end] isa Expr && ex.args[end].head === :struct &&
+               _struct_name(ex.args[end]) in kwctors ? _strip_field_defaults(ex.args[end]) :
+               ex isa Expr ? Expr(ex.head, map(unkw, ex.args)...) : ex
+    map!(unkw, decls, decls)
+    return decls
+end
+
+_struct_name(ex::Expr) = ex.args[2] isa Symbol ? ex.args[2] : ex.args[2].args[1]
+
+# A struct without `@kwdef` cannot carry field defaults: `x::T = v` becomes `x::T`.
+function _strip_field_defaults(ex::Expr)
+    body = ex.args[3]
+    fields = Any[a isa Expr && a.head === :(=) ? a.args[1] : a for a in body.args]
+    return Expr(:struct, ex.args[1], ex.args[2], Expr(:block, fields...))
+end
+
+# Rewrite this library's operators into bare names, collecting the names rewritten. Codegen
+# splices the operator functions themselves into the expression tree, and printing one
+# qualifies it, so the printed tree would load only where this package is. Base functions the
+# node also calls (`sin`, `clamp`) print unqualified and resolve anywhere, hence the test on
+# the parent module rather than a list of names. `GlobalRef`s are handled as well.
+function _localize_operators(ex, operators::Set{Symbol})
+    if ex isa Function && parentmodule(ex) === @__MODULE__
+        push!(operators, nameof(ex))
+        return nameof(ex)
+    elseif ex isa GlobalRef && ex.mod === @__MODULE__
+        push!(operators, ex.name)
+        return ex.name
+    end
+    ex isa Expr || return ex
+    return Expr(ex.head, Any[_localize_operators(a, operators) for a in ex.args]...)
 end
 
 # ---------------------------------------------------------------------------
 ## The parameter structs
 # ---------------------------------------------------------------------------
+# The program's runtime-settable values: the model's own, with `gains` overriding field by field
+# (a `nothing` leaves the model's value), checked by the spec's `check`. Shared by the
+# parameter structs built in this process and the literals a JuliaC application is built with.
+function tuning_values(gen::Union{CompiledProgram, ProgramSource}; gains = (;))
+    vals = OrderedDict{Symbol, Any}(gen.tuning_defaults)
+    for (field, v) in pairs(gains)
+        v === nothing && continue
+        haskey(vals, field) ||
+            throw(ArgumentError("$field is not one of this program's tunable parameters \
+                                 ($(join(keys(vals), ", ")))"))
+        vals[field] = vals[field] isa AbstractVector ? collect(float.(v)) : float(v)
+    end
+    gen.spec.check(gen.Ts, vals)
+    return vals
+end
+
 """
     build_parameter_structs(gen::CompiledProgram; gains=(;)) -> (; gains, auto)
 
@@ -362,15 +536,7 @@ to know that: a `ParametersStruct` is callable with the `CompiledNode`, and does
 `invoke_in_world` inside (SynchToolkit#159).
 """
 function build_parameter_structs(gen::CompiledProgram; gains = (;))
-    vals = OrderedDict{Symbol, Any}(gen.tuning_defaults)
-    for (field, v) in pairs(gains)
-        v === nothing && continue
-        haskey(vals, field) ||
-            throw(ArgumentError("$field is not one of this program's tunable parameters \
-                                 ($(join(keys(vals), ", ")))"))
-        vals[field] = vals[field] isa AbstractVector ? collect(float.(v)) : float(v)
-    end
-    gen.spec.check(gen.Ts, vals)
+    vals = tuning_values(gen; gains)
     cn = gen.compiled
     g = gen.tuning_struct(cn; vals...)
     # Pass the static struct: AutoPars defaults may be expressions of its fields.

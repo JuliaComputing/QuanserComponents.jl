@@ -115,7 +115,8 @@ function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
     # structural, so they are not parameters of the built system and have to be passed to the
     # constructor.
     log_file = program_log_path(spec, FRICTION_LOG_FILE)
-    gen = compile_program(FurutaFriction; spec.Ts, log_file, param_overrides = spec.overrides)
+    gen = compile_for_target(FurutaFriction, spec; spec.Ts, log_file,
+                             param_overrides = spec.overrides)
     spec.run && @info "Running friction experiment"
     hwrun = run_on_target(gen, spec; Tf)
     spec.run && @info "Experiment done"

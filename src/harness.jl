@@ -12,7 +12,7 @@ using Printf: @printf
 
 export export_program_c, emit_c_harness, compile_c_harness, run_c_harness,
        deploy_c_harness, run_c_harness_remote, run_c!,
-       program_log_path, local_log_path, generated_files_table,
+       program_log_path, local_log_path, generated_files_table, compile_for_target,
        launch_live_plot, run_on_target, run_target, HardwareRun
 
 # ---------------------------------------------------------------------------
@@ -436,10 +436,12 @@ function deploy_c_harness(dir; host, remote_dir = "furuta_c", ssh = `ssh`, scp =
 end
 
 """
-    run_c_harness_remote(host, remote_dir; local_dir, log_name, stream_log=false, ssh=`ssh`, scp=`scp`) -> log_path
+    run_c_harness_remote(host, remote_dir; local_dir, log_name, stream_log=false,
+                         exe="./run_hardware", ssh=`ssh`, scp=`scp`) -> log_path
 
 Run the harness on `host`, blocking for its baked-in duration, then copy the log back into
-`local_dir` and return the local path.
+`local_dir` and return the local path. `exe` is the program to run in `remote_dir`; a JuliaC
+bundle's is `./bundle/bin/<app>` (see [`run_juliac!`](@ref)).
 
 With `stream_log`, the remote log is followed over ssh into `local_dir` *while the run is in
 progress*, so a live plotter watching the local file sees the run as it happens rather than
@@ -447,7 +449,7 @@ only the copy made afterwards.
 """
 function run_c_harness_remote(host, remote_dir; local_dir,
                               log_name = SWINGUP_LOG_FILE, stream_log = false,
-                              ssh = `ssh`, scp = `scp`)
+                              exe = "./run_hardware", ssh = `ssh`, scp = `scp`)
     @info "Running hardware harness on remote"
     csv = joinpath(local_dir, log_name)
     remote_csv = "$remote_dir/$log_name"
@@ -474,7 +476,7 @@ function run_c_harness_remote(host, remote_dir; local_dir,
         end
     end
     try
-        run(`$ssh $host "cd $remote_dir && ./run_hardware"`)
+        run(`$ssh $host "cd $remote_dir && $exe"`)
     finally
         tail === nothing || kill(tail)
     end
@@ -498,10 +500,11 @@ end
     HardwareRun
 
 What came of putting a program on the rig: whether it `ran` and on which `target`
-(`:none`, `:inprocess`, `:local_c` or `:remote_c`), the local path to the `log` it wrote,
-how many `rows` are in it against how many `ticks` were issued, the achieved period as
-`(; median_dt, max_dt)`, the `output_dir` and `files` of an export, the `mangled` node
-symbol, and the live-plot `plotter` process if one was started.
+(`:none`, `:inprocess`, `:local_c`, `:remote_c`, `:local_juliac` or `:remote_juliac`), the
+local path to the `log` it wrote, how many `rows` are in it against how many `ticks` were
+issued, the achieved period as `(; median_dt, max_dt)`, the `output_dir` and `files` of an
+export, the `mangled` node symbol (for a JuliaC application, its name), and the live-plot
+`plotter` process if one was started.
 
 `ticks` is measured for an in-process run and the intended count (`Tf / Ts`) for an exported
 one, whose loop does not report back; `rows` is always what is in the log. They differ when a
@@ -526,24 +529,38 @@ struct HardwareRun
 end
 
 """
-    run_target(; run, export_c, deploy_host) -> Symbol
+    run_target(; run, export_c, deploy_host, juliac=false) -> Symbol
 
-Which of the four targets these parameters ask for: `:none` (nothing to do), `:export_only`
-(write the C sources and stop), `:inprocess` (build the program here and tick it from Julia),
-`:local_c` (build the exported C here and run that), or `:remote_c` (build and run it on
-`deploy_host`).
+Which target these parameters ask for:
 
-**A non-empty `deploy_host` implies exporting C**, whatever `export_c` says. It has to: an
-in-process Julia run happens in *this* process, so it cannot happen on another machine, and C
-sources are the only thing there is to send. Taking `deploy_host` at face value is the
-alternative to what used to happen — the host was ignored and the program ran here, against
-whatever card this machine has, which on a workstation means `hil_open` failing with -108
-while the QUBE sits attached to the host that was named.
+| `juliac` | `export_c` | `deploy_host` | `run = false`    | `run = true`     |
+|----------|------------|---------------|------------------|------------------|
+| false    | false      | empty         | `:none`          | `:inprocess`     |
+| false    | true       | empty         | `:export_only`   | `:local_c`       |
+| false    | either     | set           | `:export_only`   | `:remote_c`      |
+| true     | either     | empty         | `:export_juliac` | `:local_juliac`  |
+| true     | either     | set           | `:export_juliac` | `:remote_juliac` |
 
-`backend` is likewise irrelevant once C is being exported, and ignored.
+`:export_only` writes the C sources and stops, `:export_juliac` writes the JuliaC application
+and builds the binary, and the others also run the program: in this process, as C built here or
+on `deploy_host`, or as a JuliaC binary run here or copied to `deploy_host`.
+
+**A non-empty `deploy_host` implies an export**, whatever `export_c` says. It has to: an
+in-process Julia run happens in *this* process, so it cannot happen on another machine. Taking
+`deploy_host` at face value is the alternative to what used to happen -- the host was ignored
+and the program ran here, against whatever card this machine has, which on a workstation means
+`hil_open` failing with -108 while the QUBE sits attached to the host that was named. Of the two
+exports, C is the default; `juliac` selects the other, and then `export_c` has no effect.
+
+`backend` is likewise irrelevant once the program is exported, and ignored.
 """
-function run_target(; run::Bool, export_c::Bool, deploy_host::AbstractString)
+function run_target(; run::Bool, export_c::Bool, deploy_host::AbstractString,
+                    juliac::Bool = false)
     remote = !isempty(deploy_host)
+    if juliac
+        run || return :export_juliac
+        return remote ? :remote_juliac : :local_juliac
+    end
     c = export_c || remote
     run || return c ? :export_only : :none
     remote && return :remote_c
@@ -647,13 +664,31 @@ function run_on_target(gen::CompiledProgram; run::Bool = false,
                        String[], "", plotter)
 end
 
+"""
+    run_on_target(src::ProgramSource; run, output_dir, Tf, platform, arm_deg, card_options,
+                  deploy_host, deploy_dir, live_plot, live_plot_cmd, live_plot_config,
+                  gains) -> HardwareRun
+
+The JuliaC half of `run_on_target`: export the application, build it for `platform` and, with
+`run`, run it here or on `deploy_host` ([`run_juliac!`](@ref)).
+"""
+function run_on_target(src::ProgramSource; run::Bool = false, output_dir = "furuta_juliac",
+                       Tf, platform::AbstractString = "", arm_deg = 0.0,
+                       card_options::Union{Nothing, AbstractString} = nothing,
+                       deploy_host::AbstractString = "", deploy_dir = "furuta_juliac",
+                       live_plot::Bool = false, live_plot_cmd = "kst2",
+                       live_plot_config = "kst2config.kst", gains = (;))
+    return run_juliac!(src; Tf, output_dir, platform, arm_deg, card_options, deploy_host,
+                       deploy_dir, live_plot, live_plot_cmd, live_plot_config, gains, run)
+end
+
 # ---------------------------------------------------------------------------
 ## Shared analysis plumbing
 # ---------------------------------------------------------------------------
 """
     program_log_path(spec, default) -> String
 
-Where this run's log goes, given an analysis' `log_file`/`output_dir`/`export_c`.
+Where this run's log goes, given an analysis' `log_file`/`output_dir`/`export_c`/`juliac`.
 
 An exported program runs in its own directory, on whatever machine it was deployed to, so it
 gets the bare file name — an absolute path from here would be meaningless there, and the
@@ -663,7 +698,7 @@ live-plot session file), while a path the caller spelled out is left alone.
 """
 function program_log_path(spec, default)
     name = isempty(spec.log_file) ? default : spec.log_file
-    _exports_c(spec) && return basename(name)
+    _exported(spec) && return basename(name)
     return (isabspath(name) || !isempty(dirname(name))) ? name :
            joinpath(spec.output_dir, name)
 end
@@ -680,12 +715,23 @@ where an earlier run's log is to be found. Without an export the program wrote i
 first place.
 """
 local_log_path(spec, default) =
-    _exports_c(spec) ? joinpath(spec.output_dir, program_log_path(spec, default)) :
+    _exported(spec) ? joinpath(spec.output_dir, program_log_path(spec, default)) :
     program_log_path(spec, default)
 
-# A named deploy host means C sources get built there, whatever `export_c` says -- see
-# `run_target`, which is the one place that rule is decided.
-_exports_c(spec) = spec.export_c || !isempty(spec.deploy_host)
+# Whether the program runs as an exported C harness or JuliaC binary, in a directory of its own.
+# A named deploy host means one of the two, whatever `export_c` says -- see `run_target`, which
+# is the one place that rule is decided.
+_exported(spec) = spec.export_c || spec.juliac || !isempty(spec.deploy_host)
+
+"""
+    compile_for_target(ctor, spec; overrides...) -> CompiledProgram or ProgramSource
+
+Compile a program the way the analysis `spec` is going to run it: to Julia source for a JuliaC
+binary ([`compile_program_source`](@ref)) when `spec.juliac` is set, and with `stkcompile`
+([`compile_program`](@ref)) otherwise. `overrides` are passed on to either.
+"""
+compile_for_target(ctor, spec::AbstractQubeHardwareRunBaseSpec; overrides...) =
+    spec.juliac ? compile_program_source(ctor; overrides...) : compile_program(ctor; overrides...)
 
 "The backend an analysis asked for, as a `Symbol`. Errors on anything but `julia` or `c`."
 function program_backend(spec)
@@ -726,6 +772,12 @@ run_on_target(gen::CompiledProgram, spec::AbstractQubeHardwareRunBaseSpec; Tf, g
                   spec.deploy_host, spec.deploy_dir, spec.live_plot, spec.live_plot_cmd,
                   spec.live_plot_config, gains)
 
+run_on_target(src::ProgramSource, spec::AbstractQubeHardwareRunBaseSpec; Tf, gains = (;)) =
+    run_on_target(src; spec.run, spec.output_dir, Tf, spec.platform, spec.arm_deg,
+                  card_options = isempty(spec.card_options) ? nothing : spec.card_options,
+                  spec.deploy_host, spec.deploy_dir, spec.live_plot, spec.live_plot_cmd,
+                  spec.live_plot_config, gains)
+
 """
     generated_files_table(r::HardwareRun; symbols = false) -> NamedTuple of vectors
 
@@ -735,7 +787,8 @@ header rows, which is what makes the export usable from outside.
 """
 function generated_files_table(r::HardwareRun; symbols::Bool = false)
     r.output_dir === nothing &&
-        throw(ArgumentError("Nothing was exported (run the analysis with `export_c = true`)"))
+        throw(ArgumentError("Nothing was exported (run the analysis with `export_c = true` or \
+                             `juliac = true`)"))
     files = r.files
     bytes = [filesize(joinpath(r.output_dir, f)) for f in files]
     symbols || return (; file = files, bytes)
@@ -749,6 +802,8 @@ function show_run(io::IO, r::HardwareRun)
     r.ran || return
     println(io, "ran on: ", r.target === :remote_c ? "the deploy host (exported C)" :
                             r.target === :local_c ? "this machine (exported C)" :
+                            r.target === :remote_juliac ? "the deploy host (JuliaC binary)" :
+                            r.target === :local_juliac ? "this machine (JuliaC binary)" :
                             "this process")
     println(io, "log: ", r.log === nothing ? "(none)" : r.log,
             "  (", r.rows, " rows", r.ticks > 0 ? " of $(r.ticks) ticks" : "", ")")
