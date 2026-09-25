@@ -281,7 +281,7 @@ import DyadCompilerPasses
         @test QC.FurutaSwingupBaseSpec().Tf == 10.0
         # ... and the shared field block really is shared, not copied per analysis.
         shared = (:Ts, :run, :Tf, :umax, :arm_deg, :card_options, :backend, :export_c,
-                  :output_dir, :log_file, :deploy_host, :deploy_dir, :live_plot,
+                  :juliac, :platform, :output_dir, :log_file, :deploy_host, :deploy_dir, :live_plot,
                   :live_plot_cmd, :live_plot_config, :model, :overrides)
         for f in shared, T in (QC.FurutaSwingupBaseSpec, QC.FurutaFrictionBaseSpec,
                                QC.FurutaIdentificationBaseSpec)
@@ -988,3 +988,5 @@ end
 
 # The MPC swing-up program; needs MPCComponents (see test/Project.toml).
 include("mpc_tests.jl")
+# The JuliaC target; builds a binary where JuliaC is installed.
+include("juliac_tests.jl")

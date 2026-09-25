@@ -2,19 +2,24 @@
 Parameters shared by every analysis that builds a synchronous program and runs it on the
 QUBE: how to build it, whether and where to run it, and what to watch it with.
 
-Both analyses in this library extend this one. They differ in the program they build and in
-what they do with the log afterwards — running it is the same job, and the four targets
-below are available to both:
+Every analysis in this library extends this one. They differ in the program they build and in
+what they do with the log afterwards — running it is the same job, and the targets below are
+available to all of them:
 
-| `export_c` | `deploy_host` | what happens                                                |
-|------------|---------------|-------------------------------------------------------------|
-| false      | empty         | the program is built in-process on `backend` and ticked from Julia |
-| true       | empty         | standalone C is written to `output_dir`, compiled and run there   |
-| either     | set           | the C sources are copied to that host, built and run there, and the log is streamed and fetched back |
+| `juliac` | `export_c` | `deploy_host` | what happens                                                |
+|----------|------------|---------------|-------------------------------------------------------------|
+| false    | false      | empty         | the program is built in-process on `backend` and ticked from Julia |
+| false    | true       | empty         | standalone C is written to `output_dir`, compiled and run there   |
+| false    | either     | set           | the C sources are copied to that host, built and run there, and the log is streamed and fetched back |
+| true     | either     | empty         | a JuliaC application is written to `output_dir`, compiled into a binary for `platform` and run there |
+| true     | either     | set           | the binary is built here for `platform`, copied to that host and run there, and the log is streamed and fetched back |
 
-A named `deploy_host` therefore implies `export_c`: an in-process run happens in the Julia
-process, so it cannot happen on another machine, and C sources are the only thing there is to
-send. Setting the host is enough.
+A named `deploy_host` therefore implies an export: an in-process run happens in the Julia
+process, so it cannot happen on another machine. Setting the host is enough for the C target.
+A JuliaC binary for a Raspberry Pi is built on this machine with `platform = "linux/arm64"`,
+which needs the root file system prepared once by `deploy/arm64/setup.sh`; the host then needs
+the Quanser SDK and no Julia. Only single-rate programs that run on the C backend can be
+compiled with JuliaC.
 
 `run = false` stops before any of that, which is how a program is built and checked, or an
 earlier log re-analyzed, without a device attached.
@@ -47,11 +52,21 @@ partial analysis QubeHardwareRunBase
   parameter card_options::String = ""
   """
   Backend to build the program on when it runs in-process, \"julia\" or \"c\". Ignored when
-  `export_c` is true, which always builds C
+  the program is exported
   """
   parameter backend::String = "julia"
   "Export the program as standalone C into `output_dir`, and run that instead of in-process"
   parameter export_c::Boolean = false
+  """
+  Compile the program into a standalone binary with JuliaC in `output_dir`, and run that
+  instead of in-process. Takes precedence over `export_c`
+  """
+  parameter juliac::Boolean = false
+  """
+  Platform the JuliaC binary is built for: empty for this machine, \"linux/arm64\" for a
+  64-bit Raspberry Pi
+  """
+  parameter platform::String = ""
   "Directory the generated C sources and the log are written to"
   parameter output_dir::String = "furuta_c"
   """
@@ -62,8 +77,8 @@ partial analysis QubeHardwareRunBase
   """
   parameter log_file::String = ""
   """
-  Host to build and run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
-  `export_c`, since C sources are what gets copied over
+  Host to run on, e.g. \"username@hostname\"; empty runs on this machine. Implies
+  `export_c` unless `juliac` is set
   """
   parameter deploy_host::String = ""
   "Directory on `deploy_host` to copy the sources into"

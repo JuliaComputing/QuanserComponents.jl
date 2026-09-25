@@ -51,7 +51,8 @@ function DyadInterface.run_analysis(spec::FurutaSwingupBaseSpec)
     # the spec field by field. `Ts` and `log_file` are the exception: they are structural, so
     # they are not parameters of the built system and have to be passed to the constructor.
     log_file = program_log_path(spec, SWINGUP_LOG_FILE)
-    gen = compile_program(FurutaHardware; spec.Ts, log_file, param_overrides = spec.overrides)
+    gen = compile_for_target(FurutaHardware, spec; spec.Ts, log_file,
+                             param_overrides = spec.overrides)
     Tf = spec.Tf > 0 ? spec.Tf : 10.0
     hwrun = run_on_target(gen, spec; Tf, gains = (; L))
     return FurutaSwingupSolution(spec, hwrun,
@@ -62,9 +63,10 @@ function DyadInterface.AnalysisSolutionMetadata(sol::FurutaSwingupSolution)
     arts = ArtifactMetadata[]
     if sol.hwrun.output_dir !== nothing
         push!(arts, ArtifactMetadata(:GeneratedFiles, ArtifactType.DataFrame,
-            "Generated C files",
-            "The SynchToolkit-generated C sources for the swing-up controller, with the \
-             exported step/reset symbol names."))
+            "Generated files",
+            "The files exported for the swing-up controller: the SynchToolkit-generated C sources \
+             with the exported step/reset symbol names, or the JuliaC application and \
+             its bundle."))
     end
     if sol.hwrun.ran
         push!(arts, ArtifactMetadata(:RunLog, ArtifactType.DataFrame,
