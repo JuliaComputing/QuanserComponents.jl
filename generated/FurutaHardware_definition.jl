@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaHardware(; name, Ts, log_file, umax)
+   FurutaHardware(; name, Ts, log_file, umax, __overrides)
 
 The swing-up controller closed around the physical QUBE, with the hardware I/O
 inside the synchronous program.
@@ -34,7 +34,7 @@ automatically by the runners in src/program.jl.
 | `log_file`         | File the log is written to; the driver opens it with this name                         | --  |   SWINGUP_LOG_FILE |
 | `umax`         | Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand` clamps to it as well, so no command outside the amplifier's range can be produced or written. Runtime-settable, being one of the compiled program's `TuningGains`                         | V  |   10.0 |
 """
-@component function FurutaHardware(; name = nothing, Ts=0.005, log_file=SWINGUP_LOG_FILE, umax=Float64(10.0), kwargs...)
+@component function FurutaHardware(; name = nothing, var"Ts"=0.005, var"log_file"=SWINGUP_LOG_FILE, var"umax"=Float64(10.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -42,7 +42,7 @@ automatically by the runners in src/program.jl.
     @named model = FurutaHardware()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -51,6 +51,11 @@ automatically by the runners in src/program.jl.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -69,7 +74,7 @@ automatically by the runners in src/program.jl.
   append!(__params, @parameters (umax::Real), [description = "Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand`
   append!(__params, @parameters (umax::Real), [description = clamps to it as well, so no command outside the amplifier's range can be produced or
   append!(__params, @parameters (umax::Real), [description = written. Runtime-settable, being one of the compiled program's `TuningGains`"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -85,37 +90,27 @@ automatically by the runners in src/program.jl.
   ### Components
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
-  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
+  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; __overrides = measurement_overrides))
   # Subcomponent control_system of type QuanserComponents.SwingupWithHoming
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; control_system_overrides...))
-  __bindings[control_system.umax] = umax
-  # Now remove initial conditions in control_system that correspond to the bindings just added
-  __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
-  __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
-  __control_system_umax = Symbolics.unwrap(__no_namespace_control_system.umax)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_umax)
+  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; umax=umax, __overrides = control_system_overrides))
+  __dyad_bind_final!(__bindings, control_system, Symbol[], :umax, umax)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
-  push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
-  __bindings[command.umax] = umax
-  # Now remove initial conditions in command that correspond to the bindings just added
-  __command_ics = ModelingToolkit.get_initial_conditions(command)
-  __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
-  __command_umax = Symbolics.unwrap(__no_namespace_command.umax)::Symbolics.SymbolicT
-  delete!(__command_ics, __command_umax)
+  push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=umax, __overrides = command_overrides))
+  __dyad_bind_final!(__bindings, command, Symbol[], :umax, umax)
   # Subcomponent diagnostics of type QuanserComponents.HardwareDiagnostics
   diagnostics_overrides = __pop_subcomponent_overrides!(__overrides, "diagnostics")
-  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; diagnostics_overrides...))
+  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; __overrides = diagnostics_overrides))
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
-  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=SWINGUP_LOG_NCOLS, filename=log_file, header=SWINGUP_LOG_HEADER, logger_overrides...))
+  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=SWINGUP_LOG_NCOLS, filename=log_file, header=SWINGUP_LOG_HEADER, __overrides = logger_overrides))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, __symbol_overrides(periodicclock_overrides)...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -136,6 +131,6 @@ automatically by the runners in src/program.jl.
   push!(__eqs, connect(diagnostics.count_elbow, logger.u[8]))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaHardware

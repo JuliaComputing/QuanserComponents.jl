@@ -113,8 +113,8 @@ _swingup_outputs(nsys) = [nsys.logger.row, nsys.measurement.shoulder_angle,
 # what makes the root the right place for `umax` -- see `resolve_tunables`. The controller uses
 # the `SwingupCatch` model's tuned defaults (energy-swingup gain, arm-centering, LQR gains and
 # saturations), set for the `QubePendulum` plant with the identified parameters; the rest is
-# changed with `overrides` to `compile_program`, using Dyad's `__`-separated paths (e.g.
-# `control_system__runtime__swingup_catch__energyswingup__umax = 2.5`).
+# changed with the `__overrides` of `compile_program`, keyed by dotted Dyad paths (e.g.
+# `"control_system.runtime.swingup_catch.energyswingup.umax" => 2.5`).
 program_spec(::typeof(FurutaHardware)) = ProgramSpec(;
     name = :controller,
     tunables = OrderedDict{Any, Symbol}(

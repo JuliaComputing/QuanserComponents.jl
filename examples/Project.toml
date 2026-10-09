@@ -21,3 +21,8 @@ SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 
 [sources]
 QuanserComponents = {path = ".."}
+
+[compat]
+BlockComponents = "5"
+DiscreteComponents = "0.6"
+MultibodyComponents = "0.3"

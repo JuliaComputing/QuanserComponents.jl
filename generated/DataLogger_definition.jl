@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   DataLogger(; name, n, filename, header)
+   DataLogger(; name, n, filename, header, __overrides)
 
 Writes one row of the connected signals to a file on every tick, from inside the
 synchronous program.
@@ -65,7 +65,7 @@ Clock-agnostic.
 | ------------ | ----------------------------------- | ------ |
 | `v`         | The inputs, padded out to the operator's fixed arity                         | --  |
 """
-@component function DataLogger(; name = nothing, n=1, filename="log.csv", header="", kwargs...)
+@component function DataLogger(; name = nothing, var"n"=1, var"filename"="log.csv", var"header"="", __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -73,7 +73,7 @@ Clock-agnostic.
     @named model = DataLogger()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -82,6 +82,11 @@ Clock-agnostic.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "n") && (n = pop!(__overrides, "n"))
+  haskey(__overrides, "filename") && (filename = pop!(__overrides, "filename"))
+  haskey(__overrides, "header") && (header = pop!(__overrides, "header"))
 
   ### Structural Parameters (functions)
 
@@ -108,8 +113,8 @@ Clock-agnostic.
 
   ### Variables (assignments)
   __ovr_v = pop!(__overrides, "v", nothing); isnothing(__ovr_v) || push!(__eqs, v ~ __ovr_v)
-  __ovr_v__initial = pop!(__overrides, "v__initial", nothing); isnothing(__ovr_v__initial) || (__initial_conditions[v] = __ovr_v__initial)
-  __ovr_v__guess = pop!(__overrides, "v__guess", nothing)
+  __ovr_v__initial = pop!(__overrides, "v.initial", nothing); isnothing(__ovr_v__initial) || (__initial_conditions[v] = __ovr_v__initial)
+  __ovr_v__guess = pop!(__overrides, "v.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -117,7 +122,7 @@ Clock-agnostic.
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_v__guess) || (__guesses[v] = __ovr_v__guess)
@@ -139,6 +144,6 @@ Clock-agnostic.
   end
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export DataLogger

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaSwingup(; name, gray)
+   FurutaSwingup(; name, gray, __overrides)
 
 ## Parameters:
 
@@ -13,7 +13,7 @@
 | ------------ | ----------------------------------- | ------ | --------------- |
 | `gray`         |                          | --  |   [0.9, 0.9, 0.9, 1] |
 """
-@component function FurutaSwingup(; name = nothing, gray=[0.9, 0.9, 0.9, Float64(1)], kwargs...)
+@component function FurutaSwingup(; name = nothing, var"gray"=[0.9, 0.9, 0.9, Float64(1)], __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -21,7 +21,7 @@
     @named model = FurutaSwingup()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -30,6 +30,9 @@
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "gray") && (gray = pop!(__overrides, "gray"))
 
   ### Structural Parameters (functions)
 
@@ -46,7 +49,7 @@
   ### Symbolic Parameters
   __local__gray = gray
   append!(__params, @parameters (gray[1:4]::Real))
-  __initial_conditions[gray] = __local__gray
+  __dyad_seed_parameter!(__initial_conditions, __bindings, gray, __local__gray)
 
   ### Final Parameters (assignments)
 
@@ -62,31 +65,31 @@
   ### Components
   # Subcomponent control_system of type QuanserComponents.SwingupWithHoming
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; control_system_overrides...))
+  push!(__systems, @named control_system = QuanserComponents.SwingupWithHoming(; __overrides = control_system_overrides))
   # Subcomponent qubependulum of type QuanserComponents.QubePendulum
   qubependulum_overrides = __pop_subcomponent_overrides!(__overrides, "qubependulum")
-  push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; idparams=QuanserComponents.identified, qubependulum_overrides...))
+  push!(__systems, @named qubependulum = QuanserComponents.QubePendulum(; idparams=QuanserComponents.identified, __overrides = qubependulum_overrides))
   # Subcomponent zeroorderhold of type DiscreteComponents.ZeroOrderHold
   zeroorderhold_overrides = __pop_subcomponent_overrides!(__overrides, "zeroorderhold")
-  push!(__systems, @named zeroorderhold = DiscreteComponents.ZeroOrderHold(; initial_condition=Float64(0), zeroorderhold_overrides...))
+  push!(__systems, @named zeroorderhold = DiscreteComponents.ZeroOrderHold(; initial_condition=Float64(0), __overrides = zeroorderhold_overrides))
   # Subcomponent elbow_sampler of type DiscreteComponents.SampleWithADEffects
   elbow_sampler_overrides = __pop_subcomponent_overrides!(__overrides, "elbow_sampler")
-  push!(__systems, @named elbow_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, elbow_sampler_overrides...))
+  push!(__systems, @named elbow_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, __overrides = elbow_sampler_overrides))
   # Subcomponent shoulder_sampler of type DiscreteComponents.SampleWithADEffects
   shoulder_sampler_overrides = __pop_subcomponent_overrides!(__overrides, "shoulder_sampler")
-  push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, shoulder_sampler_overrides...))
+  push!(__systems, @named shoulder_sampler = DiscreteComponents.SampleWithADEffects(; quantized=false, sigma=0.00001, __overrides = shoulder_sampler_overrides))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=0.005, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=0.005, __symbol_overrides(periodicclock_overrides)...))
   # Subcomponent world of type MultibodyComponents.World
   world_overrides = __pop_subcomponent_overrides!(__overrides, "world")
-  push!(__systems, @named world = MultibodyComponents.World(; default_body_color=gray, default_rod_color=gray, default_joint_color=gray, nominal_length=0.1, render=false, world_overrides...))
+  push!(__systems, @named world = MultibodyComponents.World(; default_body_color=gray, default_rod_color=gray, default_joint_color=gray, nominal_length=0.1, render=false, __symbol_overrides(world_overrides)...))
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
-  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
+  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), __overrides = gain_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -108,6 +111,6 @@
   push!(__eqs, connect(gain.y, zeroorderhold.u))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaSwingup

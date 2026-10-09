@@ -41,7 +41,8 @@ the horizon), about a millisecond each.
 
 Every `key=value` argument after `rate` is passed to `compile_program` as it stands, which is how
 one configuration is measured against another from the same seeds: `Ts=0.005 Np=50 horizon=0.8`,
-or `integrator_stages=4`. What is not given is the model's own default, so this script never
+or `integrator_stages=4`. A dotted key (`control_system.energy_weight=3e4`) is a Dyad override
+path and goes in through `__overrides`. What is not given is the model's own default, so this script never
 measures a configuration the models have moved away from.
 
 ENVIRONMENT: as for test/hardware_mpc.jl (see the README's "Nonlinear MPC" section):
@@ -64,8 +65,10 @@ RATE in (:single, :multi) || error("rate must be single or multi")
 # the models' defaults: the periods it needs are read off the compiled program below.
 const TRAILING = ARGS[min(6, end + 1):end]
 all(a -> occursin('=', a), TRAILING) || error("arguments after `rate` must be key=value, got $TRAILING")
-const OVERRIDES = Dict(Symbol(k) => something(tryparse(Int, v), parse(Float64, v)) for (k, v) in
-                       (split(a, '=', limit = 2) for a in TRAILING))
+const SETTINGS = [String(k) => something(tryparse(Int, v), parse(Float64, v)) for (k, v) in
+                  (split(a, '=', limit = 2) for a in TRAILING)]
+const OVERRIDES = Dict(Symbol(k) => v for (k, v) in SETTINGS if !occursin('.', k))
+const PATH_OVERRIDES = Dict{String, Any}(k => v for (k, v) in SETTINGS if occursin('.', k))
 const ARM_LIMIT = 1.9198621771937625        # the rig's end stops (110 deg); FurutaMPC's soft bound sits inside them
 const CATCH_TOL = 0.1                       # rad from upright counted as balanced
 const HOLD = 1.0                            # s the pendulum must stay balanced at the end
@@ -145,8 +148,8 @@ end
 # ---------------------------------------------------------------------------
 @time "prediction model" dyn = QC.furuta_mpc_dynamics()
 @time "compile the program" prog = RATE === :multi ?
-    QC.compile_program(QC.FurutaMPCMultirateHardware; OVERRIDES...) :
-    QC.compile_program(QC.FurutaMPCHardware; OVERRIDES...)
+    QC.compile_program(QC.FurutaMPCMultirateHardware; OVERRIDES..., __overrides = PATH_OVERRIDES) :
+    QC.compile_program(QC.FurutaMPCHardware; OVERRIDES..., __overrides = PATH_OVERRIDES)
 ctrl = QC.ProgramRuntime(prog)
 # `Ts` is the period of the program's fastest clock -- what a driver ticks, and what the plant is
 # stepped at. On the multirate program that is the sensing clock, and the MPC solves every
@@ -155,7 +158,7 @@ const Ts = prog.Ts
 const TS_MPC = Ts * last(prog.divisors)
 # What the run is of, for the summary: the periods from the compiled program, the grid from the
 # arguments, since a `CompiledProgram` does not carry the model's parameter values.
-const REST = sort!([kv for kv in OVERRIDES if !(first(kv) in (:Ts, :Ts_fast))]; by = first)
+const REST = sort!([kv for kv in SETTINGS if !(first(kv) in ("Ts", "Ts_fast"))]; by = first)
 const CONFIG = string(
     @sprintf("Ts = %.4f s", TS_MPC),
     RATE === :multi ? @sprintf(", sensing at %.4f s (divisor %d)", Ts, last(prog.divisors)) : "",

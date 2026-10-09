@@ -118,7 +118,7 @@ _mpc_ode_warmup(ssys) = Pair[ssys.command_umax => 0.0]
 # at less voltage than the MPC is allowed to plan with -- and the velocity estimator's constant,
 # root parameters of `FurutaMPCHardware` bound down with `final` (see `resolve_tunables` for why
 # the root is the right place). The MPC's weights and constraints are structural and are set with
-# `overrides` to `compile_program` (`control_system__energy_weight = 3e4`, `umax = 8.0`); `Ts`
+# `compile_program` (`umax = 8.0`, or `__overrides = Dict{String, Any}("control_system.energy_weight" => 3e4)`); `Ts`
 # is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals, and
 # `dynamics = ...` replaces the prediction model `furuta_mpc_dynamics()`.
 #

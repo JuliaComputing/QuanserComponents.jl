@@ -146,17 +146,22 @@ end
 
 # The Dyad compiler turns an analysis' `model = Foo(final x = x)` into a
 # `Dict{SymbolicT, SymbolicT}` of un-namespaced model parameter => value, handed to the
-# implementation as `spec.overrides`. Translate it into the keyword form the generated model
-# constructor takes, so the analysis' parameters reach the model through the model's own
-# entry point instead of the implementation reading them back off the spec. Nested paths
-# arrive as `a₊b` and become Dyad's `a__b` override syntax.
-_model_kwargs(::Nothing) = Dict{Symbol, Any}()
-function _model_kwargs(overrides)
-    kw = Dict{Symbol, Any}()
+# implementation as `spec.overrides`. Translate it into what the generated model constructor
+# takes, so the analysis' parameters reach the model through the model's own entry point
+# instead of the implementation reading them back off the spec: the model's own parameters
+# become keywords in `kw`, and nested paths, which arrive as `a₊b`, become dotted `a.b` keys
+# in `ovr` (the constructor's `__overrides`).
+_model_overrides!(kw, ovr, ::Nothing) = nothing
+function _model_overrides!(kw, ovr, overrides)
     for (k, v) in overrides
-        kw[Symbol(replace(string(k), "₊" => "__"))] = Symbolics.value(v)
+        path = replace(string(k), "₊" => ".")
+        if occursin('.', path)
+            ovr[path] = Symbolics.value(v)
+        else
+            kw[Symbol(path)] = Symbolics.value(v)
+        end
     end
-    return kw
+    return nothing
 end
 
 # ---------------------------------------------------------------------------
@@ -280,15 +285,16 @@ struct CompiledProgram{C, TS, AS}
 end
 
 """
-    compile_program(ctor; log_file=nothing, param_overrides=nothing, overrides...) -> CompiledProgram
+    compile_program(ctor; log_file=nothing, param_overrides=nothing, __overrides=Dict{String, Any}(), overrides...) -> CompiledProgram
 
 Compile one of the rig's programs to a SynchJulia node. This is where the stkcompile call lives.
 
 `ctor` is the model constructor -- `FurutaHardware`, `FurutaFriction`, `FurutaIdentification`,
 `FurutaMPCHardware` or `FurutaMPCMultirateHardware` -- and everything else about the program
-comes from its [`program_spec`](@ref). `overrides...` are passed to the constructor: the model's
-own structural parameters (`Ts`, `Np`, `traj_file`) and Dyad `__`-separated paths into its
-components, e.g. `control_system__energy_weight = 3e4`. `param_overrides` is an analysis'
+comes from its [`program_spec`](@ref). `overrides...` are passed to the constructor as keywords:
+the model's own structural parameters (`Ts`, `Np`, `traj_file`). `__overrides` is passed as the
+constructor's `__overrides`: dotted Dyad paths into its components, e.g.
+`Dict{String, Any}("control_system.energy_weight" => 3e4)`. `param_overrides` is an analysis'
 `spec.overrides`, the same thing in the form the Dyad compiler produces. `log_file` is where the
 model's `DataLogger` writes; it goes to the model, not just to the driver, so the component that
 writes the file and the call that opens it cannot disagree about which file that is.
@@ -300,7 +306,8 @@ result records each clock's period as an integer multiple of the fastest, and
 [`ProgramRuntime`](@ref) generates the tick pattern from it so that a caller ticks once per
 `Ts`.
 """
-function compile_program(ctor; log_file = nothing, param_overrides = nothing, overrides...)
+function compile_program(ctor; log_file = nothing, param_overrides = nothing,
+                         __overrides = Dict{String, Any}(), overrides...)
     spec = program_spec(ctor)
     spec.prerequisites()
     # Every C library the program calls into has to exist before the `:c` backend links them
@@ -308,11 +315,12 @@ function compile_program(ctor; log_file = nothing, param_overrides = nothing, ov
     ensure_qube_hw()
     ensure_qube_log()
     kw = Dict{Symbol, Any}(overrides)
-    merge!(kw, _model_kwargs(param_overrides))
+    ovr = Dict{String, Any}(__overrides)
+    _model_overrides!(kw, ovr, param_overrides)
     log = log_file === nothing ? spec.log() : spec.log(log_file)
     traj = spec.traj === nothing ? nothing : spec.traj(kw)
     traj === nothing || ensure_qube_traj()
-    sys = ctor(; name = spec.name, log_file = log.file, kw...)
+    sys = ctor(; name = spec.name, log_file = log.file, kw..., __overrides = ovr)
     clocks = model_clocks(sys)
     divisors = clock_divisors(clocks)
     # `sys` is the root, so its own name is not part of the flattened symbol names; reach

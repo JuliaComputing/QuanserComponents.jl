@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   SwingupCatch(; name, friction_params, friction_comp, volt_per_torque, umax)
+   SwingupCatch(; name, friction_params, friction_comp, volt_per_torque, umax, __overrides)
 
 ## Parameters:
 
@@ -22,7 +22,7 @@
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SwingupCatch(; name = nothing, friction_params=friction_identified, friction_comp=Float64(0.0), volt_per_torque=identified.Rm / identified.kt, umax=Float64(10.0), kwargs...)
+@component function SwingupCatch(; name = nothing, var"friction_params"=friction_identified, var"friction_comp"=Float64(0.0), var"volt_per_torque"=identified.Rm / identified.kt, var"umax"=Float64(10.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -30,7 +30,7 @@
     @named model = SwingupCatch()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -39,6 +39,12 @@
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "friction_params") && (friction_params = pop!(__overrides, "friction_params"))
+  haskey(__overrides, "friction_comp") && (friction_comp = pop!(__overrides, "friction_comp"))
+  haskey(__overrides, "volt_per_torque") && (volt_per_torque = pop!(__overrides, "volt_per_torque"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -56,16 +62,16 @@
   __local__friction_comp = friction_comp
   append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
   append!(__params, @parameters (friction_comp::Real), [description = is wired up but inactive."])
-  __initial_conditions[friction_comp] = __local__friction_comp
+  __dyad_seed_parameter!(__initial_conditions, __bindings, friction_comp, __local__friction_comp)
   __local__volt_per_torque = volt_per_torque
   append!(__params, @parameters (volt_per_torque::Real), [description = "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"])
-  __initial_conditions[volt_per_torque] = __local__volt_per_torque
+  __dyad_seed_parameter!(__initial_conditions, __bindings, volt_per_torque, __local__volt_per_torque)
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and
   append!(__params, @parameters (umax::Real), [description = a parameter here so a model built around this one can bind it to the motor saturation it
   append!(__params, @parameters (umax::Real), [description = also clamps the command to (`FurutaHardware` does). The swing-up phase has its own,
   append!(__params, @parameters (umax::Real), [description = smaller limit in `energyswingup.umax`"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -84,52 +90,42 @@
   ### Components
   # Subcomponent velocityestimator_shoulder of type QuanserComponents.VelocityEstimator
   velocityestimator_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator_shoulder")
-  push!(__systems, @named velocityestimator_shoulder = QuanserComponents.VelocityEstimator(; velocityestimator_shoulder_overrides...))
+  push!(__systems, @named velocityestimator_shoulder = QuanserComponents.VelocityEstimator(; __overrides = velocityestimator_shoulder_overrides))
   # Subcomponent velocityestimator_elbow of type QuanserComponents.VelocityEstimator
   velocityestimator_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator_elbow")
-  push!(__systems, @named velocityestimator_elbow = QuanserComponents.VelocityEstimator(; velocityestimator_elbow_overrides...))
+  push!(__systems, @named velocityestimator_elbow = QuanserComponents.VelocityEstimator(; __overrides = velocityestimator_elbow_overrides))
   # Subcomponent energyswingup of type QuanserComponents.EnergySwingup
   energyswingup_overrides = __pop_subcomponent_overrides!(__overrides, "energyswingup")
-  push!(__systems, @named energyswingup = QuanserComponents.EnergySwingup(; energyswingup_overrides...))
+  push!(__systems, @named energyswingup = QuanserComponents.EnergySwingup(; __overrides = energyswingup_overrides))
   # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
   anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
-  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
+  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; __overrides = anglenormalization_overrides))
   # Subcomponent lqrstabilizer of type QuanserComponents.LQRstabilizer
   lqrstabilizer_overrides = __pop_subcomponent_overrides!(__overrides, "lqrstabilizer")
-  push!(__systems, @named lqrstabilizer = QuanserComponents.LQRstabilizer(; lqrstabilizer_overrides...))
-  __bindings[lqrstabilizer.umax] = umax
-  # Now remove initial conditions in lqrstabilizer that correspond to the bindings just added
-  __lqrstabilizer_ics = ModelingToolkit.get_initial_conditions(lqrstabilizer)
-  __no_namespace_lqrstabilizer = ModelingToolkit.toggle_namespacing(lqrstabilizer, false)
-  __lqrstabilizer_umax = Symbolics.unwrap(__no_namespace_lqrstabilizer.umax)::Symbolics.SymbolicT
-  delete!(__lqrstabilizer_ics, __lqrstabilizer_umax)
+  push!(__systems, @named lqrstabilizer = QuanserComponents.LQRstabilizer(; umax=umax, __overrides = lqrstabilizer_overrides))
+  __dyad_bind_final!(__bindings, lqrstabilizer, Symbol[], :umax, umax)
   # Subcomponent neartop of type QuanserComponents.NearTop
   neartop_overrides = __pop_subcomponent_overrides!(__overrides, "neartop")
-  push!(__systems, @named neartop = QuanserComponents.NearTop(; neartop_overrides...))
+  push!(__systems, @named neartop = QuanserComponents.NearTop(; __overrides = neartop_overrides))
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
-  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), gain_overrides...))
+  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(1.0), __overrides = gain_overrides))
   # Subcomponent switch1 of type BlockComponents.Logical.Switch
   switch1_overrides = __pop_subcomponent_overrides!(__overrides, "switch1")
-  push!(__systems, @named switch1 = BlockComponents.Logical.Switch(; switch1_overrides...))
+  push!(__systems, @named switch1 = BlockComponents.Logical.Switch(; __overrides = switch1_overrides))
   # Subcomponent friction_ff of type QuanserComponents.FrictionAndBackEMF
   friction_ff_overrides = __pop_subcomponent_overrides!(__overrides, "friction_ff")
-  push!(__systems, @named friction_ff = QuanserComponents.FrictionAndBackEMF(; params=friction_params, friction_ff_overrides...))
+  push!(__systems, @named friction_ff = QuanserComponents.FrictionAndBackEMF(; params=friction_params, __overrides = friction_ff_overrides))
   # Subcomponent friction_gain of type BlockComponents.Math.Gain
   friction_gain_overrides = __pop_subcomponent_overrides!(__overrides, "friction_gain")
-  push!(__systems, @named friction_gain = BlockComponents.Math.Gain(; friction_gain_overrides...))
-  __bindings[friction_gain.k] = friction_comp * volt_per_torque
-  # Now remove initial conditions in friction_gain that correspond to the bindings just added
-  __friction_gain_ics = ModelingToolkit.get_initial_conditions(friction_gain)
-  __no_namespace_friction_gain = ModelingToolkit.toggle_namespacing(friction_gain, false)
-  __friction_gain_k = Symbolics.unwrap(__no_namespace_friction_gain.k)::Symbolics.SymbolicT
-  delete!(__friction_gain_ics, __friction_gain_k)
+  push!(__systems, @named friction_gain = BlockComponents.Math.Gain(; k=friction_comp * volt_per_torque, __overrides = friction_gain_overrides))
+  __dyad_bind_final!(__bindings, friction_gain, Symbol[], :k, friction_comp * volt_per_torque)
   # Subcomponent friction_add of type BlockComponents.Math.Add
   friction_add_overrides = __pop_subcomponent_overrides!(__overrides, "friction_add")
-  push!(__systems, @named friction_add = BlockComponents.Math.Add(; friction_add_overrides...))
+  push!(__systems, @named friction_add = BlockComponents.Math.Add(; __overrides = friction_add_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -154,6 +150,6 @@
   push!(__eqs, connect(lqrstabilizer.u, switch1.u1))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export SwingupCatch

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCMultirate(; name, dynamics, Ts, Np, horizon, integrator_stages, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, energy_weight, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_alpha)
+   FurutaMPCMultirate(; name, dynamics, Ts, Np, horizon, integrator_stages, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, energy_weight, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_alpha, __overrides)
 
 `FurutaMPC` split across two clocks: the encoders are read and the state estimated on a fast
 clock, the MPC solves on a slow one.
@@ -103,7 +103,7 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `exitflag` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function FurutaMPCMultirate(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.005, Np=60, horizon=0.6, integrator_stages=2, umax=Float64(10.0), arm_limit=1.7, velocity_limit_shoulder=Float64(20.0), velocity_limit_elbow=Float64(30.0), energy_weight=Float64(100000.0), soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=Float64(1.0), qp_cond_N=5, output_trajectories=false, Q1=diagonal([1000.0, 10.0, 1.0, 1.0]), Q2=diagonal([100.0]), velocity_alpha=0.5, kwargs...)
+@component function FurutaMPCMultirate(; name = nothing, var"dynamics"=furuta_mpc_dynamics(), var"Ts"=0.005, var"Np"=60, var"horizon"=0.6, var"integrator_stages"=2, var"umax"=Float64(10.0), var"arm_limit"=1.7, var"velocity_limit_shoulder"=Float64(20.0), var"velocity_limit_elbow"=Float64(30.0), var"energy_weight"=Float64(100000.0), var"soft_weight"=Float64(1000.0), var"nlp_solver"=MPCComponents.ACADOSSolver.SQP_RTI(), var"warm_start"=MPCComponents.ACADOSWarmStart.Shift(), var"max_iter"=30, var"levenberg_marquardt"=Float64(1.0), var"qp_cond_N"=5, var"output_trajectories"=false, var"Q1"=diagonal([1000.0, 10.0, 1.0, 1.0]), var"Q2"=diagonal([100.0]), var"velocity_alpha"=0.5, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -111,7 +111,7 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
     @named model = FurutaMPCMultirate()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -120,6 +120,28 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "dynamics") && (dynamics = pop!(__overrides, "dynamics"))
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "Np") && (Np = pop!(__overrides, "Np"))
+  haskey(__overrides, "horizon") && (horizon = pop!(__overrides, "horizon"))
+  haskey(__overrides, "integrator_stages") && (integrator_stages = pop!(__overrides, "integrator_stages"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "arm_limit") && (arm_limit = pop!(__overrides, "arm_limit"))
+  haskey(__overrides, "velocity_limit_shoulder") && (velocity_limit_shoulder = pop!(__overrides, "velocity_limit_shoulder"))
+  haskey(__overrides, "velocity_limit_elbow") && (velocity_limit_elbow = pop!(__overrides, "velocity_limit_elbow"))
+  haskey(__overrides, "energy_weight") && (energy_weight = pop!(__overrides, "energy_weight"))
+  haskey(__overrides, "soft_weight") && (soft_weight = pop!(__overrides, "soft_weight"))
+  haskey(__overrides, "nlp_solver") && (nlp_solver = pop!(__overrides, "nlp_solver"))
+  haskey(__overrides, "warm_start") && (warm_start = pop!(__overrides, "warm_start"))
+  haskey(__overrides, "max_iter") && (max_iter = pop!(__overrides, "max_iter"))
+  haskey(__overrides, "levenberg_marquardt") && (levenberg_marquardt = pop!(__overrides, "levenberg_marquardt"))
+  haskey(__overrides, "qp_cond_N") && (qp_cond_N = pop!(__overrides, "qp_cond_N"))
+  haskey(__overrides, "output_trajectories") && (output_trajectories = pop!(__overrides, "output_trajectories"))
+  haskey(__overrides, "Q1") && (Q1 = pop!(__overrides, "Q1"))
+  haskey(__overrides, "Q2") && (Q2 = pop!(__overrides, "Q2"))
+  haskey(__overrides, "velocity_alpha") && (velocity_alpha = pop!(__overrides, "velocity_alpha"))
 
   ### Structural Parameters (functions)
 
@@ -137,7 +159,7 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
   ### Symbolic Parameters
   __local__velocity_alpha = velocity_alpha
   append!(__params, @parameters (velocity_alpha::Real), [description = "Position correction gain of both state estimators, in (0, 1); the rate and acceleration gains follow from it by Kalata's steady-state relations, so this is the one knob. Larger trusts the measurement more and filters less. Runtime-settable, a `TuningGains` field of `FurutaMPCMultirateHardware`, and the value to sweep in test/mpc_rollouts.jl -- the only place encoder quantization is simulated", bounds = (0, 1)])
-  __initial_conditions[velocity_alpha] = __local__velocity_alpha
+  __dyad_seed_parameter!(__initial_conditions, __bindings, velocity_alpha, __local__velocity_alpha)
 
   ### Final Parameters (assignments)
 
@@ -157,88 +179,50 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
   ### Components
   # Subcomponent estimator_shoulder of type DiscreteComponents.AlphaBetaGammaFilter
   estimator_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "estimator_shoulder")
-  push!(__systems, @named estimator_shoulder = DiscreteComponents.AlphaBetaGammaFilter(; estimator_shoulder_overrides...))
-  __bindings[estimator_shoulder.alpha] = velocity_alpha
-  # Now remove initial conditions in estimator_shoulder that correspond to the bindings just added
-  __estimator_shoulder_ics = ModelingToolkit.get_initial_conditions(estimator_shoulder)
-  __no_namespace_estimator_shoulder = ModelingToolkit.toggle_namespacing(estimator_shoulder, false)
-  __estimator_shoulder_alpha = Symbolics.unwrap(__no_namespace_estimator_shoulder.alpha)::Symbolics.SymbolicT
-  delete!(__estimator_shoulder_ics, __estimator_shoulder_alpha)
+  push!(__systems, @named estimator_shoulder = DiscreteComponents.AlphaBetaGammaFilter(; alpha=velocity_alpha, __overrides = estimator_shoulder_overrides))
+  __dyad_bind_final!(__bindings, estimator_shoulder, Symbol[], :alpha, velocity_alpha)
   # Subcomponent estimator_elbow of type DiscreteComponents.AlphaBetaGammaFilter
   estimator_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "estimator_elbow")
-  push!(__systems, @named estimator_elbow = DiscreteComponents.AlphaBetaGammaFilter(; estimator_elbow_overrides...))
-  __bindings[estimator_elbow.alpha] = velocity_alpha
-  # Now remove initial conditions in estimator_elbow that correspond to the bindings just added
-  __estimator_elbow_ics = ModelingToolkit.get_initial_conditions(estimator_elbow)
-  __no_namespace_estimator_elbow = ModelingToolkit.toggle_namespacing(estimator_elbow, false)
-  __estimator_elbow_alpha = Symbolics.unwrap(__no_namespace_estimator_elbow.alpha)::Symbolics.SymbolicT
-  delete!(__estimator_elbow_ics, __estimator_elbow_alpha)
+  push!(__systems, @named estimator_elbow = DiscreteComponents.AlphaBetaGammaFilter(; alpha=velocity_alpha, __overrides = estimator_elbow_overrides))
+  __dyad_bind_final!(__bindings, estimator_elbow, Symbol[], :alpha, velocity_alpha)
   # Subcomponent latest_shoulder_angle of type DiscreteComponents.Latest
   latest_shoulder_angle_overrides = __pop_subcomponent_overrides!(__overrides, "latest_shoulder_angle")
-  push!(__systems, @named latest_shoulder_angle = DiscreteComponents.Latest(; latest_shoulder_angle_overrides...))
+  push!(__systems, @named latest_shoulder_angle = DiscreteComponents.Latest(; __overrides = latest_shoulder_angle_overrides))
   # Subcomponent latest_elbow_angle of type DiscreteComponents.Latest
   latest_elbow_angle_overrides = __pop_subcomponent_overrides!(__overrides, "latest_elbow_angle")
-  push!(__systems, @named latest_elbow_angle = DiscreteComponents.Latest(; latest_elbow_angle_overrides...))
+  push!(__systems, @named latest_elbow_angle = DiscreteComponents.Latest(; __overrides = latest_elbow_angle_overrides))
   # Subcomponent latest_shoulder_rate of type DiscreteComponents.Latest
   latest_shoulder_rate_overrides = __pop_subcomponent_overrides!(__overrides, "latest_shoulder_rate")
-  push!(__systems, @named latest_shoulder_rate = DiscreteComponents.Latest(; latest_shoulder_rate_overrides...))
+  push!(__systems, @named latest_shoulder_rate = DiscreteComponents.Latest(; __overrides = latest_shoulder_rate_overrides))
   # Subcomponent latest_elbow_rate of type DiscreteComponents.Latest
   latest_elbow_rate_overrides = __pop_subcomponent_overrides!(__overrides, "latest_elbow_rate")
-  push!(__systems, @named latest_elbow_rate = DiscreteComponents.Latest(; latest_elbow_rate_overrides...))
+  push!(__systems, @named latest_elbow_rate = DiscreteComponents.Latest(; __overrides = latest_elbow_rate_overrides))
   # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
   anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
-  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
+  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; __overrides = anglenormalization_overrides))
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
-  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, time_steps=time_steps, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=integrator_stages, backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
-  __bindings[mpc.Q1] = furuta_mpc_weight(Q1, energy_weight)
-  __bindings[mpc.Q2] = Q2
-  __bindings[mpc.operating_point] = [Float64(0), pi, Float64(0), Float64(0)]
-  __bindings[mpc.max_iter] = max_iter
-  __bindings[mpc.levenberg_marquardt] = levenberg_marquardt
-  # Now remove initial conditions in mpc that correspond to the bindings just added
-  __mpc_ics = ModelingToolkit.get_initial_conditions(mpc)
-  __no_namespace_mpc = ModelingToolkit.toggle_namespacing(mpc, false)
-  __mpc_Q1 = Symbolics.unwrap(__no_namespace_mpc.Q1)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Q1)
-  __mpc_Q2 = Symbolics.unwrap(__no_namespace_mpc.Q2)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Q2)
-  __mpc_operating_point = Symbolics.unwrap(__no_namespace_mpc.operating_point)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_operating_point)
-  __mpc_max_iter = Symbolics.unwrap(__no_namespace_mpc.max_iter)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_max_iter)
-  __mpc_levenberg_marquardt = Symbolics.unwrap(__no_namespace_mpc.levenberg_marquardt)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_levenberg_marquardt)
+  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, time_steps=time_steps, Q1=furuta_mpc_weight(Q1, energy_weight), Q2=Q2, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, operating_point=[Float64(0), pi, Float64(0), Float64(0)], nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=integrator_stages, backend=MPCComponents.ACADOSBackend.Julia(), max_iter=max_iter, levenberg_marquardt=levenberg_marquardt, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, __overrides = mpc_overrides))
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :Q1, furuta_mpc_weight(Q1, energy_weight))
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :Q2, Q2)
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :operating_point, [Float64(0), pi, Float64(0), Float64(0)])
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :max_iter, max_iter)
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :levenberg_marquardt, levenberg_marquardt)
   # Subcomponent zero of type BlockComponents.Sources.Constant
   zero_overrides = __pop_subcomponent_overrides!(__overrides, "zero")
-  push!(__systems, @named zero = BlockComponents.Sources.Constant(; zero_overrides...))
-  __bindings[zero.k] = Float64(0)
-  # Now remove initial conditions in zero that correspond to the bindings just added
-  __zero_ics = ModelingToolkit.get_initial_conditions(zero)
-  __no_namespace_zero = ModelingToolkit.toggle_namespacing(zero, false)
-  __zero_k = Symbolics.unwrap(__no_namespace_zero.k)::Symbolics.SymbolicT
-  delete!(__zero_ics, __zero_k)
+  push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), __overrides = zero_overrides))
+  __dyad_bind_final!(__bindings, zero, Symbol[], :k, Float64(0))
   # Subcomponent upright of type BlockComponents.Sources.Constant
   upright_overrides = __pop_subcomponent_overrides!(__overrides, "upright")
-  push!(__systems, @named upright = BlockComponents.Sources.Constant(; upright_overrides...))
-  __bindings[upright.k] = pi
-  # Now remove initial conditions in upright that correspond to the bindings just added
-  __upright_ics = ModelingToolkit.get_initial_conditions(upright)
-  __no_namespace_upright = ModelingToolkit.toggle_namespacing(upright, false)
-  __upright_k = Symbolics.unwrap(__no_namespace_upright.k)::Symbolics.SymbolicT
-  delete!(__upright_ics, __upright_k)
+  push!(__systems, @named upright = BlockComponents.Sources.Constant(; k=pi, __overrides = upright_overrides))
+  __dyad_bind_final!(__bindings, upright, Symbol[], :k, pi)
   # Subcomponent level of type BlockComponents.Sources.Constant
   level_overrides = __pop_subcomponent_overrides!(__overrides, "level")
-  push!(__systems, @named level = BlockComponents.Sources.Constant(; level_overrides...))
-  __bindings[level.k] = Float64(1)
-  # Now remove initial conditions in level that correspond to the bindings just added
-  __level_ics = ModelingToolkit.get_initial_conditions(level)
-  __no_namespace_level = ModelingToolkit.toggle_namespacing(level, false)
-  __level_k = Symbolics.unwrap(__no_namespace_level.k)::Symbolics.SymbolicT
-  delete!(__level_ics, __level_k)
+  push!(__systems, @named level = BlockComponents.Sources.Constant(; k=Float64(1), __overrides = level_overrides))
+  __dyad_bind_final!(__bindings, level, Symbol[], :k, Float64(1))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -248,8 +232,6 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(shoulder_angle, estimator_shoulder.u))
-  push!(__eqs, connect(elbow_angle, estimator_elbow.u))
   push!(__eqs, connect(estimator_shoulder.y, latest_shoulder_angle.u))
   push!(__eqs, connect(estimator_elbow.y, latest_elbow_angle.u))
   push!(__eqs, connect(estimator_shoulder.rate, latest_shoulder_rate.u))
@@ -264,8 +246,10 @@ terminal LQR cost -- is `FurutaMPC`'s and is documented there.
   push!(__eqs, connect(level.y, mpc.r[5]))
   push!(__eqs, connect(mpc.u[1], u))
   push!(__eqs, connect(mpc.exitflag, exitflag))
+  push!(__eqs, connect(elbow_angle, estimator_elbow.u))
+  push!(__eqs, connect(shoulder_angle, estimator_shoulder.u))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaMPCMultirate

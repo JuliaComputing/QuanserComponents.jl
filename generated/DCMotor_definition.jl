@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   DCMotor(; name, Rm, kt)
+   DCMotor(; name, Rm, kt, __overrides)
 
 Permanent-magnet DC motor driving a rotational axis, with the armature inductance
 neglected and **no back-EMF term**.
@@ -44,7 +44,7 @@ which is why there is no `km` here or in `IdParams`.
 | `i`         | Armature current                         | A  |
 | `tau`         | Torque delivered to the shaft                         | N.m  |
 """
-@component function DCMotor(; name = nothing, Rm=8.4, kt=0.042, kwargs...)
+@component function DCMotor(; name = nothing, var"Rm"=8.4, var"kt"=0.042, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -52,7 +52,7 @@ which is why there is no `km` here or in `IdParams`.
     @named model = DCMotor()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -61,6 +61,10 @@ which is why there is no `km` here or in `IdParams`.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Rm") && (Rm = pop!(__overrides, "Rm"))
+  haskey(__overrides, "kt") && (kt = pop!(__overrides, "kt"))
 
   ### Structural Parameters (functions)
 
@@ -77,10 +81,10 @@ which is why there is no `km` here or in `IdParams`.
   ### Symbolic Parameters
   __local__Rm = Rm
   append!(__params, @parameters (Rm::Real), [description = "Armature resistance"])
-  __initial_conditions[Rm] = __local__Rm
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Rm, __local__Rm)
   __local__kt = kt
   append!(__params, @parameters (kt::Real), [description = "Current-to-torque constant"])
-  __initial_conditions[kt] = __local__kt
+  __dyad_seed_parameter!(__initial_conditions, __bindings, kt, __local__kt)
 
   ### Final Parameters (assignments)
 
@@ -95,17 +99,17 @@ which is why there is no `km` here or in `IdParams`.
 
   ### Variables (assignments)
   __ovr_phi_support = pop!(__overrides, "phi_support", nothing); isnothing(__ovr_phi_support) || push!(__eqs, phi_support ~ __ovr_phi_support)
-  __ovr_phi_support__initial = pop!(__overrides, "phi_support__initial", nothing); isnothing(__ovr_phi_support__initial) || (__initial_conditions[phi_support] = __ovr_phi_support__initial)
-  __ovr_phi_support__guess = pop!(__overrides, "phi_support__guess", nothing)
+  __ovr_phi_support__initial = pop!(__overrides, "phi_support.initial", nothing); isnothing(__ovr_phi_support__initial) || (__initial_conditions[phi_support] = __ovr_phi_support__initial)
+  __ovr_phi_support__guess = pop!(__overrides, "phi_support.guess", nothing)
   __ovr_phi = pop!(__overrides, "phi", nothing); isnothing(__ovr_phi) || push!(__eqs, phi ~ __ovr_phi)
-  __ovr_phi__initial = pop!(__overrides, "phi__initial", nothing); isnothing(__ovr_phi__initial) || (__initial_conditions[phi] = __ovr_phi__initial)
-  __ovr_phi__guess = pop!(__overrides, "phi__guess", nothing)
+  __ovr_phi__initial = pop!(__overrides, "phi.initial", nothing); isnothing(__ovr_phi__initial) || (__initial_conditions[phi] = __ovr_phi__initial)
+  __ovr_phi__guess = pop!(__overrides, "phi.guess", nothing)
   __ovr_i = pop!(__overrides, "i", nothing); isnothing(__ovr_i) || push!(__eqs, i ~ __ovr_i)
-  __ovr_i__initial = pop!(__overrides, "i__initial", nothing); isnothing(__ovr_i__initial) || (__initial_conditions[i] = __ovr_i__initial)
-  __ovr_i__guess = pop!(__overrides, "i__guess", nothing)
+  __ovr_i__initial = pop!(__overrides, "i.initial", nothing); isnothing(__ovr_i__initial) || (__initial_conditions[i] = __ovr_i__initial)
+  __ovr_i__guess = pop!(__overrides, "i.guess", nothing)
   __ovr_tau = pop!(__overrides, "tau", nothing); isnothing(__ovr_tau) || push!(__eqs, tau ~ __ovr_tau)
-  __ovr_tau__initial = pop!(__overrides, "tau__initial", nothing); isnothing(__ovr_tau__initial) || (__initial_conditions[tau] = __ovr_tau__initial)
-  __ovr_tau__guess = pop!(__overrides, "tau__guess", nothing)
+  __ovr_tau__initial = pop!(__overrides, "tau.initial", nothing); isnothing(__ovr_tau__initial) || (__initial_conditions[tau] = __ovr_tau__initial)
+  __ovr_tau__guess = pop!(__overrides, "tau.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -115,7 +119,7 @@ which is why there is no `km` here or in `IdParams`.
   push!(__systems, @named support = __Dyad__Spline())
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_phi_support__guess) || (__guesses[phi_support] = __ovr_phi_support__guess)
@@ -137,6 +141,6 @@ which is why there is no `km` here or in `IdParams`.
   push!(__eqs, spline.tau ~ -tau)
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export DCMotor

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   RuntimeController(; name, umax)
+   RuntimeController(; name, umax, __overrides)
 
 The runtime controller: the swing-up/stabilizing `SwingupCatch` wrapped by
 `ErrorRecovery`, which overrides the command to recover the arm when it swings
@@ -23,7 +23,7 @@ out of bounds.
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function RuntimeController(; name = nothing, umax=Float64(10.0), kwargs...)
+@component function RuntimeController(; name = nothing, var"umax"=Float64(10.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -31,7 +31,7 @@ out of bounds.
     @named model = RuntimeController()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -40,6 +40,9 @@ out of bounds.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -56,7 +59,7 @@ out of bounds.
   ### Symbolic Parameters
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V], forwarded to `swingup_catch`"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -75,19 +78,14 @@ out of bounds.
   ### Components
   # Subcomponent swingup_catch of type QuanserComponents.SwingupCatch
   swingup_catch_overrides = __pop_subcomponent_overrides!(__overrides, "swingup_catch")
-  push!(__systems, @named swingup_catch = QuanserComponents.SwingupCatch(; swingup_catch_overrides...))
-  __bindings[swingup_catch.umax] = umax
-  # Now remove initial conditions in swingup_catch that correspond to the bindings just added
-  __swingup_catch_ics = ModelingToolkit.get_initial_conditions(swingup_catch)
-  __no_namespace_swingup_catch = ModelingToolkit.toggle_namespacing(swingup_catch, false)
-  __swingup_catch_umax = Symbolics.unwrap(__no_namespace_swingup_catch.umax)::Symbolics.SymbolicT
-  delete!(__swingup_catch_ics, __swingup_catch_umax)
+  push!(__systems, @named swingup_catch = QuanserComponents.SwingupCatch(; umax=umax, __overrides = swingup_catch_overrides))
+  __dyad_bind_final!(__bindings, swingup_catch, Symbol[], :umax, umax)
   # Subcomponent errorrecovery of type QuanserComponents.ErrorRecovery
   errorrecovery_overrides = __pop_subcomponent_overrides!(__overrides, "errorrecovery")
-  push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; errorrecovery_overrides...))
+  push!(__systems, @named errorrecovery = QuanserComponents.ErrorRecovery(; __overrides = errorrecovery_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -103,6 +101,6 @@ out of bounds.
   push!(__eqs, connect(errorrecovery.shoulder_angle, shoulder_angle, swingup_catch.shoulder_angle))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export RuntimeController
