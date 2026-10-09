@@ -55,8 +55,8 @@ end
 # the same mechanism `Ni` relies on. The outputs have `row` first so the row count is the
 # cheapest thing to check; the rest is what the experiment is about, in the same order as the
 # log's columns. Model parameters other than `K`/`Ti` are set with `overrides` to
-# `compile_program`, e.g. `w_max = 20.0` for the model's own or `velocity_pi__wp = 1.0` for a
-# sub-component's.
+# `compile_program`, e.g. `w_max = 20.0` for the model's own, or with its `__overrides`, e.g.
+# `Dict{String, Any}("velocity_pi.wp" => 1.0)`, for a sub-component's.
 program_spec(::typeof(FurutaFriction)) = ProgramSpec(;
     name = :friction,
     tunables = OrderedDict{Any, Symbol}((nsys -> nsys.K) => :K, (nsys -> nsys.Ti) => :Ti),

@@ -43,7 +43,7 @@ have_hil() || build_qube_hw!(; hil = true, force = true)
 # Compiling the model (the multibody plant twice over: once as the prediction model, once
 # as the acados solver's model) takes a while; keep the compiled program around between runs.
 # `Np` is the horizon in samples, `umax` the MPC's voltage bound; the MPC's weights are
-# set with Dyad override paths, e.g. `control_system__Q1 = diagm([100.0, 100.0, 1.0, 1.0])`.
+# set with Dyad override paths, e.g. `__overrides = Dict{String, Any}("control_system.Q1" => diagm([100.0, 100.0, 1.0, 1.0]))`.
 # `command_umax` clamps the command before the amplifier and can be changed without a
 # recompile (`ProgramRuntime(gen; command_umax = 5.0)`) -- a first run at reduced voltage.
 @time "compile FurutaMPCHardware" gen = compile_program(FurutaMPCHardware; Ts, Np = 60,
