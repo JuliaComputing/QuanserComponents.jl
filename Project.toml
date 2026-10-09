@@ -57,7 +57,8 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 # Pkg rewrites this file on every resolve and drops these comments; restore them from git afterwards.
 [sources]
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
-MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
+# codegen v2 head of JuliaComputing/MPCComponents.jl#103; repin to main after it merges.
+MPCComponents = {rev = "2a17038864ef04e4d1b0cde054c04f0928b4572f", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
 MultibodyComponents = {path = "../MultibodyComponents"}
 acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
 tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_renderer_jll.jl"}
