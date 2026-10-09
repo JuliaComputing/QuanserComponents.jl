@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, energy_weight, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_filter)
+   FurutaMPC(; name, dynamics, Ts, Np, umax, arm_limit, velocity_limit_shoulder, velocity_limit_elbow, energy_weight, soft_weight, nlp_solver, warm_start, max_iter, levenberg_marquardt, qp_cond_N, output_trajectories, Q1, Q2, velocity_filter, __overrides)
 
 Swing-up and balancing of the Furuta pendulum by a nonlinear MPC alone.
 
@@ -88,7 +88,7 @@ discrete `VelocityEstimator`s produce from the angles.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `exitflag` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function FurutaMPC(; name = nothing, dynamics=furuta_mpc_dynamics(), Ts=0.01, Np=60, umax=Float64(10.0), arm_limit=1.7, velocity_limit_shoulder=Float64(20.0), velocity_limit_elbow=Float64(30.0), energy_weight=Float64(100000.0), soft_weight=Float64(1000.0), nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), max_iter=30, levenberg_marquardt=Float64(1.0), qp_cond_N=5, output_trajectories=false, Q1=diagonal([1000.0, 10.0, 1.0, 1.0]), Q2=diagonal([100.0]), velocity_filter=0.8, kwargs...)
+@component function FurutaMPC(; name = nothing, var"dynamics"=furuta_mpc_dynamics(), var"Ts"=0.01, var"Np"=60, var"umax"=Float64(10.0), var"arm_limit"=1.7, var"velocity_limit_shoulder"=Float64(20.0), var"velocity_limit_elbow"=Float64(30.0), var"energy_weight"=Float64(100000.0), var"soft_weight"=Float64(1000.0), var"nlp_solver"=MPCComponents.ACADOSSolver.SQP_RTI(), var"warm_start"=MPCComponents.ACADOSWarmStart.Shift(), var"max_iter"=30, var"levenberg_marquardt"=Float64(1.0), var"qp_cond_N"=5, var"output_trajectories"=false, var"Q1"=diagonal([1000.0, 10.0, 1.0, 1.0]), var"Q2"=diagonal([100.0]), var"velocity_filter"=0.8, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -96,7 +96,7 @@ discrete `VelocityEstimator`s produce from the angles.
     @named model = FurutaMPC()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -105,6 +105,26 @@ discrete `VelocityEstimator`s produce from the angles.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "dynamics") && (dynamics = pop!(__overrides, "dynamics"))
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "Np") && (Np = pop!(__overrides, "Np"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "arm_limit") && (arm_limit = pop!(__overrides, "arm_limit"))
+  haskey(__overrides, "velocity_limit_shoulder") && (velocity_limit_shoulder = pop!(__overrides, "velocity_limit_shoulder"))
+  haskey(__overrides, "velocity_limit_elbow") && (velocity_limit_elbow = pop!(__overrides, "velocity_limit_elbow"))
+  haskey(__overrides, "energy_weight") && (energy_weight = pop!(__overrides, "energy_weight"))
+  haskey(__overrides, "soft_weight") && (soft_weight = pop!(__overrides, "soft_weight"))
+  haskey(__overrides, "nlp_solver") && (nlp_solver = pop!(__overrides, "nlp_solver"))
+  haskey(__overrides, "warm_start") && (warm_start = pop!(__overrides, "warm_start"))
+  haskey(__overrides, "max_iter") && (max_iter = pop!(__overrides, "max_iter"))
+  haskey(__overrides, "levenberg_marquardt") && (levenberg_marquardt = pop!(__overrides, "levenberg_marquardt"))
+  haskey(__overrides, "qp_cond_N") && (qp_cond_N = pop!(__overrides, "qp_cond_N"))
+  haskey(__overrides, "output_trajectories") && (output_trajectories = pop!(__overrides, "output_trajectories"))
+  haskey(__overrides, "Q1") && (Q1 = pop!(__overrides, "Q1"))
+  haskey(__overrides, "Q2") && (Q2 = pop!(__overrides, "Q2"))
+  haskey(__overrides, "velocity_filter") && (velocity_filter = pop!(__overrides, "velocity_filter"))
 
   ### Structural Parameters (functions)
 
@@ -121,7 +141,7 @@ discrete `VelocityEstimator`s produce from the angles.
   ### Symbolic Parameters
   __local__velocity_filter = velocity_filter
   append!(__params, @parameters (velocity_filter::Real), [description = "Exponential filter constant of the velocity estimators (1 = unfiltered first difference). 0.5 makes the balancing unstable at 10 ms; 0.8 leaves some smoothing of the encoder quantization"])
-  __initial_conditions[velocity_filter] = __local__velocity_filter
+  __dyad_seed_parameter!(__initial_conditions, __bindings, velocity_filter, __local__velocity_filter)
 
   ### Final Parameters (assignments)
 
@@ -141,76 +161,38 @@ discrete `VelocityEstimator`s produce from the angles.
   ### Components
   # Subcomponent velocityestimator_shoulder of type QuanserComponents.VelocityEstimator
   velocityestimator_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator_shoulder")
-  push!(__systems, @named velocityestimator_shoulder = QuanserComponents.VelocityEstimator(; velocityestimator_shoulder_overrides...))
-  __bindings[velocityestimator_shoulder.filter_param] = velocity_filter
-  # Now remove initial conditions in velocityestimator_shoulder that correspond to the bindings just added
-  __velocityestimator_shoulder_ics = ModelingToolkit.get_initial_conditions(velocityestimator_shoulder)
-  __no_namespace_velocityestimator_shoulder = ModelingToolkit.toggle_namespacing(velocityestimator_shoulder, false)
-  __velocityestimator_shoulder_filter_param = Symbolics.unwrap(__no_namespace_velocityestimator_shoulder.filter_param)::Symbolics.SymbolicT
-  delete!(__velocityestimator_shoulder_ics, __velocityestimator_shoulder_filter_param)
+  push!(__systems, @named velocityestimator_shoulder = QuanserComponents.VelocityEstimator(; filter_param=velocity_filter, __overrides = velocityestimator_shoulder_overrides))
+  __dyad_bind_final!(__bindings, velocityestimator_shoulder, Symbol[], :filter_param, velocity_filter)
   # Subcomponent velocityestimator_elbow of type QuanserComponents.VelocityEstimator
   velocityestimator_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator_elbow")
-  push!(__systems, @named velocityestimator_elbow = QuanserComponents.VelocityEstimator(; velocityestimator_elbow_overrides...))
-  __bindings[velocityestimator_elbow.filter_param] = velocity_filter
-  # Now remove initial conditions in velocityestimator_elbow that correspond to the bindings just added
-  __velocityestimator_elbow_ics = ModelingToolkit.get_initial_conditions(velocityestimator_elbow)
-  __no_namespace_velocityestimator_elbow = ModelingToolkit.toggle_namespacing(velocityestimator_elbow, false)
-  __velocityestimator_elbow_filter_param = Symbolics.unwrap(__no_namespace_velocityestimator_elbow.filter_param)::Symbolics.SymbolicT
-  delete!(__velocityestimator_elbow_ics, __velocityestimator_elbow_filter_param)
+  push!(__systems, @named velocityestimator_elbow = QuanserComponents.VelocityEstimator(; filter_param=velocity_filter, __overrides = velocityestimator_elbow_overrides))
+  __dyad_bind_final!(__bindings, velocityestimator_elbow, Symbol[], :filter_param, velocity_filter)
   # Subcomponent anglenormalization of type QuanserComponents.AngleNormalization
   anglenormalization_overrides = __pop_subcomponent_overrides!(__overrides, "anglenormalization")
-  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; anglenormalization_overrides...))
+  push!(__systems, @named anglenormalization = QuanserComponents.AngleNormalization(; __overrides = anglenormalization_overrides))
   # Subcomponent mpc of type MPCComponents.ACADOSMPC
   mpc_overrides = __pop_subcomponent_overrides!(__overrides, "mpc")
-  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, backend=MPCComponents.ACADOSBackend.Julia(), qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, mpc_overrides...))
-  __bindings[mpc.Q1] = furuta_mpc_weight(Q1, energy_weight)
-  __bindings[mpc.Q2] = Q2
-  __bindings[mpc.operating_point] = [Float64(0), pi, Float64(0), Float64(0)]
-  __bindings[mpc.max_iter] = max_iter
-  __bindings[mpc.levenberg_marquardt] = levenberg_marquardt
-  # Now remove initial conditions in mpc that correspond to the bindings just added
-  __mpc_ics = ModelingToolkit.get_initial_conditions(mpc)
-  __no_namespace_mpc = ModelingToolkit.toggle_namespacing(mpc, false)
-  __mpc_Q1 = Symbolics.unwrap(__no_namespace_mpc.Q1)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Q1)
-  __mpc_Q2 = Symbolics.unwrap(__no_namespace_mpc.Q2)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_Q2)
-  __mpc_operating_point = Symbolics.unwrap(__no_namespace_mpc.operating_point)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_operating_point)
-  __mpc_max_iter = Symbolics.unwrap(__no_namespace_mpc.max_iter)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_max_iter)
-  __mpc_levenberg_marquardt = Symbolics.unwrap(__no_namespace_mpc.levenberg_marquardt)::Symbolics.SymbolicT
-  delete!(__mpc_ics, __mpc_levenberg_marquardt)
+  push!(__systems, @named mpc = MPCComponents.ACADOSMPC(; dynamics=dynamics, state_variables=FURUTA_MPC_STATES, outputs=FURUTA_MPC_OUTPUTS, Ts=Ts, Np=Np, Q1=furuta_mpc_weight(Q1, energy_weight), Q2=Q2, umin=[-umax], umax=[umax], constrained=FURUTA_MPC_CONSTRAINED, constrained_min=[-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], constrained_max=[arm_limit, velocity_limit_shoulder, velocity_limit_elbow], soft_weight=soft_weight, terminal_lqr_cost=true, operating_point=[Float64(0), pi, Float64(0), Float64(0)], nlp_solver=nlp_solver, warm_start=warm_start, reset_on_failure=true, integrator=MPCComponents.ACADOSIntegrator.ERK(), integrator_stages=2, backend=MPCComponents.ACADOSBackend.Julia(), max_iter=max_iter, levenberg_marquardt=levenberg_marquardt, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, qp_solver=MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments=false, __overrides = mpc_overrides))
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :Q1, furuta_mpc_weight(Q1, energy_weight))
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :Q2, Q2)
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :operating_point, [Float64(0), pi, Float64(0), Float64(0)])
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :max_iter, max_iter)
+  __dyad_bind_final!(__bindings, mpc, Symbol[], :levenberg_marquardt, levenberg_marquardt)
   # Subcomponent zero of type BlockComponents.Sources.Constant
   zero_overrides = __pop_subcomponent_overrides!(__overrides, "zero")
-  push!(__systems, @named zero = BlockComponents.Sources.Constant(; zero_overrides...))
-  __bindings[zero.k] = Float64(0)
-  # Now remove initial conditions in zero that correspond to the bindings just added
-  __zero_ics = ModelingToolkit.get_initial_conditions(zero)
-  __no_namespace_zero = ModelingToolkit.toggle_namespacing(zero, false)
-  __zero_k = Symbolics.unwrap(__no_namespace_zero.k)::Symbolics.SymbolicT
-  delete!(__zero_ics, __zero_k)
+  push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), __overrides = zero_overrides))
+  __dyad_bind_final!(__bindings, zero, Symbol[], :k, Float64(0))
   # Subcomponent upright of type BlockComponents.Sources.Constant
   upright_overrides = __pop_subcomponent_overrides!(__overrides, "upright")
-  push!(__systems, @named upright = BlockComponents.Sources.Constant(; upright_overrides...))
-  __bindings[upright.k] = pi
-  # Now remove initial conditions in upright that correspond to the bindings just added
-  __upright_ics = ModelingToolkit.get_initial_conditions(upright)
-  __no_namespace_upright = ModelingToolkit.toggle_namespacing(upright, false)
-  __upright_k = Symbolics.unwrap(__no_namespace_upright.k)::Symbolics.SymbolicT
-  delete!(__upright_ics, __upright_k)
+  push!(__systems, @named upright = BlockComponents.Sources.Constant(; k=pi, __overrides = upright_overrides))
+  __dyad_bind_final!(__bindings, upright, Symbol[], :k, pi)
   # Subcomponent level of type BlockComponents.Sources.Constant
   level_overrides = __pop_subcomponent_overrides!(__overrides, "level")
-  push!(__systems, @named level = BlockComponents.Sources.Constant(; level_overrides...))
-  __bindings[level.k] = Float64(1)
-  # Now remove initial conditions in level that correspond to the bindings just added
-  __level_ics = ModelingToolkit.get_initial_conditions(level)
-  __no_namespace_level = ModelingToolkit.toggle_namespacing(level, false)
-  __level_k = Symbolics.unwrap(__no_namespace_level.k)::Symbolics.SymbolicT
-  delete!(__level_ics, __level_k)
+  push!(__systems, @named level = BlockComponents.Sources.Constant(; k=Float64(1), __overrides = level_overrides))
+  __dyad_bind_final!(__bindings, level, Symbol[], :k, Float64(1))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -220,7 +202,6 @@ discrete `VelocityEstimator`s produce from the angles.
   __assertions = []
 
   ### Equations
-  push!(__eqs, connect(elbow_angle, velocityestimator_elbow.pos, anglenormalization.u))
   push!(__eqs, connect(anglenormalization.y, mpc.x[2]))
   push!(__eqs, connect(shoulder_angle, velocityestimator_shoulder.pos, mpc.x[1]))
   push!(__eqs, connect(velocityestimator_shoulder.vel, mpc.x[3]))
@@ -230,8 +211,10 @@ discrete `VelocityEstimator`s produce from the angles.
   push!(__eqs, connect(level.y, mpc.r[5]))
   push!(__eqs, connect(mpc.u[1], u))
   push!(__eqs, connect(mpc.exitflag, exitflag))
+  push!(__eqs, connect(elbow_angle, anglenormalization.u))
+  push!(__eqs, connect(elbow_angle, velocityestimator_elbow.pos))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaMPC

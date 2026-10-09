@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCMultirateHardware(; name, Ts, Ts_fast, Np, horizon, integrator_stages, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_alpha)
+   FurutaMPCMultirateHardware(; name, Ts, Ts_fast, Np, horizon, integrator_stages, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_alpha, __overrides)
 
 The multirate MPC closed around the physical QUBE: the counterpart of `FurutaMPCHardware`, which
 is unchanged and still the single-rate program.
@@ -68,7 +68,7 @@ halving the rate is one keyword.
 | `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field                         | V  |   umax |
 | `velocity_alpha`         | Position correction gain of the state estimators (see `FurutaMPCMultirate`). Runtime-settable, a `TuningGains` field                         | --  |   0.5 |
 """
-@component function FurutaMPCMultirateHardware(; name = nothing, Ts=0.005, Ts_fast=0.001, Np=60, horizon=0.6, integrator_stages=2, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), qp_cond_N=5, log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_alpha=0.5, command_umax=umax, kwargs...)
+@component function FurutaMPCMultirateHardware(; name = nothing, var"Ts"=0.005, var"Ts_fast"=0.001, var"Np"=60, var"horizon"=0.6, var"integrator_stages"=2, var"dynamics"=furuta_mpc_dynamics(), var"umax"=Float64(10.0), var"arm_limit"=1.7, var"nlp_solver"=MPCComponents.ACADOSSolver.SQP_RTI(), var"warm_start"=MPCComponents.ACADOSWarmStart.Shift(), var"qp_cond_N"=5, var"log_file"=MPC_LOG_FILE, var"realtime"=false, var"output_trajectories"=false, var"velocity_alpha"=0.5, var"command_umax"=nothing, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -76,7 +76,7 @@ halving the rate is one keyword.
     @named model = FurutaMPCMultirateHardware()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -85,6 +85,27 @@ halving the rate is one keyword.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "Ts_fast") && (Ts_fast = pop!(__overrides, "Ts_fast"))
+  haskey(__overrides, "Np") && (Np = pop!(__overrides, "Np"))
+  haskey(__overrides, "horizon") && (horizon = pop!(__overrides, "horizon"))
+  haskey(__overrides, "integrator_stages") && (integrator_stages = pop!(__overrides, "integrator_stages"))
+  haskey(__overrides, "dynamics") && (dynamics = pop!(__overrides, "dynamics"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "arm_limit") && (arm_limit = pop!(__overrides, "arm_limit"))
+  haskey(__overrides, "nlp_solver") && (nlp_solver = pop!(__overrides, "nlp_solver"))
+  haskey(__overrides, "warm_start") && (warm_start = pop!(__overrides, "warm_start"))
+  haskey(__overrides, "qp_cond_N") && (qp_cond_N = pop!(__overrides, "qp_cond_N"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "realtime") && (realtime = pop!(__overrides, "realtime"))
+  haskey(__overrides, "output_trajectories") && (output_trajectories = pop!(__overrides, "output_trajectories"))
+  haskey(__overrides, "velocity_alpha") && (velocity_alpha = pop!(__overrides, "velocity_alpha"))
+  haskey(__overrides, "command_umax") && (command_umax = pop!(__overrides, "command_umax"))
+
+  ### Deferred keyword defaults (defaults referencing other keyword arguments)
+  isnothing(command_umax) && (command_umax = umax)
 
   ### Structural Parameters (functions)
 
@@ -101,10 +122,10 @@ halving the rate is one keyword.
   ### Symbolic Parameters
   __local__command_umax = command_umax
   append!(__params, @parameters (command_umax::Real), [description = "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field"])
-  __initial_conditions[command_umax] = __local__command_umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, command_umax, __local__command_umax)
   __local__velocity_alpha = velocity_alpha
   append!(__params, @parameters (velocity_alpha::Real), [description = "Position correction gain of the state estimators (see `FurutaMPCMultirate`). Runtime-settable, a `TuningGains` field", bounds = (0, 1)])
-  __initial_conditions[velocity_alpha] = __local__velocity_alpha
+  __dyad_seed_parameter!(__initial_conditions, __bindings, velocity_alpha, __local__velocity_alpha)
 
   ### Final Parameters (assignments)
 
@@ -120,46 +141,36 @@ halving the rate is one keyword.
   ### Components
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
-  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
+  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; __overrides = measurement_overrides))
   # Subcomponent control_system of type QuanserComponents.FurutaMPCMultirate
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPCMultirate(; dynamics=dynamics, Ts=Ts, Np=Np, horizon=horizon, integrator_stages=integrator_stages, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, control_system_overrides...))
-  __bindings[control_system.velocity_alpha] = velocity_alpha
-  # Now remove initial conditions in control_system that correspond to the bindings just added
-  __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
-  __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
-  __control_system_velocity_alpha = Symbolics.unwrap(__no_namespace_control_system.velocity_alpha)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_velocity_alpha)
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPCMultirate(; dynamics=dynamics, Ts=Ts, Np=Np, horizon=horizon, integrator_stages=integrator_stages, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, velocity_alpha=velocity_alpha, __overrides = control_system_overrides))
+  __dyad_bind_final!(__bindings, control_system, Symbol[], :velocity_alpha, velocity_alpha)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
-  push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
-  __bindings[command.umax] = command_umax
-  # Now remove initial conditions in command that correspond to the bindings just added
-  __command_ics = ModelingToolkit.get_initial_conditions(command)
-  __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
-  __command_umax = Symbolics.unwrap(__no_namespace_command.umax)::Symbolics.SymbolicT
-  delete!(__command_ics, __command_umax)
+  push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=command_umax, __overrides = command_overrides))
+  __dyad_bind_final!(__bindings, command, Symbol[], :umax, command_umax)
   # Subcomponent diagnostics of type QuanserComponents.HardwareDiagnostics
   diagnostics_overrides = __pop_subcomponent_overrides!(__overrides, "diagnostics")
-  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; realtime=realtime, diagnostics_overrides...))
+  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; realtime=realtime, __overrides = diagnostics_overrides))
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
-  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, logger_overrides...))
+  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, __overrides = logger_overrides))
   # Subcomponent log_shoulder of type DiscreteComponents.Latest
   log_shoulder_overrides = __pop_subcomponent_overrides!(__overrides, "log_shoulder")
-  push!(__systems, @named log_shoulder = DiscreteComponents.Latest(; log_shoulder_overrides...))
+  push!(__systems, @named log_shoulder = DiscreteComponents.Latest(; __overrides = log_shoulder_overrides))
   # Subcomponent log_elbow of type DiscreteComponents.Latest
   log_elbow_overrides = __pop_subcomponent_overrides!(__overrides, "log_elbow")
-  push!(__systems, @named log_elbow = DiscreteComponents.Latest(; log_elbow_overrides...))
+  push!(__systems, @named log_elbow = DiscreteComponents.Latest(; __overrides = log_elbow_overrides))
   # Subcomponent fastclock of type DiscreteComponents.PeriodicClock
   fastclock_overrides = __pop_subcomponent_overrides!(__overrides, "fastclock")
-  push!(__systems, @named fastclock = DiscreteComponents.PeriodicClock(; dt=Ts_fast, fastclock_overrides...))
+  push!(__systems, @named fastclock = DiscreteComponents.PeriodicClock(; dt=Ts_fast, __symbol_overrides(fastclock_overrides)...))
   # Subcomponent slowclock of type DiscreteComponents.PeriodicClock
   slowclock_overrides = __pop_subcomponent_overrides!(__overrides, "slowclock")
-  push!(__systems, @named slowclock = DiscreteComponents.PeriodicClock(; dt=Ts, slowclock_overrides...))
+  push!(__systems, @named slowclock = DiscreteComponents.PeriodicClock(; dt=Ts, __symbol_overrides(slowclock_overrides)...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -181,6 +192,6 @@ halving the rate is one keyword.
   push!(__eqs, connect(control_system.exitflag, logger.u[7]))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaMPCMultirateHardware

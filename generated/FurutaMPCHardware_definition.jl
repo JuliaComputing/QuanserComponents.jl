@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_filter)
+   FurutaMPCHardware(; name, Ts, Np, dynamics, umax, arm_limit, nlp_solver, warm_start, qp_cond_N, log_file, realtime, output_trajectories, command_umax, velocity_filter, __overrides)
 
 The MPC controller closed around the physical QUBE, with the hardware I/O inside the
 synchronous program -- `FurutaHardware` with `FurutaMPC` in place of the swing-up state
@@ -48,7 +48,7 @@ src/program.jl does the run.
 | `command_umax`         | Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field                         | V  |   umax |
 | `velocity_filter`         | Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field                         | --  |   0.8 |
 """
-@component function FurutaMPCHardware(; name = nothing, Ts=0.01, Np=60, dynamics=furuta_mpc_dynamics(), umax=Float64(10.0), arm_limit=1.7, nlp_solver=MPCComponents.ACADOSSolver.SQP_RTI(), warm_start=MPCComponents.ACADOSWarmStart.Shift(), qp_cond_N=5, log_file=MPC_LOG_FILE, realtime=false, output_trajectories=false, velocity_filter=0.8, command_umax=umax, kwargs...)
+@component function FurutaMPCHardware(; name = nothing, var"Ts"=0.01, var"Np"=60, var"dynamics"=furuta_mpc_dynamics(), var"umax"=Float64(10.0), var"arm_limit"=1.7, var"nlp_solver"=MPCComponents.ACADOSSolver.SQP_RTI(), var"warm_start"=MPCComponents.ACADOSWarmStart.Shift(), var"qp_cond_N"=5, var"log_file"=MPC_LOG_FILE, var"realtime"=false, var"output_trajectories"=false, var"velocity_filter"=0.8, var"command_umax"=nothing, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -56,7 +56,7 @@ src/program.jl does the run.
     @named model = FurutaMPCHardware()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -65,6 +65,24 @@ src/program.jl does the run.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "Np") && (Np = pop!(__overrides, "Np"))
+  haskey(__overrides, "dynamics") && (dynamics = pop!(__overrides, "dynamics"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "arm_limit") && (arm_limit = pop!(__overrides, "arm_limit"))
+  haskey(__overrides, "nlp_solver") && (nlp_solver = pop!(__overrides, "nlp_solver"))
+  haskey(__overrides, "warm_start") && (warm_start = pop!(__overrides, "warm_start"))
+  haskey(__overrides, "qp_cond_N") && (qp_cond_N = pop!(__overrides, "qp_cond_N"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "realtime") && (realtime = pop!(__overrides, "realtime"))
+  haskey(__overrides, "output_trajectories") && (output_trajectories = pop!(__overrides, "output_trajectories"))
+  haskey(__overrides, "velocity_filter") && (velocity_filter = pop!(__overrides, "velocity_filter"))
+  haskey(__overrides, "command_umax") && (command_umax = pop!(__overrides, "command_umax"))
+
+  ### Deferred keyword defaults (defaults referencing other keyword arguments)
+  isnothing(command_umax) && (command_umax = umax)
 
   ### Structural Parameters (functions)
 
@@ -81,10 +99,10 @@ src/program.jl does the run.
   ### Symbolic Parameters
   __local__command_umax = command_umax
   append!(__params, @parameters (command_umax::Real), [description = "Saturation applied to the command before it is written to the amplifier [V]. Runtime-settable, a `TuningGains` field"])
-  __initial_conditions[command_umax] = __local__command_umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, command_umax, __local__command_umax)
   __local__velocity_filter = velocity_filter
   append!(__params, @parameters (velocity_filter::Real), [description = "Exponential filter constant of the velocity estimators (1 = unfiltered). Runtime-settable, a `TuningGains` field"])
-  __initial_conditions[velocity_filter] = __local__velocity_filter
+  __dyad_seed_parameter!(__initial_conditions, __bindings, velocity_filter, __local__velocity_filter)
 
   ### Final Parameters (assignments)
 
@@ -100,37 +118,27 @@ src/program.jl does the run.
   ### Components
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
-  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
+  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; __overrides = measurement_overrides))
   # Subcomponent control_system of type QuanserComponents.FurutaMPC
   control_system_overrides = __pop_subcomponent_overrides!(__overrides, "control_system")
-  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, control_system_overrides...))
-  __bindings[control_system.velocity_filter] = velocity_filter
-  # Now remove initial conditions in control_system that correspond to the bindings just added
-  __control_system_ics = ModelingToolkit.get_initial_conditions(control_system)
-  __no_namespace_control_system = ModelingToolkit.toggle_namespacing(control_system, false)
-  __control_system_velocity_filter = Symbolics.unwrap(__no_namespace_control_system.velocity_filter)::Symbolics.SymbolicT
-  delete!(__control_system_ics, __control_system_velocity_filter)
+  push!(__systems, @named control_system = QuanserComponents.FurutaMPC(; dynamics=dynamics, Ts=Ts, Np=Np, umax=umax, arm_limit=arm_limit, nlp_solver=nlp_solver, warm_start=warm_start, qp_cond_N=qp_cond_N, output_trajectories=output_trajectories, velocity_filter=velocity_filter, __overrides = control_system_overrides))
+  __dyad_bind_final!(__bindings, control_system, Symbol[], :velocity_filter, velocity_filter)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
-  push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
-  __bindings[command.umax] = command_umax
-  # Now remove initial conditions in command that correspond to the bindings just added
-  __command_ics = ModelingToolkit.get_initial_conditions(command)
-  __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
-  __command_umax = Symbolics.unwrap(__no_namespace_command.umax)::Symbolics.SymbolicT
-  delete!(__command_ics, __command_umax)
+  push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=command_umax, __overrides = command_overrides))
+  __dyad_bind_final!(__bindings, command, Symbol[], :umax, command_umax)
   # Subcomponent diagnostics of type QuanserComponents.HardwareDiagnostics
   diagnostics_overrides = __pop_subcomponent_overrides!(__overrides, "diagnostics")
-  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; realtime=realtime, diagnostics_overrides...))
+  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; realtime=realtime, __overrides = diagnostics_overrides))
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
-  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, logger_overrides...))
+  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=MPC_LOG_NCOLS, filename=log_file, header=MPC_LOG_HEADER, __overrides = logger_overrides))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, __symbol_overrides(periodicclock_overrides)...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -150,6 +158,6 @@ src/program.jl does the run.
   push!(__eqs, connect(control_system.exitflag, logger.u[7]))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaMPCHardware

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   LQRstabilizer(; name, L, umax)
+   LQRstabilizer(; name, L, umax, __overrides)
 
 ## Parameters:
 
@@ -28,7 +28,7 @@
 | ------------ | ----------------------------------- | ------ |
 | `uraw`         |                          | --  |
 """
-@component function LQRstabilizer(; name = nothing, L=[-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338], umax=Float64(10.0), kwargs...)
+@component function LQRstabilizer(; name = nothing, var"L"=[-2.8515070942708687, -24.415803244034326, -0.9920297324372649, -1.9975963404759338], var"umax"=Float64(10.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -36,7 +36,7 @@
     @named model = LQRstabilizer()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -45,6 +45,10 @@
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "L") && (L = pop!(__overrides, "L"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -61,10 +65,10 @@
   ### Symbolic Parameters
   __local__L = L
   append!(__params, @parameters (L[1:4]::Real), [description = "State-feedback gain vector applied to the error vector [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]. LQR on the upright-linearized QubePendulum"])
-  __initial_conditions[L] = __local__L
+  __dyad_seed_parameter!(__initial_conditions, __bindings, L, __local__L)
   __local__umax = umax
   append!(__params, @parameters (umax::Real))
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -80,8 +84,8 @@
 
   ### Variables (assignments)
   __ovr_uraw = pop!(__overrides, "uraw", nothing); isnothing(__ovr_uraw) || push!(__eqs, uraw ~ __ovr_uraw)
-  __ovr_uraw__initial = pop!(__overrides, "uraw__initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
-  __ovr_uraw__guess = pop!(__overrides, "uraw__guess", nothing)
+  __ovr_uraw__initial = pop!(__overrides, "uraw.initial", nothing); isnothing(__ovr_uraw__initial) || (__initial_conditions[uraw] = __ovr_uraw__initial)
+  __ovr_uraw__guess = pop!(__overrides, "uraw.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -89,7 +93,7 @@
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_uraw__guess) || (__guesses[uraw] = __ovr_uraw__guess)
@@ -104,6 +108,6 @@
   push!(__eqs, u ~ clamp(uraw, -umax, umax))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export LQRstabilizer

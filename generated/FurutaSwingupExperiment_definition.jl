@@ -5,11 +5,154 @@
 
 
 using DyadInterface
-using DyadInterface: ODEAlg, DEVerbosity, OptimizationLevel
-using ModelingToolkit: SymbolicT, toggle_namespacing
 using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpec
-@kwdef mutable struct FurutaSwingupExperimentSpec <: AbstractQubeHardwareRunBaseSpec
+@component function FurutaSwingupExperiment__System(; name = nothing, var"Ts"=0.005, var"run"=true, var"Tf"=10.0, var"umax"=10.0, var"arm_deg"=0.0, var"card_options"="", var"backend"="julia", var"export_c"=true, var"output_dir"="furuta_c", var"log_file"="", var"deploy_host"="fredrikb@192.168.1.49", var"deploy_dir"="furuta_c", var"live_plot"=true, var"live_plot_cmd"="kst2", var"live_plot_config"="kst2config.kst", var"Q1"=[1000.0, 10.0, 1.0, 1.0], var"Q2"=100.0, __overrides = Dict{String, Any}())
+  isnothing(name) && throw(ArgumentError("""
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = FurutaSwingupExperiment__System()
+  """))
+
+  __overrides = Dict{String, Any}(__overrides)
+  __params = Symbolics.SymbolicT[]
+  __vars = Symbolics.SymbolicT[]
+  __systems = System[]
+  __guesses = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+  __initial_conditions = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+  __initialization_eqs = Equation[]
+  __eqs = Equation[]
+  __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "run") && (run = pop!(__overrides, "run"))
+  haskey(__overrides, "Tf") && (Tf = pop!(__overrides, "Tf"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "arm_deg") && (arm_deg = pop!(__overrides, "arm_deg"))
+  haskey(__overrides, "card_options") && (card_options = pop!(__overrides, "card_options"))
+  haskey(__overrides, "backend") && (backend = pop!(__overrides, "backend"))
+  haskey(__overrides, "export_c") && (export_c = pop!(__overrides, "export_c"))
+  haskey(__overrides, "output_dir") && (output_dir = pop!(__overrides, "output_dir"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "deploy_host") && (deploy_host = pop!(__overrides, "deploy_host"))
+  haskey(__overrides, "deploy_dir") && (deploy_dir = pop!(__overrides, "deploy_dir"))
+  haskey(__overrides, "live_plot") && (live_plot = pop!(__overrides, "live_plot"))
+  haskey(__overrides, "live_plot_cmd") && (live_plot_cmd = pop!(__overrides, "live_plot_cmd"))
+  haskey(__overrides, "live_plot_config") && (live_plot_config = pop!(__overrides, "live_plot_config"))
+  haskey(__overrides, "Q1") && (Q1 = pop!(__overrides, "Q1"))
+  haskey(__overrides, "Q2") && (Q2 = pop!(__overrides, "Q2"))
+
+  ### Structural Parameters (functions)
+
+  ### Structural Parameters (Final)
+
+  ### Path Parameters (functions)
+
+  ### Path Parameters (non-final)
+
+  ### Final Parameters (declarations)
+
+  ### Deferred assignment (default values that depend on final parameters)
+
+  ### Symbolic Parameters
+  __local__Ts = Ts
+  append!(__params, @parameters (Ts::Float64), [description = "Sample time [s]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Ts, __local__Ts)
+  __local__run = run
+  append!(__params, @parameters (run::Bool), [description = "Run the program on the hardware; false only builds it"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, run, __local__run)
+  __local__Tf = Tf
+  append!(__params, @parameters (Tf::Float64), [description = "Duration [s] of the run; 0 means the program's own natural length"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Tf, __local__Tf)
+  __local__umax = umax
+  append!(__params, @parameters (umax::Float64), [description = "Motor saturation [V]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
+  __local__arm_deg = arm_deg
+  append!(__params, @parameters (arm_deg::Float64), [description = "Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at
+  append!(__params, @parameters (arm_deg::Float64), [description = its home position first"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, arm_deg, __local__arm_deg)
+  __local__card_options = card_options
+  append!(__params, @parameters (card_options::String), [description = "Card-specific options applied after opening the board, e.g.
+  append!(__params, @parameters (card_options::String), [description = \\\"deadband_compensation=0.65\\\". Empty leaves qube_hw.c on its own default, which is
+  append!(__params, @parameters (card_options::String), [description = what every run should normally use: the command-to-torque path has to be the same one
+  append!(__params, @parameters (card_options::String), [description = the identified parameters were fitted against"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, card_options, __local__card_options)
+  __local__backend = backend
+  append!(__params, @parameters (backend::String), [description = "Backend to build the program on when it runs in-process, \\\"julia\\\" or \\\"c\\\". Ignored when
+  append!(__params, @parameters (backend::String), [description = `export_c` is true, which always builds C"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, backend, __local__backend)
+  __local__export_c = export_c
+  append!(__params, @parameters (export_c::Bool), [description = "Export the program as standalone C into `output_dir`, and run that instead of in-process"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, export_c, __local__export_c)
+  __local__output_dir = output_dir
+  append!(__params, @parameters (output_dir::String), [description = "Directory the generated C sources and the log are written to"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, output_dir, __local__output_dir)
+  __local__log_file = log_file
+  append!(__params, @parameters (log_file::String), [description = "File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
+  append!(__params, @parameters (log_file::String), [description = to open the file, so the two cannot disagree. Empty keeps the program's own default name.
+  append!(__params, @parameters (log_file::String), [description = Exported and deployed runs use the bare file name inside their own directory, since an
+  append!(__params, @parameters (log_file::String), [description = absolute path from this machine means nothing on the target"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, log_file, __local__log_file)
+  __local__deploy_host = deploy_host
+  append!(__params, @parameters (deploy_host::String), [description = "Host to build and run on, e.g. \\\"username@hostname\\\"; empty runs on this machine. Implies
+  append!(__params, @parameters (deploy_host::String), [description = `export_c`, since C sources are what gets copied over"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, deploy_host, __local__deploy_host)
+  __local__deploy_dir = deploy_dir
+  append!(__params, @parameters (deploy_dir::String), [description = "Directory on `deploy_host` to copy the sources into"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, deploy_dir, __local__deploy_dir)
+  __local__live_plot = live_plot
+  append!(__params, @parameters (live_plot::Bool), [description = "Launch a live plotter alongside the run to watch it as it happens (needs `run = true`)"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, live_plot, __local__live_plot)
+  __local__live_plot_cmd = live_plot_cmd
+  append!(__params, @parameters (live_plot_cmd::String), [description = "Live-plot viewer executable"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, live_plot_cmd, __local__live_plot_cmd)
+  __local__live_plot_config = live_plot_config
+  append!(__params, @parameters (live_plot_config::String), [description = "Viewer session file; a relative path resolves against `output_dir`"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, live_plot_config, __local__live_plot_config)
+  __local__Q1 = Q1
+  append!(__params, @parameters (Q1::Array{Float64, 1}), [description = "LQR state-penalty diagonal in the order [shoulder_angle, elbow_angle, shoulder_velocity, elbow_velocity]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Q1, __local__Q1)
+  __local__Q2 = Q2
+  append!(__params, @parameters (Q2::Float64), [description = "LQR control-penalty weight"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Q2, __local__Q2)
+
+  ### Final Parameters (assignments)
+
+  ### Final Path Parameters
+
+  ### Variables (declarations)
+
+  ### Variables (assignments)
+
+  ### Constants
+  __constants = Any[]
+
+  ### Components
+  # Subcomponent model of type QuanserComponents.FurutaHardware
+  model_overrides = __pop_subcomponent_overrides!(__overrides, "model")
+  push!(__systems, @named model = QuanserComponents.FurutaHardware(; __overrides = model_overrides))
+
+  ### Check there are no unmatched overrides
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
+
+  ### Guesses
+
+  ### Initialization Equations
+
+  ### Assertions
+  __assertions = []
+
+  ### Equations
+
+  # Return completely constructed System
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+end
+export FurutaSwingupExperiment__System
+
+@kwdef struct FurutaSwingupExperiment__Spec <: AbstractQubeHardwareRunBaseSpec
   name::Symbol = :FurutaSwingupExperiment
+  __overrides::Dict{SymbolicT, SymbolicT} = Dict{SymbolicT, SymbolicT}()
   # Sample time [s]
   var"Ts"::Float64 = 0.005
   # Run the program on the hardware; false only builds it
@@ -72,17 +215,26 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   # `log_file` is the name it must use, and `open_log!` is called with it
   # automatically by the runners in src/program.jl.
   var"model"::Union{Nothing, System} = QuanserComponents.FurutaHardware(; name=:FurutaHardware)
+  __system::System = FurutaSwingupExperiment__System(; name, var"Ts"=var"Ts", var"run"=var"run", var"Tf"=var"Tf", var"umax"=var"umax", var"arm_deg"=var"arm_deg", var"card_options"=var"card_options", var"backend"=var"backend", var"export_c"=var"export_c", var"output_dir"=var"output_dir", var"log_file"=var"log_file", var"deploy_host"=var"deploy_host", var"deploy_dir"=var"deploy_dir", var"live_plot"=var"live_plot", var"live_plot_cmd"=var"live_plot_cmd", var"live_plot_config"=var"live_plot_config", var"Q1"=var"Q1", var"Q2"=var"Q2")
 end
 
-function DyadInterface.run_analysis(spec::FurutaSwingupExperimentSpec)
+function __dyad_base_analysis_spec(spec::FurutaSwingupExperiment__Spec)
   overrides = Dict{SymbolicT, SymbolicT}()
   no_namespace_model = toggle_namespacing(spec.model, false)
   
-  base_spec = QubeHardwareRunBaseSpec(;
-    name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, Q1=spec.Q1, Q2=spec.Q2, model=spec.model
+  merge!(overrides, spec.__overrides)
+  QuanserComponents.FurutaSwingupBase__Spec(;
+    name=spec.name, __overrides=overrides, __system=spec.__system, var"Ts"=spec.var"Ts", var"run"=spec.var"run", var"Tf"=spec.var"Tf", var"umax"=spec.var"umax", var"arm_deg"=spec.var"arm_deg", var"card_options"=spec.var"card_options", var"backend"=spec.var"backend", var"export_c"=spec.var"export_c", var"output_dir"=spec.var"output_dir", var"log_file"=spec.var"log_file", var"deploy_host"=spec.var"deploy_host", var"deploy_dir"=spec.var"deploy_dir", var"live_plot"=spec.var"live_plot", var"live_plot_cmd"=spec.var"live_plot_cmd", var"live_plot_config"=spec.var"live_plot_config", var"Q1"=spec.var"Q1", var"Q2"=spec.var"Q2", var"model"=spec.var"model"
   )
-  run_analysis(base_spec)
 end
 
-FurutaSwingupExperiment(;kwargs...) = run_analysis(FurutaSwingupExperimentSpec(;kwargs...))
-export FurutaSwingupExperiment, FurutaSwingupExperimentSpec
+function DyadInterface.run_analysis(spec::FurutaSwingupExperiment__Spec)
+  run_analysis(__dyad_base_analysis_spec(spec))
+end
+
+function DyadInterface.setup_analysis(spec::FurutaSwingupExperiment__Spec; kwargs...)
+  DyadInterface.setup_analysis(__dyad_base_analysis_spec(spec); kwargs...)
+end
+
+FurutaSwingupExperiment(;kwargs...) = run_analysis(FurutaSwingupExperiment__Spec(;kwargs...))
+export FurutaSwingupExperiment, FurutaSwingupExperiment__Spec

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FrictionAndBackEMF(; name, params, smooth, kc, kv, k2, k3, w_tanh)
+   FrictionAndBackEMF(; name, params, smooth, kc, kv, k2, k3, w_tanh, __overrides)
 
 Speed-dependent resisting torque on a rotational axis: Coulomb friction, back-EMF and
 the higher-order terms, as one law.
@@ -72,7 +72,7 @@ feedforward with `kv = 0` for that reason.
 | ------------ | ----------------------------------- | ------ |
 | `sw`         | Sign of the velocity, smoothed or not                         | --  |
 """
-@component function FrictionAndBackEMF(; name = nothing, params=friction_nominal, smooth=true, kc=params.kc, kv=params.kv, k2=params.k2, k3=params.k3, w_tanh=params.w_tanh, kwargs...)
+@component function FrictionAndBackEMF(; name = nothing, var"params"=friction_nominal, var"smooth"=true, var"kc"=nothing, var"kv"=nothing, var"k2"=nothing, var"k3"=nothing, var"w_tanh"=nothing, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -80,7 +80,7 @@ feedforward with `kv = 0` for that reason.
     @named model = FrictionAndBackEMF()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -89,6 +89,22 @@ feedforward with `kv = 0` for that reason.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "params") && (params = pop!(__overrides, "params"))
+  haskey(__overrides, "smooth") && (smooth = pop!(__overrides, "smooth"))
+  haskey(__overrides, "kc") && (kc = pop!(__overrides, "kc"))
+  haskey(__overrides, "kv") && (kv = pop!(__overrides, "kv"))
+  haskey(__overrides, "k2") && (k2 = pop!(__overrides, "k2"))
+  haskey(__overrides, "k3") && (k3 = pop!(__overrides, "k3"))
+  haskey(__overrides, "w_tanh") && (w_tanh = pop!(__overrides, "w_tanh"))
+
+  ### Deferred keyword defaults (defaults referencing other keyword arguments)
+  isnothing(kc) && (kc = params.kc)
+  isnothing(kv) && (kv = params.kv)
+  isnothing(k2) && (k2 = params.k2)
+  isnothing(k3) && (k3 = params.k3)
+  isnothing(w_tanh) && (w_tanh = params.w_tanh)
 
   ### Structural Parameters (functions)
 
@@ -105,19 +121,19 @@ feedforward with `kv = 0` for that reason.
   ### Symbolic Parameters
   __local__kc = kc
   append!(__params, @parameters (kc::Real), [description = "Coulomb (breakaway) torque"])
-  __initial_conditions[kc] = __local__kc
+  __dyad_seed_parameter!(__initial_conditions, __bindings, kc, __local__kc)
   __local__kv = kv
   append!(__params, @parameters (kv::Real), [description = "First-order coefficient: friction and back-EMF together"])
-  __initial_conditions[kv] = __local__kv
+  __dyad_seed_parameter!(__initial_conditions, __bindings, kv, __local__kv)
   __local__k2 = k2
   append!(__params, @parameters (k2::Real), [description = "Quadratic coefficient"])
-  __initial_conditions[k2] = __local__k2
+  __dyad_seed_parameter!(__initial_conditions, __bindings, k2, __local__k2)
   __local__k3 = k3
   append!(__params, @parameters (k3::Real), [description = "Cubic coefficient"])
-  __initial_conditions[k3] = __local__k3
+  __dyad_seed_parameter!(__initial_conditions, __bindings, k3, __local__k3)
   __local__w_tanh = w_tanh
   append!(__params, @parameters (w_tanh::Real), [description = "Width of the smoothed sign transition [rad/s] (only used if `smooth = true`)"])
-  __initial_conditions[w_tanh] = __local__w_tanh
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_tanh, __local__w_tanh)
 
   ### Final Parameters (assignments)
 
@@ -130,8 +146,8 @@ feedforward with `kv = 0` for that reason.
 
   ### Variables (assignments)
   __ovr_sw = pop!(__overrides, "sw", nothing); isnothing(__ovr_sw) || push!(__eqs, sw ~ __ovr_sw)
-  __ovr_sw__initial = pop!(__overrides, "sw__initial", nothing); isnothing(__ovr_sw__initial) || (__initial_conditions[sw] = __ovr_sw__initial)
-  __ovr_sw__guess = pop!(__overrides, "sw__guess", nothing)
+  __ovr_sw__initial = pop!(__overrides, "sw.initial", nothing); isnothing(__ovr_sw__initial) || (__initial_conditions[sw] = __ovr_sw__initial)
+  __ovr_sw__guess = pop!(__overrides, "sw.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -139,7 +155,7 @@ feedforward with `kv = 0` for that reason.
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_sw__guess) || (__guesses[sw] = __ovr_sw__guess)
@@ -160,6 +176,6 @@ feedforward with `kv = 0` for that reason.
   end
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FrictionAndBackEMF

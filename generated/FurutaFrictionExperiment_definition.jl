@@ -5,11 +5,210 @@
 
 
 using DyadInterface
-using DyadInterface: ODEAlg, DEVerbosity, OptimizationLevel
-using ModelingToolkit: SymbolicT, toggle_namespacing
 using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpec
-@kwdef mutable struct FurutaFrictionExperimentSpec <: AbstractQubeHardwareRunBaseSpec
+@component function FurutaFrictionExperiment__System(; name = nothing, var"Ts"=0.005, var"run"=true, var"Tf"=0.0, var"umax"=10.0, var"arm_deg"=0.0, var"card_options"="", var"backend"="julia", var"export_c"=false, var"output_dir"="friction_c", var"log_file"="run_hardware.csv", var"deploy_host"="fredrikb@192.168.1.49", var"deploy_dir"="friction_c", var"live_plot"=false, var"live_plot_cmd"="kst2", var"live_plot_config"="kst2config.kst", var"w_min"=1.0, var"w_max"=40.0, var"n_levels"=10, var"t_step"=2.0, var"spacing"=2, var"K"=0.05, var"Ti"=0.07, var"settle"=0.6, var"acc_tol"=3.0, var"elbow_tol"=1.5, var"w_min_fit"=0.4, var"w_max_fit"=w_max + 4, var"smooth_n"=20, __overrides = Dict{String, Any}())
+  isnothing(name) && throw(ArgumentError("""
+    The `name` keyword must be provided. Please consider using the `@named` macro,
+    like so:
+  
+    @named model = FurutaFrictionExperiment__System()
+  """))
+
+  __overrides = Dict{String, Any}(__overrides)
+  __params = Symbolics.SymbolicT[]
+  __vars = Symbolics.SymbolicT[]
+  __systems = System[]
+  __guesses = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+  __initial_conditions = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+  __initialization_eqs = Equation[]
+  __eqs = Equation[]
+  __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "run") && (run = pop!(__overrides, "run"))
+  haskey(__overrides, "Tf") && (Tf = pop!(__overrides, "Tf"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "arm_deg") && (arm_deg = pop!(__overrides, "arm_deg"))
+  haskey(__overrides, "card_options") && (card_options = pop!(__overrides, "card_options"))
+  haskey(__overrides, "backend") && (backend = pop!(__overrides, "backend"))
+  haskey(__overrides, "export_c") && (export_c = pop!(__overrides, "export_c"))
+  haskey(__overrides, "output_dir") && (output_dir = pop!(__overrides, "output_dir"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "deploy_host") && (deploy_host = pop!(__overrides, "deploy_host"))
+  haskey(__overrides, "deploy_dir") && (deploy_dir = pop!(__overrides, "deploy_dir"))
+  haskey(__overrides, "live_plot") && (live_plot = pop!(__overrides, "live_plot"))
+  haskey(__overrides, "live_plot_cmd") && (live_plot_cmd = pop!(__overrides, "live_plot_cmd"))
+  haskey(__overrides, "live_plot_config") && (live_plot_config = pop!(__overrides, "live_plot_config"))
+  haskey(__overrides, "w_min") && (w_min = pop!(__overrides, "w_min"))
+  haskey(__overrides, "w_max") && (w_max = pop!(__overrides, "w_max"))
+  haskey(__overrides, "n_levels") && (n_levels = pop!(__overrides, "n_levels"))
+  haskey(__overrides, "t_step") && (t_step = pop!(__overrides, "t_step"))
+  haskey(__overrides, "spacing") && (spacing = pop!(__overrides, "spacing"))
+  haskey(__overrides, "K") && (K = pop!(__overrides, "K"))
+  haskey(__overrides, "Ti") && (Ti = pop!(__overrides, "Ti"))
+  haskey(__overrides, "settle") && (settle = pop!(__overrides, "settle"))
+  haskey(__overrides, "acc_tol") && (acc_tol = pop!(__overrides, "acc_tol"))
+  haskey(__overrides, "elbow_tol") && (elbow_tol = pop!(__overrides, "elbow_tol"))
+  haskey(__overrides, "w_min_fit") && (w_min_fit = pop!(__overrides, "w_min_fit"))
+  haskey(__overrides, "w_max_fit") && (w_max_fit = pop!(__overrides, "w_max_fit"))
+  haskey(__overrides, "smooth_n") && (smooth_n = pop!(__overrides, "smooth_n"))
+
+  ### Structural Parameters (functions)
+
+  ### Structural Parameters (Final)
+
+  ### Path Parameters (functions)
+
+  ### Path Parameters (non-final)
+
+  ### Final Parameters (declarations)
+
+  ### Deferred assignment (default values that depend on final parameters)
+
+  ### Symbolic Parameters
+  __local__Ts = Ts
+  append!(__params, @parameters (Ts::Float64), [description = "Sample time [s]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Ts, __local__Ts)
+  __local__run = run
+  append!(__params, @parameters (run::Bool), [description = "Run the program on the hardware; false only builds it"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, run, __local__run)
+  __local__Tf = Tf
+  append!(__params, @parameters (Tf::Float64), [description = "Duration [s] of the run; 0 means the program's own natural length"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Tf, __local__Tf)
+  __local__umax = umax
+  append!(__params, @parameters (umax::Float64), [description = "Motor saturation [V]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
+  __local__arm_deg = arm_deg
+  append!(__params, @parameters (arm_deg::Float64), [description = "Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at
+  append!(__params, @parameters (arm_deg::Float64), [description = its home position first"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, arm_deg, __local__arm_deg)
+  __local__card_options = card_options
+  append!(__params, @parameters (card_options::String), [description = "Card-specific options applied after opening the board, e.g.
+  append!(__params, @parameters (card_options::String), [description = \\\"deadband_compensation=0.65\\\". Empty leaves qube_hw.c on its own default, which is
+  append!(__params, @parameters (card_options::String), [description = what every run should normally use: the command-to-torque path has to be the same one
+  append!(__params, @parameters (card_options::String), [description = the identified parameters were fitted against"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, card_options, __local__card_options)
+  __local__backend = backend
+  append!(__params, @parameters (backend::String), [description = "Backend to build the program on when it runs in-process, \\\"julia\\\" or \\\"c\\\". Ignored when
+  append!(__params, @parameters (backend::String), [description = `export_c` is true, which always builds C"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, backend, __local__backend)
+  __local__export_c = export_c
+  append!(__params, @parameters (export_c::Bool), [description = "Export the program as standalone C into `output_dir`, and run that instead of in-process"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, export_c, __local__export_c)
+  __local__output_dir = output_dir
+  append!(__params, @parameters (output_dir::String), [description = "Directory the generated C sources and the log are written to"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, output_dir, __local__output_dir)
+  __local__log_file = log_file
+  append!(__params, @parameters (log_file::String), [description = "File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
+  append!(__params, @parameters (log_file::String), [description = to open the file, so the two cannot disagree. Empty keeps the program's own default name.
+  append!(__params, @parameters (log_file::String), [description = Exported and deployed runs use the bare file name inside their own directory, since an
+  append!(__params, @parameters (log_file::String), [description = absolute path from this machine means nothing on the target"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, log_file, __local__log_file)
+  __local__deploy_host = deploy_host
+  append!(__params, @parameters (deploy_host::String), [description = "Host to build and run on, e.g. \\\"username@hostname\\\"; empty runs on this machine. Implies
+  append!(__params, @parameters (deploy_host::String), [description = `export_c`, since C sources are what gets copied over"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, deploy_host, __local__deploy_host)
+  __local__deploy_dir = deploy_dir
+  append!(__params, @parameters (deploy_dir::String), [description = "Directory on `deploy_host` to copy the sources into"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, deploy_dir, __local__deploy_dir)
+  __local__live_plot = live_plot
+  append!(__params, @parameters (live_plot::Bool), [description = "Launch a live plotter alongside the run to watch it as it happens (needs `run = true`)"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, live_plot, __local__live_plot)
+  __local__live_plot_cmd = live_plot_cmd
+  append!(__params, @parameters (live_plot_cmd::String), [description = "Live-plot viewer executable"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, live_plot_cmd, __local__live_plot_cmd)
+  __local__live_plot_config = live_plot_config
+  append!(__params, @parameters (live_plot_config::String), [description = "Viewer session file; a relative path resolves against `output_dir`"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, live_plot_config, __local__live_plot_config)
+  __local__w_min = w_min
+  append!(__params, @parameters (w_min::Float64), [description = "Slowest speed in the sweep [rad/s]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_min, __local__w_min)
+  __local__w_max = w_max
+  append!(__params, @parameters (w_max::Float64), [description = "Fastest speed in the sweep [rad/s]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_max, __local__w_max)
+  __local__n_levels = n_levels
+  append!(__params, @parameters (n_levels::Float64), [description = "Number of speeds per direction"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, n_levels, __local__n_levels)
+  __local__t_step = t_step
+  append!(__params, @parameters (t_step::Float64), [description = "Time held at each speed [s]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, t_step, __local__t_step)
+  __local__spacing = spacing
+  append!(__params, @parameters (spacing::Float64), [description = "Speed-distribution exponent: 2 (quadratic) clusters the levels at low speed, where the
+  append!(__params, @parameters (spacing::Float64), [description = friction curve has its structure; 1 spaces them evenly"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, spacing, __local__spacing)
+  __local__K = K
+  append!(__params, @parameters (K::Float64), [description = "Velocity-loop proportional gain [V·s/rad]"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, K, __local__K)
+  __local__Ti = Ti
+  append!(__params, @parameters (Ti::Float64), [description = "Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
+  append!(__params, @parameters (Ti::Float64), [description = above `Ts`"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Ti, __local__Ti)
+  __local__settle = settle
+  append!(__params, @parameters (settle::Float64), [description = "Time [s] discarded after each change of the velocity reference. The fit assumes zero
+  append!(__params, @parameters (settle::Float64), [description = acceleration, so the transient at each step has to go"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, settle, __local__settle)
+  __local__acc_tol = acc_tol
+  append!(__params, @parameters (acc_tol::Float64), [description = "Largest |arm acceleration| [rad/s²] still counted as constant speed"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, acc_tol, __local__acc_tol)
+  __local__elbow_tol = elbow_tol
+  append!(__params, @parameters (elbow_tol::Float64), [description = "Largest |pendulum velocity| [rad/s] accepted. At constant arm speed the pendulum
+  append!(__params, @parameters (elbow_tol::Float64), [description = should be at rest too; while it swings it is a torque disturbance"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, elbow_tol, __local__elbow_tol)
+  __local__w_min_fit = w_min_fit
+  append!(__params, @parameters (w_min_fit::Float64), [description = "Slowest |velocity| [rad/s] used in the fit; near standstill the sign term is undefined"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_min_fit, __local__w_min_fit)
+  __local__w_max_fit = w_max_fit
+  append!(__params, @parameters (w_max_fit::Float64), [description = "Fastest |velocity| [rad/s] used in the fit"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_max_fit, __local__w_max_fit)
+  __local__smooth_n = smooth_n
+  append!(__params, @parameters (smooth_n::Int), [description = "Width of the moving average applied to the acceleration before thresholding, in samples"])
+  __dyad_seed_parameter!(__initial_conditions, __bindings, smooth_n, __local__smooth_n)
+
+  ### Final Parameters (assignments)
+
+  ### Final Path Parameters
+
+  ### Variables (declarations)
+
+  ### Variables (assignments)
+
+  ### Constants
+  __constants = Any[]
+
+  ### Components
+  # Subcomponent model of type QuanserComponents.FurutaFriction
+  model_overrides = __pop_subcomponent_overrides!(__overrides, "model")
+  push!(__systems, @named model = QuanserComponents.FurutaFriction(; K=K, Ti=Ti, umax=umax, w_min=w_min, w_max=w_max, n_levels=n_levels, t_step=t_step, spacing=spacing, __overrides = model_overrides))
+  __dyad_bind_final!(__bindings, model, Symbol[], :K, K)
+  __dyad_bind_final!(__bindings, model, Symbol[], :Ti, Ti)
+  __dyad_bind_final!(__bindings, model, Symbol[], :umax, umax)
+  __dyad_bind_final!(__bindings, model, Symbol[], :w_min, w_min)
+  __dyad_bind_final!(__bindings, model, Symbol[], :w_max, w_max)
+  __dyad_bind_final!(__bindings, model, Symbol[], :n_levels, n_levels)
+  __dyad_bind_final!(__bindings, model, Symbol[], :t_step, t_step)
+  __dyad_bind_final!(__bindings, model, Symbol[], :spacing, spacing)
+
+  ### Check there are no unmatched overrides
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
+
+  ### Guesses
+
+  ### Initialization Equations
+
+  ### Assertions
+  __assertions = []
+
+  ### Equations
+
+  # Return completely constructed System
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+end
+export FurutaFrictionExperiment__System
+
+@kwdef struct FurutaFrictionExperiment__Spec <: AbstractQubeHardwareRunBaseSpec
   name::Symbol = :FurutaFrictionExperiment
+  __overrides::Dict{SymbolicT, SymbolicT} = Dict{SymbolicT, SymbolicT}()
   # Sample time [s]
   var"Ts"::Float64 = 0.005
   # Run the program on the hardware; false only builds it
@@ -127,9 +326,10 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   #     logged `elbow_angle` is there so the identification script can keep only the
   #     samples where the pendulum is also quiet.
   var"model"::Union{Nothing, System} = QuanserComponents.FurutaFriction(; name=:FurutaFriction)
+  __system::System = FurutaFrictionExperiment__System(; name, var"Ts"=var"Ts", var"run"=var"run", var"Tf"=var"Tf", var"umax"=var"umax", var"arm_deg"=var"arm_deg", var"card_options"=var"card_options", var"backend"=var"backend", var"export_c"=var"export_c", var"output_dir"=var"output_dir", var"log_file"=var"log_file", var"deploy_host"=var"deploy_host", var"deploy_dir"=var"deploy_dir", var"live_plot"=var"live_plot", var"live_plot_cmd"=var"live_plot_cmd", var"live_plot_config"=var"live_plot_config", var"w_min"=var"w_min", var"w_max"=var"w_max", var"n_levels"=var"n_levels", var"t_step"=var"t_step", var"spacing"=var"spacing", var"K"=var"K", var"Ti"=var"Ti", var"settle"=var"settle", var"acc_tol"=var"acc_tol", var"elbow_tol"=var"elbow_tol", var"w_min_fit"=var"w_min_fit", var"w_max_fit"=var"w_max_fit", var"smooth_n"=var"smooth_n")
 end
 
-function DyadInterface.run_analysis(spec::FurutaFrictionExperimentSpec)
+function __dyad_base_analysis_spec(spec::FurutaFrictionExperiment__Spec)
   overrides = Dict{SymbolicT, SymbolicT}()
   no_namespace_model = toggle_namespacing(spec.model, false)
   push!(overrides, no_namespace_model.K => spec.var"K")
@@ -140,11 +340,19 @@ function DyadInterface.run_analysis(spec::FurutaFrictionExperimentSpec)
   push!(overrides, no_namespace_model.n_levels => spec.var"n_levels")
   push!(overrides, no_namespace_model.t_step => spec.var"t_step")
   push!(overrides, no_namespace_model.spacing => spec.var"spacing")
-  base_spec = QubeHardwareRunBaseSpec(;
-    name=:QubeHardwareRunBase, overrides, Ts=spec.Ts, run=spec.run, Tf=spec.Tf, umax=spec.umax, arm_deg=spec.arm_deg, card_options=spec.card_options, backend=spec.backend, export_c=spec.export_c, output_dir=spec.output_dir, log_file=spec.log_file, deploy_host=spec.deploy_host, deploy_dir=spec.deploy_dir, live_plot=spec.live_plot, live_plot_cmd=spec.live_plot_cmd, live_plot_config=spec.live_plot_config, w_min=spec.w_min, w_max=spec.w_max, n_levels=spec.n_levels, t_step=spec.t_step, spacing=spec.spacing, K=spec.K, Ti=spec.Ti, settle=spec.settle, acc_tol=spec.acc_tol, elbow_tol=spec.elbow_tol, w_min_fit=spec.w_min_fit, w_max_fit=spec.w_max_fit, smooth_n=spec.smooth_n, model=spec.model
+  merge!(overrides, spec.__overrides)
+  QuanserComponents.FurutaFrictionBase__Spec(;
+    name=spec.name, __overrides=overrides, __system=spec.__system, var"Ts"=spec.var"Ts", var"run"=spec.var"run", var"Tf"=spec.var"Tf", var"umax"=spec.var"umax", var"arm_deg"=spec.var"arm_deg", var"card_options"=spec.var"card_options", var"backend"=spec.var"backend", var"export_c"=spec.var"export_c", var"output_dir"=spec.var"output_dir", var"log_file"=spec.var"log_file", var"deploy_host"=spec.var"deploy_host", var"deploy_dir"=spec.var"deploy_dir", var"live_plot"=spec.var"live_plot", var"live_plot_cmd"=spec.var"live_plot_cmd", var"live_plot_config"=spec.var"live_plot_config", var"w_min"=spec.var"w_min", var"w_max"=spec.var"w_max", var"n_levels"=spec.var"n_levels", var"t_step"=spec.var"t_step", var"spacing"=spec.var"spacing", var"K"=spec.var"K", var"Ti"=spec.var"Ti", var"settle"=spec.var"settle", var"acc_tol"=spec.var"acc_tol", var"elbow_tol"=spec.var"elbow_tol", var"w_min_fit"=spec.var"w_min_fit", var"w_max_fit"=spec.var"w_max_fit", var"smooth_n"=spec.var"smooth_n", var"model"=spec.var"model"
   )
-  run_analysis(base_spec)
 end
 
-FurutaFrictionExperiment(;kwargs...) = run_analysis(FurutaFrictionExperimentSpec(;kwargs...))
-export FurutaFrictionExperiment, FurutaFrictionExperimentSpec
+function DyadInterface.run_analysis(spec::FurutaFrictionExperiment__Spec)
+  run_analysis(__dyad_base_analysis_spec(spec))
+end
+
+function DyadInterface.setup_analysis(spec::FurutaFrictionExperiment__Spec; kwargs...)
+  DyadInterface.setup_analysis(__dyad_base_analysis_spec(spec); kwargs...)
+end
+
+FurutaFrictionExperiment(;kwargs...) = run_analysis(FurutaFrictionExperiment__Spec(;kwargs...))
+export FurutaFrictionExperiment, FurutaFrictionExperiment__Spec

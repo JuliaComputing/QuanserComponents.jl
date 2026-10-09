@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaFriction(; name, Ts, log_file, umax, K, Ti, filter_param, w_min, w_max, n_levels, t_step, spacing)
+   FurutaFriction(; name, Ts, log_file, umax, K, Ti, filter_param, w_min, w_max, n_levels, t_step, spacing, __overrides)
 
 Constant-velocity friction experiment on the physical QUBE, as a single synchronous
 program.
@@ -71,7 +71,7 @@ Two things about the experiment that matter more than the model does:
 | `t_step`         | Time held at each speed [s]                         | s  |   2.0 |
 | `spacing`         | Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly                         | --  |   2 |
 """
-@component function FurutaFriction(; name = nothing, Ts=0.005, log_file=FRICTION_LOG_FILE, umax=Float64(10.0), K=0.05, Ti=0.5, filter_param=0.1, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), spacing=Float64(2), kwargs...)
+@component function FurutaFriction(; name = nothing, var"Ts"=0.005, var"log_file"=FRICTION_LOG_FILE, var"umax"=Float64(10.0), var"K"=0.05, var"Ti"=0.5, var"filter_param"=0.1, var"w_min"=Float64(2.0), var"w_max"=Float64(30.0), var"n_levels"=Float64(6), var"t_step"=Float64(2.0), var"spacing"=Float64(2), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -79,7 +79,7 @@ Two things about the experiment that matter more than the model does:
     @named model = FurutaFriction()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -88,6 +88,19 @@ Two things about the experiment that matter more than the model does:
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "K") && (K = pop!(__overrides, "K"))
+  haskey(__overrides, "Ti") && (Ti = pop!(__overrides, "Ti"))
+  haskey(__overrides, "filter_param") && (filter_param = pop!(__overrides, "filter_param"))
+  haskey(__overrides, "w_min") && (w_min = pop!(__overrides, "w_min"))
+  haskey(__overrides, "w_max") && (w_max = pop!(__overrides, "w_max"))
+  haskey(__overrides, "n_levels") && (n_levels = pop!(__overrides, "n_levels"))
+  haskey(__overrides, "t_step") && (t_step = pop!(__overrides, "t_step"))
+  haskey(__overrides, "spacing") && (spacing = pop!(__overrides, "spacing"))
 
   ### Structural Parameters (functions)
 
@@ -104,31 +117,31 @@ Two things about the experiment that matter more than the model does:
   ### Symbolic Parameters
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Motor saturation [V]"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
   __local__K = K
   append!(__params, @parameters (K::Real), [description = "Velocity-loop proportional gain [V·s/rad]"])
-  __initial_conditions[K] = __local__K
+  __dyad_seed_parameter!(__initial_conditions, __bindings, K, __local__K)
   __local__Ti = Ti
   append!(__params, @parameters (Ti::Real), [description = "Velocity-loop integral time [s]; must be well above Ts, the integrator is forward-Euler"])
-  __initial_conditions[Ti] = __local__Ti
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Ti, __local__Ti)
   __local__filter_param = filter_param
   append!(__params, @parameters (filter_param::Real), [description = "Velocity-estimator filter parameter; small means more filtering", bounds = (0, 1)])
-  __initial_conditions[filter_param] = __local__filter_param
+  __dyad_seed_parameter!(__initial_conditions, __bindings, filter_param, __local__filter_param)
   __local__w_min = w_min
   append!(__params, @parameters (w_min::Real), [description = "Slowest speed in the sweep [rad/s]"])
-  __initial_conditions[w_min] = __local__w_min
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_min, __local__w_min)
   __local__w_max = w_max
   append!(__params, @parameters (w_max::Real), [description = "Fastest speed in the sweep [rad/s]"])
-  __initial_conditions[w_max] = __local__w_max
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_max, __local__w_max)
   __local__n_levels = n_levels
   append!(__params, @parameters (n_levels::Real), [description = "Number of speeds per direction"])
-  __initial_conditions[n_levels] = __local__n_levels
+  __dyad_seed_parameter!(__initial_conditions, __bindings, n_levels, __local__n_levels)
   __local__t_step = t_step
   append!(__params, @parameters (t_step::Real), [description = "Time held at each speed [s]"])
-  __initial_conditions[t_step] = __local__t_step
+  __dyad_seed_parameter!(__initial_conditions, __bindings, t_step, __local__t_step)
   __local__spacing = spacing
   append!(__params, @parameters (spacing::Real), [description = "Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly"])
-  __initial_conditions[spacing] = __local__spacing
+  __dyad_seed_parameter!(__initial_conditions, __bindings, spacing, __local__spacing)
 
   ### Final Parameters (assignments)
 
@@ -144,73 +157,41 @@ Two things about the experiment that matter more than the model does:
   ### Components
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
-  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
+  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; __overrides = measurement_overrides))
   # Subcomponent elapsed of type QuanserComponents.ElapsedTime
   elapsed_overrides = __pop_subcomponent_overrides!(__overrides, "elapsed")
-  push!(__systems, @named elapsed = QuanserComponents.ElapsedTime(; elapsed_overrides...))
+  push!(__systems, @named elapsed = QuanserComponents.ElapsedTime(; __overrides = elapsed_overrides))
   # Subcomponent reference of type QuanserComponents.VelocityStaircase
   reference_overrides = __pop_subcomponent_overrides!(__overrides, "reference")
-  push!(__systems, @named reference = QuanserComponents.VelocityStaircase(; reference_overrides...))
-  __bindings[reference.w_min] = w_min
-  __bindings[reference.w_max] = w_max
-  __bindings[reference.n_levels] = n_levels
-  __bindings[reference.t_step] = t_step
-  __bindings[reference.spacing] = spacing
-  # Now remove initial conditions in reference that correspond to the bindings just added
-  __reference_ics = ModelingToolkit.get_initial_conditions(reference)
-  __no_namespace_reference = ModelingToolkit.toggle_namespacing(reference, false)
-  __reference_w_min = Symbolics.unwrap(__no_namespace_reference.w_min)::Symbolics.SymbolicT
-  delete!(__reference_ics, __reference_w_min)
-  __reference_w_max = Symbolics.unwrap(__no_namespace_reference.w_max)::Symbolics.SymbolicT
-  delete!(__reference_ics, __reference_w_max)
-  __reference_n_levels = Symbolics.unwrap(__no_namespace_reference.n_levels)::Symbolics.SymbolicT
-  delete!(__reference_ics, __reference_n_levels)
-  __reference_t_step = Symbolics.unwrap(__no_namespace_reference.t_step)::Symbolics.SymbolicT
-  delete!(__reference_ics, __reference_t_step)
-  __reference_spacing = Symbolics.unwrap(__no_namespace_reference.spacing)::Symbolics.SymbolicT
-  delete!(__reference_ics, __reference_spacing)
+  push!(__systems, @named reference = QuanserComponents.VelocityStaircase(; w_min=w_min, w_max=w_max, n_levels=n_levels, t_step=t_step, spacing=spacing, __overrides = reference_overrides))
+  __dyad_bind_final!(__bindings, reference, Symbol[], :w_min, w_min)
+  __dyad_bind_final!(__bindings, reference, Symbol[], :w_max, w_max)
+  __dyad_bind_final!(__bindings, reference, Symbol[], :n_levels, n_levels)
+  __dyad_bind_final!(__bindings, reference, Symbol[], :t_step, t_step)
+  __dyad_bind_final!(__bindings, reference, Symbol[], :spacing, spacing)
   # Subcomponent velocityestimator of type QuanserComponents.VelocityEstimator
   velocityestimator_overrides = __pop_subcomponent_overrides!(__overrides, "velocityestimator")
-  push!(__systems, @named velocityestimator = QuanserComponents.VelocityEstimator(; velocityestimator_overrides...))
-  __bindings[velocityestimator.filter_param] = filter_param
-  # Now remove initial conditions in velocityestimator that correspond to the bindings just added
-  __velocityestimator_ics = ModelingToolkit.get_initial_conditions(velocityestimator)
-  __no_namespace_velocityestimator = ModelingToolkit.toggle_namespacing(velocityestimator, false)
-  __velocityestimator_filter_param = Symbolics.unwrap(__no_namespace_velocityestimator.filter_param)::Symbolics.SymbolicT
-  delete!(__velocityestimator_ics, __velocityestimator_filter_param)
+  push!(__systems, @named velocityestimator = QuanserComponents.VelocityEstimator(; filter_param=filter_param, __overrides = velocityestimator_overrides))
+  __dyad_bind_final!(__bindings, velocityestimator, Symbol[], :filter_param, filter_param)
   # Subcomponent velocity_pi of type DiscreteComponents.DiscretePIDStandard
   velocity_pi_overrides = __pop_subcomponent_overrides!(__overrides, "velocity_pi")
-  push!(__systems, @named velocity_pi = DiscreteComponents.DiscretePIDStandard(; with_D=false, Ni=Float64(1.0), wp=1.2, velocity_pi_overrides...))
-  __bindings[velocity_pi.K] = K
-  __bindings[velocity_pi.Ti] = Ti
-  __bindings[velocity_pi.y_max] = umax
-  # Now remove initial conditions in velocity_pi that correspond to the bindings just added
-  __velocity_pi_ics = ModelingToolkit.get_initial_conditions(velocity_pi)
-  __no_namespace_velocity_pi = ModelingToolkit.toggle_namespacing(velocity_pi, false)
-  __velocity_pi_K = Symbolics.unwrap(__no_namespace_velocity_pi.K)::Symbolics.SymbolicT
-  delete!(__velocity_pi_ics, __velocity_pi_K)
-  __velocity_pi_Ti = Symbolics.unwrap(__no_namespace_velocity_pi.Ti)::Symbolics.SymbolicT
-  delete!(__velocity_pi_ics, __velocity_pi_Ti)
-  __velocity_pi_y_max = Symbolics.unwrap(__no_namespace_velocity_pi.y_max)::Symbolics.SymbolicT
-  delete!(__velocity_pi_ics, __velocity_pi_y_max)
+  push!(__systems, @named velocity_pi = DiscreteComponents.DiscretePIDStandard(; with_D=false, K=K, Ti=Ti, Ni=Float64(1.0), y_max=umax, wp=1.2, __overrides = velocity_pi_overrides))
+  __dyad_bind_final!(__bindings, velocity_pi, Symbol[], :K, K)
+  __dyad_bind_final!(__bindings, velocity_pi, Symbol[], :Ti, Ti)
+  __dyad_bind_final!(__bindings, velocity_pi, Symbol[], :y_max, umax)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
-  push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
-  __bindings[command.umax] = umax
-  # Now remove initial conditions in command that correspond to the bindings just added
-  __command_ics = ModelingToolkit.get_initial_conditions(command)
-  __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
-  __command_umax = Symbolics.unwrap(__no_namespace_command.umax)::Symbolics.SymbolicT
-  delete!(__command_ics, __command_umax)
+  push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=umax, __overrides = command_overrides))
+  __dyad_bind_final!(__bindings, command, Symbol[], :umax, umax)
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
-  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=FRICTION_LOG_NCOLS, filename=log_file, header=FRICTION_LOG_HEADER, logger_overrides...))
+  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=FRICTION_LOG_NCOLS, filename=log_file, header=FRICTION_LOG_HEADER, __overrides = logger_overrides))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, __symbol_overrides(periodicclock_overrides)...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -229,6 +210,6 @@ Two things about the experiment that matter more than the model does:
   push!(__eqs, connect(measurement.elbow_angle, logger.u[6], periodicclock.y))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaFriction

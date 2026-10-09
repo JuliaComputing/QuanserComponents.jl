@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   HardwareCommand(; name, umax)
+   HardwareCommand(; name, umax, __overrides)
 
 Writes the commanded motor voltage to the physical QUBE once per tick and
 reports back what was actually applied.
@@ -27,7 +27,7 @@ Clock-agnostic.
  * `u` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u_applied` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function HardwareCommand(; name = nothing, umax=Float64(10.0), kwargs...)
+@component function HardwareCommand(; name = nothing, var"umax"=Float64(10.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -35,7 +35,7 @@ Clock-agnostic.
     @named model = HardwareCommand()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -44,6 +44,9 @@ Clock-agnostic.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -60,7 +63,7 @@ Clock-agnostic.
   ### Symbolic Parameters
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Saturation applied before writing; the QUBE amplifier range is +/-10 V"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -78,7 +81,7 @@ Clock-agnostic.
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -91,6 +94,6 @@ Clock-agnostic.
   push!(__eqs, u_applied ~ hw_write(u, umax))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export HardwareCommand

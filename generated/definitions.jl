@@ -8,6 +8,8 @@ using ModelingToolkit
 import Markdown
 using ModelingToolkit: t_nounits as t
 using OrdinaryDiffEqDefault
+using DyadInterface: ODEAlg, DEVerbosity, OptimizationLevel, SpecializationLevel
+using ModelingToolkit: SymbolicT, toggle_namespacing
 using RuntimeGeneratedFunctions
 RuntimeGeneratedFunctions.init(@__MODULE__)
 
@@ -16,16 +18,42 @@ if isfile(joinpath((@__DIR__) |> Base.dirname, "dyad", "definitions.jl"))
 end
 
 import BlockComponents
+let api = isdefined(BlockComponents, :__dyad_constructor_api) ? BlockComponents.__dyad_constructor_api : 1
+  api == 2 || error("BlockComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate BlockComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import DiscreteComponents
+let api = isdefined(DiscreteComponents, :__dyad_constructor_api) ? DiscreteComponents.__dyad_constructor_api : 1
+  api == 2 || error("DiscreteComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate DiscreteComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import DyadData
-import DyadInterface
 import ElectricalComponents
+let api = isdefined(ElectricalComponents, :__dyad_constructor_api) ? ElectricalComponents.__dyad_constructor_api : 1
+  api == 2 || error("ElectricalComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate ElectricalComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import HydraulicComponents
+let api = isdefined(HydraulicComponents, :__dyad_constructor_api) ? HydraulicComponents.__dyad_constructor_api : 1
+  api == 2 || error("HydraulicComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate HydraulicComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import MPCComponents
+let api = isdefined(MPCComponents, :__dyad_constructor_api) ? MPCComponents.__dyad_constructor_api : 1
+  api == 2 || error("MPCComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate MPCComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import MultibodyComponents
+let api = isdefined(MultibodyComponents, :__dyad_constructor_api) ? MultibodyComponents.__dyad_constructor_api : 1
+  api == 2 || error("MultibodyComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate MultibodyComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import RotationalComponents
+let api = isdefined(RotationalComponents, :__dyad_constructor_api) ? RotationalComponents.__dyad_constructor_api : 1
+  api == 2 || error("RotationalComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate RotationalComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import ThermalComponents
+let api = isdefined(ThermalComponents, :__dyad_constructor_api) ? ThermalComponents.__dyad_constructor_api : 1
+  api == 2 || error("ThermalComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate ThermalComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 import TranslationalComponents
+let api = isdefined(TranslationalComponents, :__dyad_constructor_api) ? TranslationalComponents.__dyad_constructor_api : 1
+  api == 2 || error("TranslationalComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate TranslationalComponents with the same Dyad compiler that generated QuanserComponents.")
+end
 @doc Markdown.doc"""
 This connector represents an electrical pin with voltage and current as the potential and flow variables, respectively.
 """
@@ -213,9 +241,11 @@ include("EnergySwingup_definition.jl")
 include("Energy_definition.jl")
 include("ErrorRecovery_definition.jl")
 include("FrictionAndBackEMF_definition.jl")
+include("FurutaFrictionBase_definition.jl")
 include("FurutaFrictionExperiment_definition.jl")
 include("FurutaFriction_definition.jl")
 include("FurutaHardware_definition.jl")
+include("FurutaIdentificationBase_definition.jl")
 include("FurutaIdentificationExperiment_definition.jl")
 include("FurutaIdentification_definition.jl")
 include("FurutaMPCHardware_definition.jl")
@@ -225,6 +255,7 @@ include("FurutaMPCMultirate_definition.jl")
 include("FurutaMPCSwingup_definition.jl")
 include("FurutaMPC_definition.jl")
 include("FurutaPredictionModel_definition.jl")
+include("FurutaSwingupBase_definition.jl")
 include("FurutaSwingupExperiment_definition.jl")
 include("FurutaSwingup_definition.jl")
 include("GoHome_definition.jl")
@@ -233,6 +264,7 @@ include("HardwareDiagnostics_definition.jl")
 include("HardwareMeasurement_definition.jl")
 include("LQRstabilizer_definition.jl")
 include("NearTop_definition.jl")
+include("QubeHardwareRunBase_definition.jl")
 include("QubePendulum_definition.jl")
 include("RotationalFrictionAndBackEMF_definition.jl")
 include("RuntimeController_definition.jl")

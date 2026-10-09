@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   SwingupWithHoming(; name, arm_limit, oob_increment, oob_threshold, umax)
+   SwingupWithHoming(; name, arm_limit, oob_increment, oob_threshold, umax, __overrides)
 
 Top-level controller with a two-state machine: it first runs `GoHome` to home the
 arm, then switches to the `RuntimeController` (swing-up + stabilization + error
@@ -27,7 +27,7 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
  * `elbow_angle` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SwingupWithHoming(; name = nothing, arm_limit=1.9198621771937625, oob_increment=Float64(20.0), oob_threshold=Float64(1000.0), umax=Float64(10.0), kwargs...)
+@component function SwingupWithHoming(; name = nothing, var"arm_limit"=1.9198621771937625, var"oob_increment"=Float64(20.0), var"oob_threshold"=Float64(1000.0), var"umax"=Float64(10.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -35,7 +35,7 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
     @named model = SwingupWithHoming()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -44,6 +44,12 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "arm_limit") && (arm_limit = pop!(__overrides, "arm_limit"))
+  haskey(__overrides, "oob_increment") && (oob_increment = pop!(__overrides, "oob_increment"))
+  haskey(__overrides, "oob_threshold") && (oob_threshold = pop!(__overrides, "oob_threshold"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -60,18 +66,18 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   ### Symbolic Parameters
   __local__arm_limit = arm_limit
   append!(__params, @parameters (arm_limit::Real), [description = "Arm angle beyond which the out-of-bounds counter accumulates"])
-  __initial_conditions[arm_limit] = __local__arm_limit
+  __dyad_seed_parameter!(__initial_conditions, __bindings, arm_limit, __local__arm_limit)
   __local__oob_increment = oob_increment
   append!(__params, @parameters (oob_increment::Real), [description = "Amount added to the out-of-bounds counter each out-of-bounds step"])
-  __initial_conditions[oob_increment] = __local__oob_increment
+  __dyad_seed_parameter!(__initial_conditions, __bindings, oob_increment, __local__oob_increment)
   __local__oob_threshold = oob_threshold
   append!(__params, @parameters (oob_threshold::Real), [description = "Out-of-bounds counter value that triggers re-homing"])
-  __initial_conditions[oob_threshold] = __local__oob_threshold
+  __dyad_seed_parameter!(__initial_conditions, __bindings, oob_threshold, __local__oob_threshold)
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V], forwarded down to
   append!(__params, @parameters (umax::Real), [description = `runtime.swingup_catch.lqrstabilizer`. A model wrapping this one binds it to the motor
   append!(__params, @parameters (umax::Real), [description = saturation, which is why it exists at every level of the chain"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -90,94 +96,74 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   ### Components
   # Subcomponent gohome of type QuanserComponents.GoHome
   gohome_overrides = __pop_subcomponent_overrides!(__overrides, "gohome")
-  push!(__systems, @named gohome = QuanserComponents.GoHome(; gohome_overrides...))
+  push!(__systems, @named gohome = QuanserComponents.GoHome(; __overrides = gohome_overrides))
   # Subcomponent runtime of type QuanserComponents.RuntimeController
   runtime_overrides = __pop_subcomponent_overrides!(__overrides, "runtime")
-  push!(__systems, @named runtime = QuanserComponents.RuntimeController(; runtime_overrides...))
-  __bindings[runtime.umax] = umax
-  # Now remove initial conditions in runtime that correspond to the bindings just added
-  __runtime_ics = ModelingToolkit.get_initial_conditions(runtime)
-  __no_namespace_runtime = ModelingToolkit.toggle_namespacing(runtime, false)
-  __runtime_umax = Symbolics.unwrap(__no_namespace_runtime.umax)::Symbolics.SymbolicT
-  delete!(__runtime_ics, __runtime_umax)
+  push!(__systems, @named runtime = QuanserComponents.RuntimeController(; umax=umax, __overrides = runtime_overrides))
+  __dyad_bind_final!(__bindings, runtime, Symbol[], :umax, umax)
   # Subcomponent abs_arm of type BlockComponents.Math.Abs
   abs_arm_overrides = __pop_subcomponent_overrides!(__overrides, "abs_arm")
-  push!(__systems, @named abs_arm = BlockComponents.Math.Abs(; abs_arm_overrides...))
+  push!(__systems, @named abs_arm = BlockComponents.Math.Abs(; __overrides = abs_arm_overrides))
   # Subcomponent out_of_bounds of type BlockComponents.Logical.GreaterThreshold
   out_of_bounds_overrides = __pop_subcomponent_overrides!(__overrides, "out_of_bounds")
-  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; out_of_bounds_overrides...))
-  __bindings[out_of_bounds.threshold] = arm_limit
-  # Now remove initial conditions in out_of_bounds that correspond to the bindings just added
-  __out_of_bounds_ics = ModelingToolkit.get_initial_conditions(out_of_bounds)
-  __no_namespace_out_of_bounds = ModelingToolkit.toggle_namespacing(out_of_bounds, false)
-  __out_of_bounds_threshold = Symbolics.unwrap(__no_namespace_out_of_bounds.threshold)::Symbolics.SymbolicT
-  delete!(__out_of_bounds_ics, __out_of_bounds_threshold)
+  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; threshold=arm_limit, __overrides = out_of_bounds_overrides))
+  __dyad_bind_final!(__bindings, out_of_bounds, Symbol[], :threshold, arm_limit)
   # Subcomponent oob_delay of type DiscreteComponents.UnitDelay
   oob_delay_overrides = __pop_subcomponent_overrides!(__overrides, "oob_delay")
-  push!(__systems, @named oob_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), oob_delay_overrides...))
+  push!(__systems, @named oob_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), __overrides = oob_delay_overrides))
   # Subcomponent increment of type BlockComponents.Sources.Constant
   increment_overrides = __pop_subcomponent_overrides!(__overrides, "increment")
-  push!(__systems, @named increment = BlockComponents.Sources.Constant(; increment_overrides...))
-  __bindings[increment.k] = oob_increment
-  # Now remove initial conditions in increment that correspond to the bindings just added
-  __increment_ics = ModelingToolkit.get_initial_conditions(increment)
-  __no_namespace_increment = ModelingToolkit.toggle_namespacing(increment, false)
-  __increment_k = Symbolics.unwrap(__no_namespace_increment.k)::Symbolics.SymbolicT
-  delete!(__increment_ics, __increment_k)
+  push!(__systems, @named increment = BlockComponents.Sources.Constant(; k=oob_increment, __overrides = increment_overrides))
+  __dyad_bind_final!(__bindings, increment, Symbol[], :k, oob_increment)
   # Subcomponent count_up of type BlockComponents.Math.Add
   count_up_overrides = __pop_subcomponent_overrides!(__overrides, "count_up")
-  push!(__systems, @named count_up = BlockComponents.Math.Add(; count_up_overrides...))
+  push!(__systems, @named count_up = BlockComponents.Math.Add(; __overrides = count_up_overrides))
   # Subcomponent one of type BlockComponents.Sources.Constant
   one_overrides = __pop_subcomponent_overrides!(__overrides, "one")
-  push!(__systems, @named one = BlockComponents.Sources.Constant(; k=Float64(1), one_overrides...))
+  push!(__systems, @named one = BlockComponents.Sources.Constant(; k=Float64(1), __overrides = one_overrides))
   # Subcomponent count_down of type BlockComponents.Math.Add
   count_down_overrides = __pop_subcomponent_overrides!(__overrides, "count_down")
-  push!(__systems, @named count_down = BlockComponents.Math.Add(; k2=Float64(-1), count_down_overrides...))
+  push!(__systems, @named count_down = BlockComponents.Math.Add(; k2=Float64(-1), __overrides = count_down_overrides))
   # Subcomponent zero of type BlockComponents.Sources.Constant
   zero_overrides = __pop_subcomponent_overrides!(__overrides, "zero")
-  push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), zero_overrides...))
+  push!(__systems, @named zero = BlockComponents.Sources.Constant(; k=Float64(0), __overrides = zero_overrides))
   # Subcomponent count_down_clamped of type BlockComponents.Math.Max
   count_down_clamped_overrides = __pop_subcomponent_overrides!(__overrides, "count_down_clamped")
-  push!(__systems, @named count_down_clamped = BlockComponents.Math.Max(; count_down_clamped_overrides...))
+  push!(__systems, @named count_down_clamped = BlockComponents.Math.Max(; __overrides = count_down_clamped_overrides))
   # Subcomponent accumulate of type BlockComponents.Logical.Switch
   accumulate_overrides = __pop_subcomponent_overrides!(__overrides, "accumulate")
-  push!(__systems, @named accumulate = BlockComponents.Logical.Switch(; accumulate_overrides...))
+  push!(__systems, @named accumulate = BlockComponents.Logical.Switch(; __overrides = accumulate_overrides))
   # Subcomponent runtime_gate of type BlockComponents.Logical.Switch
   runtime_gate_overrides = __pop_subcomponent_overrides!(__overrides, "runtime_gate")
-  push!(__systems, @named runtime_gate = BlockComponents.Logical.Switch(; runtime_gate_overrides...))
+  push!(__systems, @named runtime_gate = BlockComponents.Logical.Switch(; __overrides = runtime_gate_overrides))
   # Subcomponent fault of type BlockComponents.Logical.GreaterThreshold
   fault_overrides = __pop_subcomponent_overrides!(__overrides, "fault")
-  push!(__systems, @named fault = BlockComponents.Logical.GreaterThreshold(; fault_overrides...))
-  __bindings[fault.threshold] = oob_threshold
-  # Now remove initial conditions in fault that correspond to the bindings just added
-  __fault_ics = ModelingToolkit.get_initial_conditions(fault)
-  __no_namespace_fault = ModelingToolkit.toggle_namespacing(fault, false)
-  __fault_threshold = Symbolics.unwrap(__no_namespace_fault.threshold)::Symbolics.SymbolicT
-  delete!(__fault_ics, __fault_threshold)
+  push!(__systems, @named fault = BlockComponents.Logical.GreaterThreshold(; threshold=oob_threshold, __overrides = fault_overrides))
+  __dyad_bind_final!(__bindings, fault, Symbol[], :threshold, oob_threshold)
   # Subcomponent in_runtime_delay of type DiscreteComponents.UnitDelay
   in_runtime_delay_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_delay")
-  push!(__systems, @named in_runtime_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), in_runtime_delay_overrides...))
+  push!(__systems, @named in_runtime_delay = DiscreteComponents.UnitDelay(; initial_condition=Float64(0), __overrides = in_runtime_delay_overrides))
   # Subcomponent was_runtime of type BlockComponents.Logical.GreaterThreshold
   was_runtime_overrides = __pop_subcomponent_overrides!(__overrides, "was_runtime")
-  push!(__systems, @named was_runtime = BlockComponents.Logical.GreaterThreshold(; threshold=0.5, was_runtime_overrides...))
+  push!(__systems, @named was_runtime = BlockComponents.Logical.GreaterThreshold(; threshold=0.5, __overrides = was_runtime_overrides))
   # Subcomponent not_fault of type BlockComponents.Logical.Not
   not_fault_overrides = __pop_subcomponent_overrides!(__overrides, "not_fault")
-  push!(__systems, @named not_fault = BlockComponents.Logical.Not(; not_fault_overrides...))
+  push!(__systems, @named not_fault = BlockComponents.Logical.Not(; __overrides = not_fault_overrides))
   # Subcomponent stay_flag of type BlockComponents.Math.BooleanToReal
   stay_flag_overrides = __pop_subcomponent_overrides!(__overrides, "stay_flag")
-  push!(__systems, @named stay_flag = BlockComponents.Math.BooleanToReal(; stay_flag_overrides...))
+  push!(__systems, @named stay_flag = BlockComponents.Math.BooleanToReal(; __overrides = stay_flag_overrides))
   # Subcomponent in_runtime_switch of type BlockComponents.Logical.Switch
   in_runtime_switch_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_switch")
-  push!(__systems, @named in_runtime_switch = BlockComponents.Logical.Switch(; in_runtime_switch_overrides...))
+  push!(__systems, @named in_runtime_switch = BlockComponents.Logical.Switch(; __overrides = in_runtime_switch_overrides))
   # Subcomponent in_runtime_now of type BlockComponents.Logical.GreaterThreshold
   in_runtime_now_overrides = __pop_subcomponent_overrides!(__overrides, "in_runtime_now")
-  push!(__systems, @named in_runtime_now = BlockComponents.Logical.GreaterThreshold(; threshold=0.5, in_runtime_now_overrides...))
+  push!(__systems, @named in_runtime_now = BlockComponents.Logical.GreaterThreshold(; threshold=0.5, __overrides = in_runtime_now_overrides))
   # Subcomponent command_switch of type BlockComponents.Logical.Switch
   command_switch_overrides = __pop_subcomponent_overrides!(__overrides, "command_switch")
-  push!(__systems, @named command_switch = BlockComponents.Logical.Switch(; command_switch_overrides...))
+  push!(__systems, @named command_switch = BlockComponents.Logical.Switch(; __overrides = command_switch_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -217,6 +203,6 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   push!(__eqs, connect(runtime.elbow_angle, elbow_angle))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export SwingupWithHoming

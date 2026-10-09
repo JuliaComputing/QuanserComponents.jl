@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaIdentification(; name, Ts, traj_file, traj_column, log_file, umax, warn, abort, pullback)
+   FurutaIdentification(; name, Ts, traj_file, traj_column, log_file, umax, warn, abort, pullback, __overrides)
 
 Open-loop replay of a designed input sequence on the physical QUBE, as a single
 synchronous program.
@@ -44,7 +44,7 @@ amplifier's 10) and stay near the machine.
 | `abort`         | Arm angle beyond which the supervisor latches and commands 0 [rad]                         | rad  |   2.0943951023931953 |
 | `pullback`         | Pull-back gain past `warn` [V/rad]                         | --  |   2.0 |
 """
-@component function FurutaIdentification(; name = nothing, Ts=0.005, traj_file=IDENTIFICATION_TRAJ_FILE, traj_column=IDENTIFICATION_TRAJ_COLUMN, log_file=IDENTIFICATION_LOG_FILE, umax=Float64(3.0), warn=1.6580627893946132, abort=2.0943951023931953, pullback=Float64(2.0), kwargs...)
+@component function FurutaIdentification(; name = nothing, var"Ts"=0.005, var"traj_file"=IDENTIFICATION_TRAJ_FILE, var"traj_column"=IDENTIFICATION_TRAJ_COLUMN, var"log_file"=IDENTIFICATION_LOG_FILE, var"umax"=Float64(3.0), var"warn"=1.6580627893946132, var"abort"=2.0943951023931953, var"pullback"=Float64(2.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -52,7 +52,7 @@ amplifier's 10) and stay near the machine.
     @named model = FurutaIdentification()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -61,6 +61,16 @@ amplifier's 10) and stay near the machine.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "Ts") && (Ts = pop!(__overrides, "Ts"))
+  haskey(__overrides, "traj_file") && (traj_file = pop!(__overrides, "traj_file"))
+  haskey(__overrides, "traj_column") && (traj_column = pop!(__overrides, "traj_column"))
+  haskey(__overrides, "log_file") && (log_file = pop!(__overrides, "log_file"))
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "warn") && (warn = pop!(__overrides, "warn"))
+  haskey(__overrides, "abort") && (abort = pop!(__overrides, "abort"))
+  haskey(__overrides, "pullback") && (pullback = pop!(__overrides, "pullback"))
 
   ### Structural Parameters (functions)
 
@@ -78,16 +88,16 @@ amplifier's 10) and stay near the machine.
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Hard clamp on anything written [V]. Deliberately well below the amplifier's range: this
   append!(__params, @parameters (umax::Real), [description = is an open-loop replay, so nothing here corrects an unexpected response"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
   __local__warn = warn
   append!(__params, @parameters (warn::Real), [description = "Arm angle beyond which the command is replaced by a pull-back [rad]"])
-  __initial_conditions[warn] = __local__warn
+  __dyad_seed_parameter!(__initial_conditions, __bindings, warn, __local__warn)
   __local__abort = abort
   append!(__params, @parameters (abort::Real), [description = "Arm angle beyond which the supervisor latches and commands 0 [rad]"])
-  __initial_conditions[abort] = __local__abort
+  __dyad_seed_parameter!(__initial_conditions, __bindings, abort, __local__abort)
   __local__pullback = pullback
   append!(__params, @parameters (pullback::Real), [description = "Pull-back gain past `warn` [V/rad]"])
-  __initial_conditions[pullback] = __local__pullback
+  __dyad_seed_parameter!(__initial_conditions, __bindings, pullback, __local__pullback)
 
   ### Final Parameters (assignments)
 
@@ -103,49 +113,33 @@ amplifier's 10) and stay near the machine.
   ### Components
   # Subcomponent measurement of type QuanserComponents.HardwareMeasurement
   measurement_overrides = __pop_subcomponent_overrides!(__overrides, "measurement")
-  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; measurement_overrides...))
+  push!(__systems, @named measurement = QuanserComponents.HardwareMeasurement(; __overrides = measurement_overrides))
   # Subcomponent trajectory of type QuanserComponents.TrajectorySource
   trajectory_overrides = __pop_subcomponent_overrides!(__overrides, "trajectory")
-  push!(__systems, @named trajectory = QuanserComponents.TrajectorySource(; filename=traj_file, column=traj_column, trajectory_overrides...))
+  push!(__systems, @named trajectory = QuanserComponents.TrajectorySource(; filename=traj_file, column=traj_column, __overrides = trajectory_overrides))
   # Subcomponent supervisor of type QuanserComponents.SafetySupervisor
   supervisor_overrides = __pop_subcomponent_overrides!(__overrides, "supervisor")
-  push!(__systems, @named supervisor = QuanserComponents.SafetySupervisor(; supervisor_overrides...))
-  __bindings[supervisor.umax] = umax
-  __bindings[supervisor.warn] = warn
-  __bindings[supervisor.abort] = abort
-  __bindings[supervisor.pullback] = pullback
-  # Now remove initial conditions in supervisor that correspond to the bindings just added
-  __supervisor_ics = ModelingToolkit.get_initial_conditions(supervisor)
-  __no_namespace_supervisor = ModelingToolkit.toggle_namespacing(supervisor, false)
-  __supervisor_umax = Symbolics.unwrap(__no_namespace_supervisor.umax)::Symbolics.SymbolicT
-  delete!(__supervisor_ics, __supervisor_umax)
-  __supervisor_warn = Symbolics.unwrap(__no_namespace_supervisor.warn)::Symbolics.SymbolicT
-  delete!(__supervisor_ics, __supervisor_warn)
-  __supervisor_abort = Symbolics.unwrap(__no_namespace_supervisor.abort)::Symbolics.SymbolicT
-  delete!(__supervisor_ics, __supervisor_abort)
-  __supervisor_pullback = Symbolics.unwrap(__no_namespace_supervisor.pullback)::Symbolics.SymbolicT
-  delete!(__supervisor_ics, __supervisor_pullback)
+  push!(__systems, @named supervisor = QuanserComponents.SafetySupervisor(; umax=umax, warn=warn, abort=abort, pullback=pullback, __overrides = supervisor_overrides))
+  __dyad_bind_final!(__bindings, supervisor, Symbol[], :umax, umax)
+  __dyad_bind_final!(__bindings, supervisor, Symbol[], :warn, warn)
+  __dyad_bind_final!(__bindings, supervisor, Symbol[], :abort, abort)
+  __dyad_bind_final!(__bindings, supervisor, Symbol[], :pullback, pullback)
   # Subcomponent command of type QuanserComponents.HardwareCommand
   command_overrides = __pop_subcomponent_overrides!(__overrides, "command")
-  push!(__systems, @named command = QuanserComponents.HardwareCommand(; command_overrides...))
-  __bindings[command.umax] = umax
-  # Now remove initial conditions in command that correspond to the bindings just added
-  __command_ics = ModelingToolkit.get_initial_conditions(command)
-  __no_namespace_command = ModelingToolkit.toggle_namespacing(command, false)
-  __command_umax = Symbolics.unwrap(__no_namespace_command.umax)::Symbolics.SymbolicT
-  delete!(__command_ics, __command_umax)
+  push!(__systems, @named command = QuanserComponents.HardwareCommand(; umax=umax, __overrides = command_overrides))
+  __dyad_bind_final!(__bindings, command, Symbol[], :umax, umax)
   # Subcomponent diagnostics of type QuanserComponents.HardwareDiagnostics
   diagnostics_overrides = __pop_subcomponent_overrides!(__overrides, "diagnostics")
-  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; diagnostics_overrides...))
+  push!(__systems, @named diagnostics = QuanserComponents.HardwareDiagnostics(; __overrides = diagnostics_overrides))
   # Subcomponent logger of type QuanserComponents.DataLogger
   logger_overrides = __pop_subcomponent_overrides!(__overrides, "logger")
-  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=IDENTIFICATION_LOG_NCOLS, filename=log_file, header=IDENTIFICATION_LOG_HEADER, logger_overrides...))
+  push!(__systems, @named logger = QuanserComponents.DataLogger(; n=IDENTIFICATION_LOG_NCOLS, filename=log_file, header=IDENTIFICATION_LOG_HEADER, __overrides = logger_overrides))
   # Subcomponent periodicclock of type DiscreteComponents.PeriodicClock
   periodicclock_overrides = __pop_subcomponent_overrides!(__overrides, "periodicclock")
-  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, periodicclock_overrides...))
+  push!(__systems, @named periodicclock = DiscreteComponents.PeriodicClock(; dt=Ts, __symbol_overrides(periodicclock_overrides)...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -166,6 +160,6 @@ amplifier's 10) and stay near the machine.
   push!(__eqs, connect(measurement.shoulder_angle, supervisor.arm, periodicclock.y, logger.u[2]))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaIdentification
