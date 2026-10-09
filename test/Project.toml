@@ -32,7 +32,8 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
 LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
-MPCComponents = {rev = "main", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
+# codegen v2 head of JuliaComputing/MPCComponents.jl#103; repin to main after it merges.
+MPCComponents = {rev = "2a17038864ef04e4d1b0cde054c04f0928b4572f", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
 MultibodyComponents = {path = "../../MultibodyComponents"}
 QuanserComponents = {path = ".."}
 acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
@@ -42,3 +43,9 @@ tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_re
 LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
 acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
 tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
+
+[compat]
+BlockComponents = "5"
+DiscreteComponents = "0.6"
+MPCComponents = "0.2"
+MultibodyComponents = "0.3"
