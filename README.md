@@ -29,12 +29,8 @@ pkg> add ModelingToolkit MultibodyComponents SynchToolkit OrdinaryDiffEqDefault
 
 ### The simulation-only branch
 
-Those commands resolve `main` only for someone who can reach the repositories the MPC
-controller is pinned to: MPCComponents is not registered, and `[sources]` names branch
-a branch build of LinearMPC, two unregistered acados JLLs and one local checkout
-(see [Environment](#environment) below). Everyone
-else installs the branch `simulation-only`, which is `main` as of the commit before the
-MPC work and resolves entirely to registered versions:
+Those commands resolve `main` against General and DyadRegistry. The branch `simulation-only` is
+`main` as of the commit before the MPC work, with no MPCComponents dependency, and remains available:
 
 ```julia
 pkg> registry add https://github.com/JuliaComputing/DyadRegistry
@@ -269,42 +265,36 @@ no C harness for it, since `run_hardware.c` drives a single tick.
 
 ### Environment
 
-MPCComponents is not registered, and the MPC stack it needs is not all released. What is still
-pinned is an unregistered LinearMPC fork and the two acados JLLs.
+Every dependency comes from General or DyadRegistry, and no `[sources]` entry points to a
+repository or a local checkout. The MPC stack is MPCComponents 0.2, which brings LinearMPCRuntime and
+the vendored solver packages DyadLinearMPC, DyadDAQP, DyadDAQP_jll and DyadAcados_jll; MultibodyComponents
+is 0.3. The registry is added with
 
-DiscreteComponents comes from DyadRegistry as of 0.4.0, which carries both `AlphaBetaGammaFilter`,
-the velocity estimator of the multirate model (JuliaComputing/DiscreteComponents.jl#119), and
-`Latest`, its clock transition (JuliaComputing/DiscreteComponents.jl#121). The bound is `0.4`
-rather than `0.3` because that release removed `LastValue`, which `Latest` replaces.
+```julia
+pkg> registry add https://github.com/JuliaComputing/DyadRegistry
+```
 
-The whole Synch stack comes from DyadRegistry too. SynchJulia is 0.8.1, and SynchCompiler no longer
-exists, having been merged into SynchJulia by JuliaComputing/SynchJulia.jl#205. SynchToolkit is
-0.5.1 (JuliaComputing/SynchToolkit.jl#214), which has both the `Latest` clock-crossing operator
-the multirate model needs (JuliaComputing/SynchToolkit.jl#199) and, through the clock rework of
-JuliaComputing/SynchToolkit.jl#186, the array clocked variables the MPC's outputs are. Registry
-0.5.0 has neither, so `[compat]` reads `SynchToolkit = "0.5.1"`; with 0.5.0, compiling
-`FurutaMPCHardware` fails inside `stkcompile` with
+The Synch stack is SynchJulia 0.8 and SynchToolkit 0.5.1 or later. SynchToolkit 0.5.1 has the
+`Latest` clock-crossing operator the multirate model needs (JuliaComputing/SynchToolkit.jl#199) and,
+through the clock rework of JuliaComputing/SynchToolkit.jl#186, the array clocked variables the MPC's
+outputs are. With 0.5.0, compiling `FurutaMPCHardware` fails inside `stkcompile` with
 
 ```
 KeyError: key (control_system₊mpc₊u(t))[1] not found
 ```
 
-This branch checks in `Manifest.toml` and `test/Manifest.toml`, resolved against the pinned stack.
-MPCComponents comes from its GitHub `main` (which has to include
-[JuliaComputing/MPCComponents.jl#31](https://github.com/JuliaComputing/MPCComponents.jl/pull/31):
-without it the multibody prediction model is rejected as time-varying), and one package has to
-come from a local checkout recorded relative to this repository: `../MultibodyComponents` (the
-`~/.julia/dev` checkout; the registered release does not resolve against these pins). With both
-next to the repo,
+DiscreteComponents is 0.6, which has both `AlphaBetaGammaFilter`, the velocity estimator of the
+multirate model (JuliaComputing/DiscreteComponents.jl#119), and `Latest`, its clock transition
+(JuliaComputing/DiscreteComponents.jl#121).
+
+`Manifest.toml` and `test/Manifest.toml` are checked in, resolved against these versions, so
 
 ```
 julia --project=path/to/QuanserComponents -e 'using Pkg; Pkg.instantiate()'   # the package
 julia --project=path/to/QuanserComponents/test test/hardware_mpc.jl           # the scripts
 ```
 
-is all it takes. For an environment of your own, copy the `[sources]` block (and the `[extras]`
-entries they refer to) from Project.toml into it. The first `using` precompiles the multibody and
-acados trees, a few minutes.
+is all it takes. The first `using` precompiles the multibody and acados trees, a few minutes.
 
 ## Layout
 

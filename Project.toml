@@ -31,38 +31,6 @@ SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
 ThermalComponents = "084a29d9-4f48-4925-95b4-b7d4c79725f4"
 TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 
-# MPCComponents is not registered, and the MPC stack it needs is not all released. What each pin
-# is for:
-#
-#   MPCComponents  its `main`, which has to include two pull requests:
-#                 JuliaComputing/MPCComponents.jl#31, without which the multibody prediction model
-#                 is rejected as time-varying, and #44, the non-uniform shooting grid
-#                 (`time_steps`, `linear_time_steps`) the multirate controller's horizon is laid
-#                 out with.
-#   LinearMPC, acados JLLs  unregistered forks MPCComponents builds on.
-#
-# DiscreteComponents is no longer pinned either: 0.4.0 has both `AlphaBetaGammaFilter`, the velocity
-# estimator (JuliaComputing/DiscreteComponents.jl#119), and `Latest`, the clock transition (#121),
-# which are what the multirate model took the integration branch for. The bound is `0.4` and not
-# `0.3` because that release removed `LastValue`.
-#
-# Neither SynchJulia nor SynchToolkit is pinned any more. SynchJulia 0.8.1 is in DyadRegistry, and
-# SynchCompiler is gone entirely, merged into SynchJulia by JuliaComputing/SynchJulia.jl#205.
-# SynchToolkit 0.5.1 (JuliaComputing/SynchToolkit.jl#214) is the release of the `main` that carries
-# the `Latest` clock-crossing operator (#199), which `DiscreteComponents.Latest` and so the
-# multirate model need; its #186 clock rework also compiles the MPC's array clocked variables,
-# which `mpccomponents/sj0.8` carried #185 for. Registry 0.5.0 has neither, hence the `0.5.1` bound.
-#
-# These sources take effect when this project (or one that copies them) is the active environment.
-# Pkg rewrites this file on every resolve and drops these comments; restore them from git afterwards.
-[sources]
-LinearMPC = {rev = "feat/disturbance-cross-term", url = "https://github.com/baggepinnen/LinearMPC.jl.git"}
-# codegen v2 head of JuliaComputing/MPCComponents.jl#103; repin to main after it merges.
-MPCComponents = {rev = "2a17038864ef04e4d1b0cde054c04f0928b4572f", url = "https://github.com/JuliaComputing/MPCComponents.jl"}
-MultibodyComponents = {path = "../MultibodyComponents"}
-acados_jll = {rev = "main", url = "https://github.com/baggepinnen/acados_jll.jl"}
-tera_renderer_jll = {rev = "main", url = "https://github.com/baggepinnen/tera_renderer_jll.jl"}
-
 [compat]
 BlockComponents = "5"
 ControlSystemsBase = "1"
@@ -97,11 +65,8 @@ kernel = "2.3.0"
 [extras]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-LinearMPC = "82e1c212-e1a2-49d2-b26a-a31d6968e3bd"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-acados_jll = "49ddb18e-ca18-5f65-a4dd-7588daaac186"
-tera_renderer_jll = "73a839a6-9370-58f6-a727-029f0c62a9a5"
 
 [targets]
 test = ["CSV", "DataFrames", "Plots", "Test"]
