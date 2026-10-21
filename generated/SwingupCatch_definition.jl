@@ -60,17 +60,13 @@
 
   ### Symbolic Parameters
   __local__friction_comp = friction_comp
-  append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward
-  append!(__params, @parameters (friction_comp::Real), [description = is wired up but inactive."])
+  append!(__params, @parameters (friction_comp::Real), [description = "Fraction of the modelled friction to compensate. **Defaults to 0**, i.e. the feedforward\nis wired up but inactive."])
   __dyad_seed_parameter!(__initial_conditions, __bindings, friction_comp, __local__friction_comp)
   __local__volt_per_torque = volt_per_torque
   append!(__params, @parameters (volt_per_torque::Real), [description = "Command needed per unit of motor torque, Rm/kt [V/(N*m)]"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, volt_per_torque, __local__volt_per_torque)
   __local__umax = umax
-  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and
-  append!(__params, @parameters (umax::Real), [description = a parameter here so a model built around this one can bind it to the motor saturation it
-  append!(__params, @parameters (umax::Real), [description = also clamps the command to (`FurutaHardware` does). The swing-up phase has its own,
-  append!(__params, @parameters (umax::Real), [description = smaller limit in `energyswingup.umax`"])
+  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V]. Forwarded to `lqrstabilizer`, and\na parameter here so a model built around this one can bind it to the motor saturation it\nalso clamps the command to (`FurutaHardware` does). The swing-up phase has its own,\nsmaller limit in `energyswingup.umax`"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)

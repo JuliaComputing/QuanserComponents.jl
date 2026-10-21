@@ -80,18 +80,13 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   append!(__params, @parameters (umax::Float64), [description = "Motor saturation [V]"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
   __local__arm_deg = arm_deg
-  append!(__params, @parameters (arm_deg::Float64), [description = "Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at
-  append!(__params, @parameters (arm_deg::Float64), [description = its home position first"])
+  append!(__params, @parameters (arm_deg::Float64), [description = "Arm angle [deg] at start-up, added to every shoulder reading, so the arm need not be at\nits home position first"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, arm_deg, __local__arm_deg)
   __local__card_options = card_options
-  append!(__params, @parameters (card_options::String), [description = "Card-specific options applied after opening the board, e.g.
-  append!(__params, @parameters (card_options::String), [description = \\\"deadband_compensation=0.65\\\". Empty leaves qube_hw.c on its own default, which is
-  append!(__params, @parameters (card_options::String), [description = what every run should normally use: the command-to-torque path has to be the same one
-  append!(__params, @parameters (card_options::String), [description = the identified parameters were fitted against"])
+  append!(__params, @parameters (card_options::String), [description = "Card-specific options applied after opening the board, e.g.\n\\\"deadband_compensation=0.65\\\". Empty leaves qube_hw.c on its own default, which is\nwhat every run should normally use: the command-to-torque path has to be the same one\nthe identified parameters were fitted against"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, card_options, __local__card_options)
   __local__backend = backend
-  append!(__params, @parameters (backend::String), [description = "Backend to build the program on when it runs in-process, \\\"julia\\\" or \\\"c\\\". Ignored when
-  append!(__params, @parameters (backend::String), [description = `export_c` is true, which always builds C"])
+  append!(__params, @parameters (backend::String), [description = "Backend to build the program on when it runs in-process, \\\"julia\\\" or \\\"c\\\". Ignored when\n`export_c` is true, which always builds C"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, backend, __local__backend)
   __local__export_c = export_c
   append!(__params, @parameters (export_c::Bool), [description = "Export the program as standalone C into `output_dir`, and run that instead of in-process"])
@@ -100,14 +95,10 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   append!(__params, @parameters (output_dir::String), [description = "Directory the generated C sources and the log are written to"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, output_dir, __local__output_dir)
   __local__log_file = log_file
-  append!(__params, @parameters (log_file::String), [description = "File the program writes its log to. Passed to the `DataLogger` inside the model *and* used
-  append!(__params, @parameters (log_file::String), [description = to open the file, so the two cannot disagree. Empty keeps the program's own default name.
-  append!(__params, @parameters (log_file::String), [description = Exported and deployed runs use the bare file name inside their own directory, since an
-  append!(__params, @parameters (log_file::String), [description = absolute path from this machine means nothing on the target"])
+  append!(__params, @parameters (log_file::String), [description = "File the program writes its log to. Passed to the `DataLogger` inside the model *and* used\nto open the file, so the two cannot disagree. Empty keeps the program's own default name.\nExported and deployed runs use the bare file name inside their own directory, since an\nabsolute path from this machine means nothing on the target"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, log_file, __local__log_file)
   __local__deploy_host = deploy_host
-  append!(__params, @parameters (deploy_host::String), [description = "Host to build and run on, e.g. \\\"username@hostname\\\"; empty runs on this machine. Implies
-  append!(__params, @parameters (deploy_host::String), [description = `export_c`, since C sources are what gets copied over"])
+  append!(__params, @parameters (deploy_host::String), [description = "Host to build and run on, e.g. \\\"username@hostname\\\"; empty runs on this machine. Implies\n`export_c`, since C sources are what gets copied over"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, deploy_host, __local__deploy_host)
   __local__deploy_dir = deploy_dir
   append!(__params, @parameters (deploy_dir::String), [description = "Directory on `deploy_host` to copy the sources into"])
@@ -134,26 +125,22 @@ using QuanserComponents: AbstractQubeHardwareRunBaseSpec, QubeHardwareRunBaseSpe
   append!(__params, @parameters (t_step::Float64), [description = "Time held at each speed [s]"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, t_step, __local__t_step)
   __local__spacing = spacing
-  append!(__params, @parameters (spacing::Float64), [description = "Speed-distribution exponent: 2 (quadratic) clusters the levels at low speed, where the
-  append!(__params, @parameters (spacing::Float64), [description = friction curve has its structure; 1 spaces them evenly"])
+  append!(__params, @parameters (spacing::Float64), [description = "Speed-distribution exponent: 2 (quadratic) clusters the levels at low speed, where the\nfriction curve has its structure; 1 spaces them evenly"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, spacing, __local__spacing)
   __local__K = K
   append!(__params, @parameters (K::Float64), [description = "Velocity-loop proportional gain [V·s/rad]"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, K, __local__K)
   __local__Ti = Ti
-  append!(__params, @parameters (Ti::Float64), [description = "Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well
-  append!(__params, @parameters (Ti::Float64), [description = above `Ts`"])
+  append!(__params, @parameters (Ti::Float64), [description = "Velocity-loop integral time [s]. The integrator is forward-Euler, so this must be well\nabove `Ts`"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, Ti, __local__Ti)
   __local__settle = settle
-  append!(__params, @parameters (settle::Float64), [description = "Time [s] discarded after each change of the velocity reference. The fit assumes zero
-  append!(__params, @parameters (settle::Float64), [description = acceleration, so the transient at each step has to go"])
+  append!(__params, @parameters (settle::Float64), [description = "Time [s] discarded after each change of the velocity reference. The fit assumes zero\nacceleration, so the transient at each step has to go"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, settle, __local__settle)
   __local__acc_tol = acc_tol
   append!(__params, @parameters (acc_tol::Float64), [description = "Largest |arm acceleration| [rad/s²] still counted as constant speed"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, acc_tol, __local__acc_tol)
   __local__elbow_tol = elbow_tol
-  append!(__params, @parameters (elbow_tol::Float64), [description = "Largest |pendulum velocity| [rad/s] accepted. At constant arm speed the pendulum
-  append!(__params, @parameters (elbow_tol::Float64), [description = should be at rest too; while it swings it is a torque disturbance"])
+  append!(__params, @parameters (elbow_tol::Float64), [description = "Largest |pendulum velocity| [rad/s] accepted. At constant arm speed the pendulum\nshould be at rest too; while it swings it is a torque disturbance"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, elbow_tol, __local__elbow_tol)
   __local__w_min_fit = w_min_fit
   append!(__params, @parameters (w_min_fit::Float64), [description = "Slowest |velocity| [rad/s] used in the fit; near standstill the sign term is undefined"])

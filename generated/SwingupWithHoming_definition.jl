@@ -74,9 +74,7 @@ recovery). If the arm stays out of bounds long enough (out-of-bounds counter bey
   append!(__params, @parameters (oob_threshold::Real), [description = "Out-of-bounds counter value that triggers re-homing"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, oob_threshold, __local__oob_threshold)
   __local__umax = umax
-  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V], forwarded down to
-  append!(__params, @parameters (umax::Real), [description = `runtime.swingup_catch.lqrstabilizer`. A model wrapping this one binds it to the motor
-  append!(__params, @parameters (umax::Real), [description = saturation, which is why it exists at every level of the chain"])
+  append!(__params, @parameters (umax::Real), [description = "Saturation of the stabilizing controller's output [V], forwarded down to\n`runtime.swingup_catch.lqrstabilizer`. A model wrapping this one binds it to the motor\nsaturation, which is why it exists at every level of the chain"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)

@@ -71,9 +71,7 @@ automatically by the runners in src/program.jl.
 
   ### Symbolic Parameters
   __local__umax = umax
-  append!(__params, @parameters (umax::Real), [description = "Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand`
-  append!(__params, @parameters (umax::Real), [description = clamps to it as well, so no command outside the amplifier's range can be produced or
-  append!(__params, @parameters (umax::Real), [description = written. Runtime-settable, being one of the compiled program's `TuningGains`"])
+  append!(__params, @parameters (umax::Real), [description = "Motor saturation [V]: the stabilizer saturates its output here and `HardwareCommand`\nclamps to it as well, so no command outside the amplifier's range can be produced or\nwritten. Runtime-settable, being one of the compiled program's `TuningGains`"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)

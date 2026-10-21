@@ -26,6 +26,7 @@ let api = isdefined(DiscreteComponents, :__dyad_constructor_api) ? DiscreteCompo
   api == 2 || error("DiscreteComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate DiscreteComponents with the same Dyad compiler that generated QuanserComponents.")
 end
 import DyadData
+import DyadInterface
 import ElectricalComponents
 let api = isdefined(ElectricalComponents, :__dyad_constructor_api) ? ElectricalComponents.__dyad_constructor_api : 1
   api == 2 || error("ElectricalComponents was generated with Dyad constructor API version $api, but QuanserComponents requires version 2 (the `__overrides` dict override channel). Regenerate ElectricalComponents with the same Dyad compiler that generated QuanserComponents.")

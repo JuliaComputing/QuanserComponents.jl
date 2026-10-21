@@ -86,8 +86,7 @@ amplifier's 10) and stay near the machine.
 
   ### Symbolic Parameters
   __local__umax = umax
-  append!(__params, @parameters (umax::Real), [description = "Hard clamp on anything written [V]. Deliberately well below the amplifier's range: this
-  append!(__params, @parameters (umax::Real), [description = is an open-loop replay, so nothing here corrects an unexpected response"])
+  append!(__params, @parameters (umax::Real), [description = "Hard clamp on anything written [V]. Deliberately well below the amplifier's range: this\nis an open-loop replay, so nothing here corrects an unexpected response"])
   __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
   __local__warn = warn
   append!(__params, @parameters (warn::Real), [description = "Arm angle beyond which the command is replaced by a pull-back [rad]"])
