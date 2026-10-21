@@ -111,7 +111,9 @@ Clock-agnostic.
   ### Components
   # Subcomponent sampletimesource of type DiscreteComponents.SampleTimeSource
   sampletimesource_overrides = __pop_subcomponent_overrides!(__overrides, "sampletimesource")
-  push!(__systems, @named sampletimesource = DiscreteComponents.SampleTimeSource(; __symbol_overrides(sampletimesource_overrides)...))
+  if realtime
+    push!(__systems, @named sampletimesource = DiscreteComponents.SampleTimeSource(; __symbol_overrides(sampletimesource_overrides)...))
+  end
 
   ### Check there are no unmatched overrides
   isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))

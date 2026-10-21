@@ -124,7 +124,7 @@ component HardwareDiagnostics@[input clk extends Discrete]
   count_elbow = Dyad.RealOutput@[clk]() {^count_elbow}
   "Seconds this tick overran its slot when pacing in real time; 0 when it waited (only with realtime)"
   late = Dyad.RealOutput@[clk]() if realtime {^late}
-  sampletimesource = DiscreteComponents.SampleTimeSource() {^sampletimesource}
+  sampletimesource = DiscreteComponents.SampleTimeSource() if realtime {^sampletimesource}
   "Pace the program in real time from the inside (for a simulated program driving the device); off for a program run by a timing loop"
   structural parameter realtime::Boolean = false
 relations
