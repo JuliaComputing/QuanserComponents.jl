@@ -61,6 +61,9 @@ function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0,
         ssys.qubependulum.voltage            => 0.0,
         ssys.elbow_sampler.u    => 0.0,
         ssys.shoulder_sampler.u => 0.0,
+        # The held command is the parameter of the linearization: with `u_plant` opened, the discrete
+        # variable `zeroorderhold.u` has no equation giving `Hold()(zeroorderhold.u)` a value.
+        ModelingToolkit.Hold(ssys.zeroorderhold.u) => 0.0,
     )
     # Zero, in the operating point, exactly the friction terms the controller's feedforward
     # cancels (`SwingupCatch.friction_ff`, built with `kv = 0`) — designing against a
