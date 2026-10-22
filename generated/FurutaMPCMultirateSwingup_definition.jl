@@ -12,9 +12,9 @@
 
 The plant is sampled and the state estimated at `Ts_fast`; the MPC solves at `Ts` and its move is
 held over the whole `Ts`, so the voltage the plant sees is piecewise constant on the MPC's clock
-and not on the sensing clock. Two `PeriodicClock`s declare the two rates, the fast one on the
-measurement net and the slow one on the command net; both are needed, since nothing else pins the
-MPC's partition.
+and not on the sensing clock. `PeriodicClock` components declare the sampling period on each
+independent measurement net and the MPC period on the command net. The rate transitions separate
+these partitions, so each requires a clock declaration.
 
 `Ts` must be an integer multiple of `Ts_fast`, and one whose tick instants coincide exactly in
 floating point so that the two clocks tick simultaneously and no drift accumulates -- at the
@@ -107,6 +107,9 @@ with `dt = Ts_fast`: the base step has to resolve the fastest clock.
   # Subcomponent fastclock of type DiscreteComponents.PeriodicClock
   fastclock_overrides = __pop_subcomponent_overrides!(__overrides, "fastclock")
   push!(__systems, @named fastclock = DiscreteComponents.PeriodicClock(; dt=Ts_fast, __symbol_overrides(fastclock_overrides)...))
+  # Subcomponent elbowclock of type DiscreteComponents.PeriodicClock
+  elbowclock_overrides = __pop_subcomponent_overrides!(__overrides, "elbowclock")
+  push!(__systems, @named elbowclock = DiscreteComponents.PeriodicClock(; dt=Ts_fast, __symbol_overrides(elbowclock_overrides)...))
   # Subcomponent slowclock of type DiscreteComponents.PeriodicClock
   slowclock_overrides = __pop_subcomponent_overrides!(__overrides, "slowclock")
   push!(__systems, @named slowclock = DiscreteComponents.PeriodicClock(; dt=Ts, __symbol_overrides(slowclock_overrides)...))
@@ -128,7 +131,7 @@ with `dt = Ts_fast`: the base step has to resolve the fastest clock.
   push!(__eqs, connect(qubependulum.shoulder_angle, shoulder_sampler.u))
   push!(__eqs, connect(qubependulum.elbow_angle, elbow_sampler.u))
   push!(__eqs, connect(shoulder_sampler.y, control_system.shoulder_angle, fastclock.y))
-  push!(__eqs, connect(elbow_sampler.y, control_system.elbow_angle))
+  push!(__eqs, connect(elbow_sampler.y, control_system.elbow_angle, elbowclock.y))
   push!(__eqs, connect(control_system.u, zeroorderhold.u, slowclock.y))
   push!(__eqs, connect(zeroorderhold.y, qubependulum.voltage))
 

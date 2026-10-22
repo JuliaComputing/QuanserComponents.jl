@@ -78,7 +78,7 @@ component FurutaMPCMultirate
   latest_shoulder_rate = DiscreteComponents.Latest() {^latest_shoulder_rate}
   latest_elbow_rate = DiscreteComponents.Latest() {^latest_elbow_rate}
   anglenormalization = QuanserComponents.AngleNormalization() {^anglenormalization}
-  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final state_variables = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_OUTPUTS, final Ts = Ts, final Np = Np, final time_steps = time_steps, final Q1 = furuta_mpc_weight(Q1, energy_weight), final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), final integrator_stages = integrator_stages, final backend = MPCComponents.ACADOSBackend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
+  mpc = MPCComponents.ACADOSMPC(final dynamics = dynamics, final state_variables = FURUTA_MPC_STATES, final outputs = FURUTA_MPC_OUTPUTS, final Ts = Ts, final Np = Np, final time_steps = time_steps, final Q1 = furuta_mpc_weight(Q1, energy_weight), final Q2 = Q2, final umin = [-umax], final umax = [umax], final constrained = FURUTA_MPC_CONSTRAINED, final constrained_min = [-arm_limit, -velocity_limit_shoulder, -velocity_limit_elbow], final constrained_max = [arm_limit, velocity_limit_shoulder, velocity_limit_elbow], final soft_weight = soft_weight, final terminal_lqr_cost = true, final operating_point = [0, pi, 0, 0], final nlp_solver = nlp_solver, final warm_start = warm_start, final reset_on_failure = true, integrator = MPCComponents.ACADOSIntegrator.ERK(), final integrator_stages = integrator_stages, final backend = MPCComponents.Backend.Julia(), final max_iter = max_iter, final levenberg_marquardt = levenberg_marquardt, final qp_cond_N = qp_cond_N, final output_trajectories = output_trajectories, qp_solver = MPCComponents.ACADOSQPSolver.PartialCondensingHPIPM(), penalize_increments = false) {^mpc}
   zero = BlockComponents.Sources.Constant(final k = 0) {^zero}
   upright = BlockComponents.Sources.Constant(final k = pi) {^upright}
   level = BlockComponents.Sources.Constant(final k = 1) {^level}
@@ -303,9 +303,9 @@ end
 
 The plant is sampled and the state estimated at `Ts_fast`; the MPC solves at `Ts` and its move is
 held over the whole `Ts`, so the voltage the plant sees is piecewise constant on the MPC's clock
-and not on the sensing clock. Two `PeriodicClock`s declare the two rates, the fast one on the
-measurement net and the slow one on the command net; both are needed, since nothing else pins the
-MPC's partition.
+and not on the sensing clock. `PeriodicClock` components declare the sampling period on each
+independent measurement net and the MPC period on the command net. The rate transitions separate
+these partitions, so each requires a clock declaration.
 
 `Ts` must be an integer multiple of `Ts_fast`, and one whose tick instants coincide exactly in
 floating point so that the two clocks tick simultaneously and no drift accumulates -- at the
@@ -321,6 +321,7 @@ component FurutaMPCMultirateSwingup
   elbow_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^elbow_sampler}
   shoulder_sampler = DiscreteComponents.SampleWithADEffects(quantized = false, sigma = 0.00001) {^shoulder_sampler}
   fastclock = DiscreteComponents.PeriodicClock(final dt = Ts_fast) {^fastclock}
+  elbowclock = DiscreteComponents.PeriodicClock(final dt = Ts_fast) {^elbowclock}
   slowclock = DiscreteComponents.PeriodicClock(final dt = Ts) {^slowclock}
   world = MultibodyComponents.World(default_body_color = gray, default_rod_color = gray, default_joint_color = gray, nominal_length = 0.1, render = false) {^world}
   parameter gray::Real[4] = [0.9, 0.9, 0.9, 1]
@@ -338,7 +339,7 @@ relations
   connect(qubependulum.shoulder_angle, shoulder_sampler.u) {^id9}
   connect(qubependulum.elbow_angle, elbow_sampler.u) {^id10}
   connect(shoulder_sampler.y, control_system.shoulder_angle, fastclock.y) {^id11}
-  connect(elbow_sampler.y, control_system.elbow_angle) {^id12}
+  connect(elbow_sampler.y, control_system.elbow_angle, elbowclock.y) {^id12}
   # The MPC's clock is declared on the command net, the way the sensing clock is declared on the
   # measurement net: this is where the `Latest` reads inside `control_system` get their reading
   # clock, and it is what makes the hold span a whole `Ts`.
@@ -364,6 +365,9 @@ metadata {
     },
     "fastclock": {
       "Dyad": {"placement": {"diagram": {"x1": 150, "x2": 50, "y1": 150, "y2": 250}}}
+    },
+    "elbowclock": {
+      "Dyad": {"placement": {"diagram": {"x1": 300, "x2": 200, "y1": 150, "y2": 250}}}
     },
     "slowclock": {
       "Dyad": {"placement": {"diagram": {"x1": 400, "x2": 500, "y1": 150, "y2": 250}}}
@@ -394,7 +398,10 @@ metadata {
     },
     "id12": {
       "Dyad": {
-        "edges": [{"S": 1, "M": [{"x": 150, "y": 510}, {"x": 150, "y": 364}], "E": 2}],
+        "edges": [
+          {"S": 1, "M": [{"x": 150, "y": 510}, {"x": 150, "y": 364}], "E": 2},
+          {"S": 2, "M": [{"x": 180, "y": 364}, {"x": 180, "y": 100}, {"x": 330, "y": 100}, {"x": 330, "y": 200}], "E": 3}
+        ],
         "path": {}
       }
     },

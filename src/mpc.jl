@@ -53,8 +53,8 @@ component can express. See `FurutaPredictionModel` (dyad/furuta_mpc.dyad) for th
 The result is a pure ODE with state dimension four. The state variables listed in
 `FURUTA_MPC_STATES` are the joint angles `shoulder_joint.phi`, `elbow_joint.phi` and their
 derivatives. The motor voltage is the input. Signal names use the `qube₊` prefix, and
-`pendulum_energy_ratio` is also available. These are the signals exposed by the prediction
-model; multibody rendering variables are excluded.
+`pendulum_energy_ratio` is also available. Observations used only for rendering are excluded
+from prediction-model signal extraction.
 
 `jacobian_backend` must be an AD backend (`:forwarddiff`, `:finitediff` or their `:sparse_`
 variants): the compiled multibody model references cached linear solves that the `:symbolic`
@@ -94,8 +94,19 @@ function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol =
         ssys = MultibodyComponents.multibody(model; inputs = u)
         # MPC signal extraction must not expand the multibody rendering observations.
         energy = ModelingToolkit.unwrap(ssys.pendulum_energy_ratio)
-        obs = filter(eq -> isequal(eq.lhs, energy), ModelingToolkit.observed(ssys))
-        ssys = setproperties(ssys, (; observed = obs))
+        obs = ModelingToolkit.observed(ssys)
+        required = Set([energy])
+        for eq in ModelingToolkit.equations(ssys)
+            union!(required, Symbolics.get_variables(eq.rhs))
+        end
+        previous = 0
+        while length(required) != previous
+            previous = length(required)
+            for eq in obs
+                eq.lhs in required && union!(required, Symbolics.get_variables(eq.rhs))
+            end
+        end
+        ssys = setproperties(ssys, (; observed = filter(eq -> eq.lhs in required, obs)))
         continuous_dynamics(ssys; inputs = u, jacobian_backend)
     end
 end
