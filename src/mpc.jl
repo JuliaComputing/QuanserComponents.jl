@@ -49,9 +49,10 @@ The model itself is Dyad's -- the `QubePendulum` plus the `pendulum_energy_ratio
 swing-up term weights -- so what happens here is only the compilation, which is the part no
 component can express. See `FurutaPredictionModel` (dyad/furuta_mpc.dyad) for the equations.
 
-The result is a pure ODE with the four states `FURUTA_MPC_STATES` -- the joint angles
-`shoulder_joint.phi`, `elbow_joint.phi` and their derivatives -- and the motor voltage as
-its one input, in `qube₊`-prefixed signal names, plus `pendulum_energy_ratio`.
+The result is a pure ODE with state dimension four. The state variables listed in
+`FURUTA_MPC_STATES` are the joint angles `shoulder_joint.phi`, `elbow_joint.phi` and their
+derivatives. The motor voltage is the input. Signal names use the `qube₊` prefix, and
+`pendulum_energy_ratio` is also available.
 
 `jacobian_backend` must be an AD backend (`:forwarddiff`, `:finitediff` or their `:sparse_`
 variants): the compiled multibody model references cached linear solves that the `:symbolic`
@@ -85,7 +86,7 @@ function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol =
         # the flattened system, and an added port would only be aliased onto this one. It is
         # reached through the un-namespaced view for the same reason `compile_program` does
         # that -- the root's own name is not part of the flattened symbol names, so this is
-        # `qube₊voltage`, spelled the way `FURUTA_MPC_STATES` spells the states.
+        # `qube₊voltage`, spelled the way `FURUTA_MPC_STATES` specifies the state variable names.
         nsys = ModelingToolkit.toggle_namespacing(model, false)
         u = [nsys.qube.voltage]
         ssys = MultibodyComponents.multibody(model; inputs = u)
