@@ -2579,7 +2579,7 @@ version = "2.11.3"
     Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 
 [[deps.QuanserComponents]]
-deps = ["BlockComponents", "ControlSystemsBase", "ControlSystemsMTK", "DiscreteComponents", "DyadData", "DyadInterface", "ElectricalComponents", "HydraulicComponents", "LinearAlgebra", "MPCComponents", "Markdown", "ModelingToolkit", "Moshi", "MultibodyComponents", "OrderedCollections", "OrdinaryDiffEqDefault", "PrecompileTools", "Printf", "RecipesBase", "RotationalComponents", "RuntimeGeneratedFunctions", "SymbolicIndexingInterface", "SynchJulia", "SynchToolkit", "ThermalComponents", "TranslationalComponents"]
+deps = ["BlockComponents", "ConstructionBase", "ControlSystemsBase", "ControlSystemsMTK", "DiscreteComponents", "DyadData", "DyadInterface", "ElectricalComponents", "HydraulicComponents", "LinearAlgebra", "MPCComponents", "Markdown", "ModelingToolkit", "Moshi", "MultibodyComponents", "OrderedCollections", "OrdinaryDiffEqDefault", "PrecompileTools", "Printf", "RecipesBase", "RotationalComponents", "RuntimeGeneratedFunctions", "SymbolicIndexingInterface", "SynchJulia", "SynchToolkit", "ThermalComponents", "TranslationalComponents"]
 path = ".."
 uuid = "d44921f8-446f-4040-8b54-e37c69fd1e29"
 version = "0.2.0"

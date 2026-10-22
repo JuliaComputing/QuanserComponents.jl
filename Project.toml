@@ -5,6 +5,7 @@ authors = ["Fredrik Bagge Carlson <baggepinnen@gmail.com>"]
 
 [deps]
 BlockComponents = "1ef5d832-be8e-447f-9f2c-8b5d17d15fd3"
+ConstructionBase = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
 ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
 ControlSystemsMTK = "687d7614-c7e5-45fc-bfc3-9ee385575c88"
 DiscreteComponents = "b5590941-51af-4a5a-9bca-5ae7cd448b75"
@@ -33,6 +34,7 @@ TranslationalComponents = "42acc370-819b-4877-bdd6-eb3294461f5d"
 
 [compat]
 BlockComponents = "5"
+ConstructionBase = "1"
 ControlSystemsBase = "1"
 ControlSystemsMTK = "2.6"
 DiscreteComponents = "0.6"

@@ -31,6 +31,7 @@
 # name and nothing in it. Narrowing this to the names used below leaves `diagonal`
 # unresolvable in this module and `FurutaMPC` fails to build.
 using MPCComponents
+using ConstructionBase: setproperties
 using MPCComponents: continuous_dynamics, ContinuousDynamics
 
 export furuta_mpc_dynamics, mpc_log
@@ -52,7 +53,8 @@ component can express. See `FurutaPredictionModel` (dyad/furuta_mpc.dyad) for th
 The result is a pure ODE with state dimension four. The state variables listed in
 `FURUTA_MPC_STATES` are the joint angles `shoulder_joint.phi`, `elbow_joint.phi` and their
 derivatives. The motor voltage is the input. Signal names use the `qube₊` prefix, and
-`pendulum_energy_ratio` is also available.
+`pendulum_energy_ratio` is also available. These are the signals exposed by the prediction
+model; multibody rendering variables are excluded.
 
 `jacobian_backend` must be an AD backend (`:forwarddiff`, `:finitediff` or their `:sparse_`
 variants): the compiled multibody model references cached linear solves that the `:symbolic`
@@ -90,6 +92,10 @@ function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol =
         nsys = ModelingToolkit.toggle_namespacing(model, false)
         u = [nsys.qube.voltage]
         ssys = MultibodyComponents.multibody(model; inputs = u)
+        # MPC signal extraction must not expand the multibody rendering observations.
+        energy = ModelingToolkit.unwrap(ssys.pendulum_energy_ratio)
+        obs = filter(eq -> isequal(eq.lhs, energy), ModelingToolkit.observed(ssys))
+        ssys = setproperties(ssys, (; observed = obs))
         continuous_dynamics(ssys; inputs = u, jacobian_backend)
     end
 end
