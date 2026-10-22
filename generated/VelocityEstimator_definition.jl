@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   VelocityEstimator(; name, filter_param)
+   VelocityEstimator(; name, filter_param, __overrides)
 
 ## Parameters:
 
@@ -18,7 +18,7 @@
  * `pos` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `vel` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function VelocityEstimator(; name = nothing, filter_param=0.5, kwargs...)
+@component function VelocityEstimator(; name = nothing, var"filter_param"=0.5, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -26,7 +26,7 @@
     @named model = VelocityEstimator()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -35,6 +35,9 @@
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "filter_param") && (filter_param = pop!(__overrides, "filter_param"))
 
   ### Structural Parameters (functions)
 
@@ -51,7 +54,7 @@
   ### Symbolic Parameters
   __local__filter_param = filter_param
   append!(__params, @parameters (filter_param::Real), [bounds = (0, 1)])
-  __initial_conditions[filter_param] = __local__filter_param
+  __dyad_seed_parameter!(__initial_conditions, __bindings, filter_param, __local__filter_param)
 
   ### Final Parameters (assignments)
 
@@ -69,19 +72,14 @@
   ### Components
   # Subcomponent discretederivative of type DiscreteComponents.DiscreteDerivative
   discretederivative_overrides = __pop_subcomponent_overrides!(__overrides, "discretederivative")
-  push!(__systems, @named discretederivative = DiscreteComponents.DiscreteDerivative(; discretederivative_overrides...))
+  push!(__systems, @named discretederivative = DiscreteComponents.DiscreteDerivative(; __overrides = discretederivative_overrides))
   # Subcomponent exponentialfilter of type DiscreteComponents.ExponentialFilter
   exponentialfilter_overrides = __pop_subcomponent_overrides!(__overrides, "exponentialfilter")
-  push!(__systems, @named exponentialfilter = DiscreteComponents.ExponentialFilter(; exponentialfilter_overrides...))
-  __bindings[exponentialfilter.a] = filter_param
-  # Now remove initial conditions in exponentialfilter that correspond to the bindings just added
-  __exponentialfilter_ics = ModelingToolkit.get_initial_conditions(exponentialfilter)
-  __no_namespace_exponentialfilter = ModelingToolkit.toggle_namespacing(exponentialfilter, false)
-  __exponentialfilter_a = Symbolics.unwrap(__no_namespace_exponentialfilter.a)::Symbolics.SymbolicT
-  delete!(__exponentialfilter_ics, __exponentialfilter_a)
+  push!(__systems, @named exponentialfilter = DiscreteComponents.ExponentialFilter(; a=filter_param, __overrides = exponentialfilter_overrides))
+  __dyad_bind_final!(__bindings, exponentialfilter, Symbol[], :a, filter_param)
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -96,6 +94,6 @@
   push!(__eqs, connect(exponentialfilter.y, vel))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export VelocityEstimator

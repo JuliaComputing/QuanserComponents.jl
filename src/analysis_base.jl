@@ -1,29 +1,8 @@
-# Spec bases for the analyses that build a synchronous program and run it on the QUBE.
-#
-# Every analysis here -- `FurutaSwingupExperiment`, `FurutaFrictionExperiment`,
-# `FurutaIdentificationExperiment` -- extends the partial analysis
-# `QubeHardwareRunBase` (dyad/qube_hardware_run.dyad) for the parameters that describe
-# building and running a program, and add their own on top. This file mirrors that
-# arrangement on the Julia side: `@qube_run_spec` splices the shared field block into each
-# base spec, so the shared parameters and their defaults are written once here and once in
-# the Dyad partial rather than once per analysis.
-#
-# Included before the generated module, which needs the spec types and the abstract
-# supertype to exist. The implementations live in swingup_analysis.jl, friction_analysis.jl
-# and identification_analysis.jl, included after the codegen helpers.
-#
-# ## Why the root partial owns the entry point
-#
-# The Dyad compiler resolves an analysis' spec type to the *root* of its `extends` chain and
-# carries it down unchanged (`rootAnalysis` in dyad-lang's
-# pkgs/kernel/src/language/properties/analysis/merge.ts), so intermediate partials
-# contribute parameters but no code. With a shared root, both analyses' generated entry
-# points therefore construct `QubeHardwareRunBaseSpec` — the same name, whichever analysis
-# was invoked. `QubeHardwareRunBaseSpec` is consequently a function rather than a struct: it
-# picks the base spec that accepts the parameters it was handed, which keeps one typed
-# `run_analysis` method per analysis.
+# The generated analyses share a root entry point. Their analysis-specific parameters
+# are carried by `__system`; the hand-written specs provide the implementations.
 
 import DyadInterface
+import ModelingToolkit
 using ModelingToolkit: System, SymbolicT
 
 abstract type AbstractQubeHardwareRunBaseSpec <: DyadInterface.AbstractAnalysisSpec end
@@ -31,6 +10,7 @@ abstract type AbstractQubeHardwareRunBaseSpec <: DyadInterface.AbstractAnalysisS
 # The `QubeHardwareRunBase` parameter set, in the same order and with the same defaults as
 # the Dyad partial. `overrides` is the model-parameter map the generated entry point builds
 # out of the analysis' `model = Foo(final x = x)` line; `model` is the built system.
+# `__system` carries the parameters declared by derived analyses.
 const _QUBE_RUN_FIELDS = [
     :(overrides::Dict{SymbolicT, SymbolicT} = Dict{SymbolicT, SymbolicT}()),
     :(Ts::Float64 = 0.005),
@@ -49,6 +29,7 @@ const _QUBE_RUN_FIELDS = [
     :(live_plot_cmd::String = "kst2"),
     :(live_plot_config::String = "kst2config.kst"),
     :(model::Union{Nothing, System} = nothing),
+    :(__system::Union{Nothing, System} = nothing),
 ]
 
 _spec_field_name(ex::Expr) = ex.head === :(=) ? _spec_field_name(ex.args[1]) : ex.args[1]
@@ -119,23 +100,42 @@ end
 const QUBE_RUN_SPECS = (FurutaSwingupBaseSpec, FurutaFrictionBaseSpec,
                         FurutaIdentificationBaseSpec)
 
+# Derived parameter bindings must be evaluated against the analysis initial conditions.
+function _system_values(sys::System)
+    ics = ModelingToolkit.initial_conditions(sys)
+    binds = ModelingToolkit.bindings(sys)
+    env = merge(Dict(ics), Dict(binds))
+    values = Dict{Symbol, Any}()
+    for p in ModelingToolkit.parameters(sys)
+        v = get(env, p, nothing)
+        v === nothing && continue
+        v = ModelingToolkit.Symbolics.value(
+            ModelingToolkit.Symbolics.fixpoint_sub(v, env; fold = Val(true)))
+        values[Symbol(ModelingToolkit.getname(p))] = v
+    end
+    return values
+end
+
+_coerce_field(::Type{T}, v) where {T <: AbstractVector} = T(collect(v))
+_coerce_field(::Type{T}, v) where {T} = convert(T, v)
+
 """
     QubeHardwareRunBaseSpec(; parameters...)
 
-Build the base spec of whichever analysis these parameters belong to.
+Construct the unique analysis specification accepting the supplied parameters.
 
-Not a struct, despite the name: every analysis extending `QubeHardwareRunBase` has this as
-its generated entry point (see the file header), so this is where one entry point fans back
-out into one spec type — and one `run_analysis` implementation — per analysis. The
-parameters an analysis owns beyond the shared set are what identifies it, so the spec chosen
-is the one whose fields cover everything passed. Ambiguity or a parameter no spec knows is an
-error rather than a guess, since silently running the other analysis would be worse.
+Analysis-specific parameters are read from `__system`, including derived bindings.
+Explicit keyword arguments take precedence over values from that system. Ambiguous
+parameter sets and unknown keywords raise an `ArgumentError`.
 """
-function QubeHardwareRunBaseSpec(; name = nothing, kwargs...)
-    given = keys(kwargs)
+function QubeHardwareRunBaseSpec(; name = nothing, __system = nothing, kwargs...)
+    known = union(fieldnames.(QUBE_RUN_SPECS)...)
+    sysvalues = __system isa System ? _system_values(__system) : Dict{Symbol, Any}()
+    filter!(kv -> first(kv) in known, sysvalues)
+    given = union(keys(kwargs), keys(sysvalues))
     match = filter(T -> issubset(given, fieldnames(T)), QUBE_RUN_SPECS)
     if length(match) != 1
-        unknown = setdiff(given, union(fieldnames.(QUBE_RUN_SPECS)...))
+        unknown = setdiff(given, known)
         isempty(unknown) ||
             throw(ArgumentError("no analysis in QUBE_RUN_SPECS has the parameter(s) \
                                  $(join(unknown, ", ")); add its spec there"))
@@ -143,7 +143,13 @@ function QubeHardwareRunBaseSpec(; name = nothing, kwargs...)
                              $(length(match)) analyses ($(join(match, ", "))); they must \
                              identify exactly one"))
     end
-    # `name` is deliberately dropped: the compiler passes the root partial's name, which is
-    # the same for every analysis, so each spec's own default is the more informative one.
-    return only(match)(; kwargs...)
+    T = only(match)
+    # Keywords win over the system, whose values are those the analysis was constructed with.
+    fields = Dict{Symbol, Any}(kwargs)
+    for (f, v) in sysvalues
+        haskey(fields, f) || (fields[f] = _coerce_field(fieldtype(T, f), v))
+    end
+    # `name` is deliberately dropped: each spec's own default is the more informative one.
+    __system isa System && (fields[:__system] = __system)
+    return T(; fields...)
 end

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   Energy(; name, mp, Lp, g)
+   Energy(; name, mp, Lp, g, __overrides)
 
 ## Parameters:
 
@@ -21,7 +21,7 @@
  * `dα` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `E` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function Energy(; name = nothing, mp=0.024, Lp=0.129, g=9.81, kwargs...)
+@component function Energy(; name = nothing, var"mp"=0.024, var"Lp"=0.129, var"g"=9.81, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -29,7 +29,7 @@
     @named model = Energy()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -38,6 +38,11 @@
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "mp") && (mp = pop!(__overrides, "mp"))
+  haskey(__overrides, "Lp") && (Lp = pop!(__overrides, "Lp"))
+  haskey(__overrides, "g") && (g = pop!(__overrides, "g"))
 
   ### Structural Parameters (functions)
 
@@ -56,13 +61,13 @@
   ### Symbolic Parameters
   __local__mp = mp
   append!(__params, @parameters (mp::Real))
-  __initial_conditions[mp] = __local__mp
+  __dyad_seed_parameter!(__initial_conditions, __bindings, mp, __local__mp)
   __local__Lp = Lp
   append!(__params, @parameters (Lp::Real))
-  __initial_conditions[Lp] = __local__Lp
+  __dyad_seed_parameter!(__initial_conditions, __bindings, Lp, __local__Lp)
   __local__g = g
   append!(__params, @parameters (g::Real))
-  __initial_conditions[g] = __local__g
+  __dyad_seed_parameter!(__initial_conditions, __bindings, g, __local__g)
 
   ### Final Parameters (assignments)
   __bindings[l] = Lp / 2
@@ -83,7 +88,7 @@
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -96,6 +101,6 @@
   push!(__eqs, E ~ 0.5 * Jp_cm * dα ^ 2 + mp * g * l * (1 + cos(α)))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export Energy

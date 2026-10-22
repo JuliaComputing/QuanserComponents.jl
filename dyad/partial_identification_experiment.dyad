@@ -1,13 +1,4 @@
-# The partial base lives in its own file, apart from the concrete analysis that extends it.
-# That is not organisation for its own sake: editing a concrete analysis' parameters in the
-# Dyad GUI rewrites the file it sits in, and that write-back drops the `partial` qualifier
-# from any partial analysis in the same file (JuliaComputing/dyad-lang#1762). The base then
-# gets a generated definition of its own, which redefines the spec and adds a second,
-# self-recursive `run_analysis` -- everything still appears to work, because the hand-written
-# implementation is included later and wins, but precompilation of the whole package is
-# silently disabled. Keeping the two apart means a GUI edit to the concrete analysis cannot
-# reach the partial. The "analysis bases stay partial" testset in test/runtests.jl is the
-# backstop.
+# Separate files prevent concrete-analysis edits from rewriting the partial declarations.
 """
 Replay a designed input sequence open-loop on the QUBE, to collect data for identifying or
 calibrating the model's parameters.

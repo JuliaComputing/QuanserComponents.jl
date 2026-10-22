@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   TrajectorySource(; name, filename, column)
+   TrajectorySource(; name, filename, column, __overrides)
 
 Replays a recorded input sequence, one sample per tick, from inside the synchronous
 program.
@@ -41,7 +41,7 @@ Clock-agnostic.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `k` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function TrajectorySource(; name = nothing, filename="", column=1, kwargs...)
+@component function TrajectorySource(; name = nothing, var"filename"="", var"column"=1, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -49,7 +49,7 @@ Clock-agnostic.
     @named model = TrajectorySource()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -58,6 +58,10 @@ Clock-agnostic.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "filename") && (filename = pop!(__overrides, "filename"))
+  haskey(__overrides, "column") && (column = pop!(__overrides, "column"))
 
   ### Structural Parameters (functions)
 
@@ -89,7 +93,7 @@ Clock-agnostic.
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -104,6 +108,6 @@ Clock-agnostic.
   push!(__eqs, u ~ traj_value(k))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export TrajectorySource

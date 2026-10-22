@@ -31,6 +31,7 @@
 # name and nothing in it. Narrowing this to the names used below leaves `diagonal`
 # unresolvable in this module and `FurutaMPC` fails to build.
 using MPCComponents
+using ConstructionBase: setproperties
 using MPCComponents: continuous_dynamics, ContinuousDynamics
 
 export furuta_mpc_dynamics, mpc_log
@@ -49,9 +50,11 @@ The model itself is Dyad's -- the `QubePendulum` plus the `pendulum_energy_ratio
 swing-up term weights -- so what happens here is only the compilation, which is the part no
 component can express. See `FurutaPredictionModel` (dyad/furuta_mpc.dyad) for the equations.
 
-The result is a pure ODE with the four states `FURUTA_MPC_STATES` -- the joint angles
-`shoulder_joint.phi`, `elbow_joint.phi` and their derivatives -- and the motor voltage as
-its one input, in `qube₊`-prefixed signal names, plus `pendulum_energy_ratio`.
+The result is a pure ODE with state dimension four. The state variables listed in
+`FURUTA_MPC_STATES` are the joint angles `shoulder_joint.phi`, `elbow_joint.phi` and their
+derivatives. The motor voltage is the input. Signal names use the `qube₊` prefix, and
+`pendulum_energy_ratio` is also available. Observations used only for rendering are excluded
+from prediction-model signal extraction.
 
 `jacobian_backend` must be an AD backend (`:forwarddiff`, `:finitediff` or their `:sparse_`
 variants): the compiled multibody model references cached linear solves that the `:symbolic`
@@ -85,10 +88,25 @@ function furuta_mpc_dynamics(; idparams = identified, jacobian_backend::Symbol =
         # the flattened system, and an added port would only be aliased onto this one. It is
         # reached through the un-namespaced view for the same reason `compile_program` does
         # that -- the root's own name is not part of the flattened symbol names, so this is
-        # `qube₊voltage`, spelled the way `FURUTA_MPC_STATES` spells the states.
+        # `qube₊voltage`, spelled the way `FURUTA_MPC_STATES` specifies the state variable names.
         nsys = ModelingToolkit.toggle_namespacing(model, false)
         u = [nsys.qube.voltage]
         ssys = MultibodyComponents.multibody(model; inputs = u)
+        # MPC signal extraction must not expand the multibody rendering observations.
+        energy = ModelingToolkit.unwrap(ssys.pendulum_energy_ratio)
+        obs = ModelingToolkit.observed(ssys)
+        required = Set([energy])
+        for eq in ModelingToolkit.equations(ssys)
+            union!(required, Symbolics.get_variables(eq.rhs))
+        end
+        previous = 0
+        while length(required) != previous
+            previous = length(required)
+            for eq in obs
+                eq.lhs in required && union!(required, Symbolics.get_variables(eq.rhs))
+            end
+        end
+        ssys = setproperties(ssys, (; observed = filter(eq -> eq.lhs in required, obs)))
         continuous_dynamics(ssys; inputs = u, jacobian_backend)
     end
 end
@@ -118,7 +136,7 @@ _mpc_ode_warmup(ssys) = Pair[ssys.command_umax => 0.0]
 # at less voltage than the MPC is allowed to plan with -- and the velocity estimator's constant,
 # root parameters of `FurutaMPCHardware` bound down with `final` (see `resolve_tunables` for why
 # the root is the right place). The MPC's weights and constraints are structural and are set with
-# `overrides` to `compile_program` (`control_system__energy_weight = 3e4`, `umax = 8.0`); `Ts`
+# `compile_program` (`umax = 8.0`, or `__overrides = Dict{String, Any}("control_system.energy_weight" => 3e4)`); `Ts`
 # is both the clock period and the MPC's shooting interval, `Np` the horizon in intervals, and
 # `dynamics = ...` replaces the prediction model `furuta_mpc_dynamics()`.
 #

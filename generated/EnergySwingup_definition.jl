@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   EnergySwingup(; name, umax)
+   EnergySwingup(; name, umax, __overrides)
 
 ## Parameters:
 
@@ -21,7 +21,7 @@
  * `shoulder_velocity` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `realoutput` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function EnergySwingup(; name = nothing, umax=Float64(3), kwargs...)
+@component function EnergySwingup(; name = nothing, var"umax"=Float64(3), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -29,7 +29,7 @@
     @named model = EnergySwingup()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -38,6 +38,9 @@
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
 
   ### Structural Parameters (functions)
 
@@ -54,7 +57,7 @@
   ### Symbolic Parameters
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "maximum control signal during swingup", bounds = (0.1, 50)])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
 
   ### Final Parameters (assignments)
 
@@ -75,64 +78,59 @@
   ### Components
   # Subcomponent energy of type QuanserComponents.Energy
   energy_overrides = __pop_subcomponent_overrides!(__overrides, "energy")
-  push!(__systems, @named energy = QuanserComponents.Energy(; energy_overrides...))
+  push!(__systems, @named energy = QuanserComponents.Energy(; __overrides = energy_overrides))
   # Subcomponent sub_pi of type BlockComponents.Math.Add
   sub_pi_overrides = __pop_subcomponent_overrides!(__overrides, "sub_pi")
-  push!(__systems, @named sub_pi = BlockComponents.Math.Add(; k2=Float64(-1), sub_pi_overrides...))
+  push!(__systems, @named sub_pi = BlockComponents.Math.Add(; k2=Float64(-1), __overrides = sub_pi_overrides))
   # Subcomponent constant1 of type BlockComponents.Sources.Constant
   constant1_overrides = __pop_subcomponent_overrides!(__overrides, "constant1")
-  push!(__systems, @named constant1 = BlockComponents.Sources.Constant(; k=pi, constant1_overrides...))
+  push!(__systems, @named constant1 = BlockComponents.Sources.Constant(; k=pi, __overrides = constant1_overrides))
   # Subcomponent energy1 of type QuanserComponents.Energy
   energy1_overrides = __pop_subcomponent_overrides!(__overrides, "energy1")
-  push!(__systems, @named energy1 = QuanserComponents.Energy(; energy1_overrides...))
+  push!(__systems, @named energy1 = QuanserComponents.Energy(; __overrides = energy1_overrides))
   # Subcomponent constant2 of type BlockComponents.Sources.Constant
   constant2_overrides = __pop_subcomponent_overrides!(__overrides, "constant2")
-  push!(__systems, @named constant2 = BlockComponents.Sources.Constant(; k=Float64(0), constant2_overrides...))
+  push!(__systems, @named constant2 = BlockComponents.Sources.Constant(; k=Float64(0), __overrides = constant2_overrides))
   # Subcomponent gain of type BlockComponents.Math.Gain
   gain_overrides = __pop_subcomponent_overrides!(__overrides, "gain")
-  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(-100), gain_overrides...))
+  push!(__systems, @named gain = BlockComponents.Math.Gain(; k=Float64(-100), __overrides = gain_overrides))
   # Subcomponent arm_centering of type BlockComponents.Math.Gain
   arm_centering_overrides = __pop_subcomponent_overrides!(__overrides, "arm_centering")
-  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(; k=-1.0, arm_centering_overrides...))
+  push!(__systems, @named arm_centering = BlockComponents.Math.Gain(; k=-1.0, __overrides = arm_centering_overrides))
   # Subcomponent add_centering of type BlockComponents.Math.Add
   add_centering_overrides = __pop_subcomponent_overrides!(__overrides, "add_centering")
-  push!(__systems, @named add_centering = BlockComponents.Math.Add(; add_centering_overrides...))
+  push!(__systems, @named add_centering = BlockComponents.Math.Add(; __overrides = add_centering_overrides))
   # Subcomponent sub_eref of type BlockComponents.Math.Add
   sub_eref_overrides = __pop_subcomponent_overrides!(__overrides, "sub_eref")
-  push!(__systems, @named sub_eref = BlockComponents.Math.Add(; k2=Float64(-1), sub_eref_overrides...))
+  push!(__systems, @named sub_eref = BlockComponents.Math.Add(; k2=Float64(-1), __overrides = sub_eref_overrides))
   # Subcomponent product of type BlockComponents.Math.Product
   product_overrides = __pop_subcomponent_overrides!(__overrides, "product")
-  push!(__systems, @named product = BlockComponents.Math.Product(; product_overrides...))
+  push!(__systems, @named product = BlockComponents.Math.Product(; __overrides = product_overrides))
   # Subcomponent sign of type QuanserComponents.Sign
   sign_overrides = __pop_subcomponent_overrides!(__overrides, "sign")
-  push!(__systems, @named sign = QuanserComponents.Sign(; sign_overrides...))
+  push!(__systems, @named sign = QuanserComponents.Sign(; __overrides = sign_overrides))
   # Subcomponent product1 of type BlockComponents.Math.Product
   product1_overrides = __pop_subcomponent_overrides!(__overrides, "product1")
-  push!(__systems, @named product1 = BlockComponents.Math.Product(; product1_overrides...))
+  push!(__systems, @named product1 = BlockComponents.Math.Product(; __overrides = product1_overrides))
   # Subcomponent limiter of type BlockComponents.Nonlinear.Limiter
   limiter_overrides = __pop_subcomponent_overrides!(__overrides, "limiter")
-  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_min=-umax, limiter_overrides...))
-  __bindings[limiter.y_max] = umax
-  # Now remove initial conditions in limiter that correspond to the bindings just added
-  __limiter_ics = ModelingToolkit.get_initial_conditions(limiter)
-  __no_namespace_limiter = ModelingToolkit.toggle_namespacing(limiter, false)
-  __limiter_y_max = Symbolics.unwrap(__no_namespace_limiter.y_max)::Symbolics.SymbolicT
-  delete!(__limiter_ics, __limiter_y_max)
+  push!(__systems, @named limiter = BlockComponents.Nonlinear.Limiter(; y_max=umax, y_min=-umax, __overrides = limiter_overrides))
+  __dyad_bind_final!(__bindings, limiter, Symbol[], :y_max, umax)
   # Subcomponent cos of type QuanserComponents.Cos
   cos_overrides = __pop_subcomponent_overrides!(__overrides, "cos")
-  push!(__systems, @named cos = QuanserComponents.Cos(; cos_overrides...))
+  push!(__systems, @named cos = QuanserComponents.Cos(; __overrides = cos_overrides))
   # Subcomponent gain1 of type BlockComponents.Math.Gain
   gain1_overrides = __pop_subcomponent_overrides!(__overrides, "gain1")
-  push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=Float64(-1), gain1_overrides...))
+  push!(__systems, @named gain1 = BlockComponents.Math.Gain(; k=Float64(-1), __overrides = gain1_overrides))
   # Subcomponent add of type BlockComponents.Math.Add
   add_overrides = __pop_subcomponent_overrides!(__overrides, "add")
-  push!(__systems, @named add = BlockComponents.Math.Add(; add_overrides...))
+  push!(__systems, @named add = BlockComponents.Math.Add(; __overrides = add_overrides))
   # Subcomponent constant3 of type BlockComponents.Sources.Constant
   constant3_overrides = __pop_subcomponent_overrides!(__overrides, "constant3")
-  push!(__systems, @named constant3 = BlockComponents.Sources.Constant(; k=1e-16, constant3_overrides...))
+  push!(__systems, @named constant3 = BlockComponents.Sources.Constant(; k=1e-16, __overrides = constant3_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -165,6 +163,6 @@
   push!(__eqs, connect(add.y, sign.u))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export EnergySwingup

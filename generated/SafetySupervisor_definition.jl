@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   SafetySupervisor(; name, umax, warn, abort, pullback)
+   SafetySupervisor(; name, umax, warn, abort, pullback, __overrides)
 
 Lets a commanded voltage through while the arm stays where it should, and takes over
 when it does not.
@@ -47,7 +47,7 @@ Clock-agnostic.
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
  * `tripped` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function SafetySupervisor(; name = nothing, umax=Float64(3.0), warn=1.6580627893946132, abort=2.0943951023931953, pullback=Float64(2.0), kwargs...)
+@component function SafetySupervisor(; name = nothing, var"umax"=Float64(3.0), var"warn"=1.6580627893946132, var"abort"=2.0943951023931953, var"pullback"=Float64(2.0), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -55,7 +55,7 @@ Clock-agnostic.
     @named model = SafetySupervisor()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -64,6 +64,12 @@ Clock-agnostic.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "umax") && (umax = pop!(__overrides, "umax"))
+  haskey(__overrides, "warn") && (warn = pop!(__overrides, "warn"))
+  haskey(__overrides, "abort") && (abort = pop!(__overrides, "abort"))
+  haskey(__overrides, "pullback") && (pullback = pop!(__overrides, "pullback"))
 
   ### Structural Parameters (functions)
 
@@ -80,16 +86,16 @@ Clock-agnostic.
   ### Symbolic Parameters
   __local__umax = umax
   append!(__params, @parameters (umax::Real), [description = "Hard clamp on anything written [V]"])
-  __initial_conditions[umax] = __local__umax
+  __dyad_seed_parameter!(__initial_conditions, __bindings, umax, __local__umax)
   __local__warn = warn
   append!(__params, @parameters (warn::Real), [description = "Arm angle beyond which the command is replaced by a pull-back [rad]"])
-  __initial_conditions[warn] = __local__warn
+  __dyad_seed_parameter!(__initial_conditions, __bindings, warn, __local__warn)
   __local__abort = abort
   append!(__params, @parameters (abort::Real), [description = "Arm angle beyond which the supervisor latches and commands 0 [rad]"])
-  __initial_conditions[abort] = __local__abort
+  __dyad_seed_parameter!(__initial_conditions, __bindings, abort, __local__abort)
   __local__pullback = pullback
   append!(__params, @parameters (pullback::Real), [description = "Pull-back gain past `warn` [V/rad]"])
-  __initial_conditions[pullback] = __local__pullback
+  __dyad_seed_parameter!(__initial_conditions, __bindings, pullback, __local__pullback)
 
   ### Final Parameters (assignments)
 
@@ -109,7 +115,7 @@ Clock-agnostic.
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -124,6 +130,6 @@ Clock-agnostic.
   push!(__eqs, u ~ ifelse(tripped > 0.5, 0.0, clamp(ifelse(abs(arm) > warn, -pullback * arm, u_des), -umax, umax)))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export SafetySupervisor

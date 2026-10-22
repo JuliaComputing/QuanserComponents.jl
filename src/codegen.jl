@@ -61,6 +61,9 @@ function design_lqr(; Ts = 0.005, Q1 = [1000.0, 10.0, 1.0, 1.0], Q2 = 100.0,
         ssys.qubependulum.voltage            => 0.0,
         ssys.elbow_sampler.u    => 0.0,
         ssys.shoulder_sampler.u => 0.0,
+        # The held command is the parameter of the linearization: with `u_plant` opened, the discrete
+        # variable `zeroorderhold.u` has no equation giving `Hold()(zeroorderhold.u)` a value.
+        ModelingToolkit.Hold(ssys.zeroorderhold.u) => 0.0,
     )
     # Zero, in the operating point, exactly the friction terms the controller's feedforward
     # cancels (`SwingupCatch.friction_ff`, built with `kv = 0`) — designing against a
@@ -113,8 +116,8 @@ _swingup_outputs(nsys) = [nsys.logger.row, nsys.measurement.shoulder_angle,
 # what makes the root the right place for `umax` -- see `resolve_tunables`. The controller uses
 # the `SwingupCatch` model's tuned defaults (energy-swingup gain, arm-centering, LQR gains and
 # saturations), set for the `QubePendulum` plant with the identified parameters; the rest is
-# changed with `overrides` to `compile_program`, using Dyad's `__`-separated paths (e.g.
-# `control_system__runtime__swingup_catch__energyswingup__umax = 2.5`).
+# changed with the `__overrides` of `compile_program`, keyed by dotted Dyad paths (e.g.
+# `"control_system.runtime.swingup_catch.energyswingup.umax" => 2.5`).
 program_spec(::typeof(FurutaHardware)) = ProgramSpec(;
     name = :controller,
     tunables = OrderedDict{Any, Symbol}(

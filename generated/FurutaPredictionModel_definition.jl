@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   FurutaPredictionModel(; name, idparams, g)
+   FurutaPredictionModel(; name, idparams, g, __overrides)
 
 The plant model the MPC predicts with: the `QubePendulum` with one signal added, the
 pendulum's energy.
@@ -48,7 +48,7 @@ one to one.
 | ------------ | ----------------------------------- | ------ |
 | `pendulum_energy_ratio`         | Pendulum energy relative to hanging, normalized by the upright's: 0 hanging at rest, 1 upright at rest                         | --  |
 """
-@component function FurutaPredictionModel(; name = nothing, idparams=identified, g=9.81, kwargs...)
+@component function FurutaPredictionModel(; name = nothing, var"idparams"=identified, var"g"=9.81, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -56,7 +56,7 @@ one to one.
     @named model = FurutaPredictionModel()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -65,6 +65,10 @@ one to one.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "idparams") && (idparams = pop!(__overrides, "idparams"))
+  haskey(__overrides, "g") && (g = pop!(__overrides, "g"))
 
   ### Structural Parameters (functions)
 
@@ -81,7 +85,7 @@ one to one.
   ### Symbolic Parameters
   __local__g = g
   append!(__params, @parameters (g::Real), [description = "Gravitational acceleration, as `world` applies it"])
-  __initial_conditions[g] = __local__g
+  __dyad_seed_parameter!(__initial_conditions, __bindings, g, __local__g)
 
   ### Final Parameters (assignments)
 
@@ -92,8 +96,8 @@ one to one.
 
   ### Variables (assignments)
   __ovr_pendulum_energy_ratio = pop!(__overrides, "pendulum_energy_ratio", nothing); isnothing(__ovr_pendulum_energy_ratio) || push!(__eqs, pendulum_energy_ratio ~ __ovr_pendulum_energy_ratio)
-  __ovr_pendulum_energy_ratio__initial = pop!(__overrides, "pendulum_energy_ratio__initial", nothing); isnothing(__ovr_pendulum_energy_ratio__initial) || (__initial_conditions[pendulum_energy_ratio] = __ovr_pendulum_energy_ratio__initial)
-  __ovr_pendulum_energy_ratio__guess = pop!(__overrides, "pendulum_energy_ratio__guess", nothing)
+  __ovr_pendulum_energy_ratio__initial = pop!(__overrides, "pendulum_energy_ratio.initial", nothing); isnothing(__ovr_pendulum_energy_ratio__initial) || (__initial_conditions[pendulum_energy_ratio] = __ovr_pendulum_energy_ratio__initial)
+  __ovr_pendulum_energy_ratio__guess = pop!(__overrides, "pendulum_energy_ratio.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -101,13 +105,13 @@ one to one.
   ### Components
   # Subcomponent world of type MultibodyComponents.World
   world_overrides = __pop_subcomponent_overrides!(__overrides, "world")
-  push!(__systems, @named world = MultibodyComponents.World(; render=false, world_overrides...))
+  push!(__systems, @named world = MultibodyComponents.World(; render=false, __symbol_overrides(world_overrides)...))
   # Subcomponent qube of type QuanserComponents.QubePendulum
   qube_overrides = __pop_subcomponent_overrides!(__overrides, "qube")
-  push!(__systems, @named qube = QuanserComponents.QubePendulum(; idparams=idparams, qube_overrides...))
+  push!(__systems, @named qube = QuanserComponents.QubePendulum(; idparams=idparams, __overrides = qube_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_pendulum_energy_ratio__guess) || (__guesses[pendulum_energy_ratio] = __ovr_pendulum_energy_ratio__guess)
@@ -121,6 +125,6 @@ one to one.
   push!(__eqs, pendulum_energy_ratio ~ (0.5 * (qube.Jp + qube.mp * qube.l ^ 2) * qube.elbow_joint.w ^ 2 + qube.mp * g * qube.l * (1 - cos(qube.elbow_joint.phi))) / (2 * qube.mp * g * qube.l))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export FurutaPredictionModel

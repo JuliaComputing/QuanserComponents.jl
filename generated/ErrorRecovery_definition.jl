@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   ErrorRecovery(; name, arm_limit, recovery_gain)
+   ErrorRecovery(; name, arm_limit, recovery_gain, __overrides)
 
 Overrides the swing-up/stabilizing command with a corrective term that drives the
 arm back toward center when it swings past ±arm_limit, matching the out-of-bounds
@@ -24,7 +24,7 @@ guard in the hardware control loop.
  * `u_swingup` - This connector represents a real signal as an input to a component ([`RealInput`](@ref))
  * `u` - This connector represents a real signal as an output from a component ([`RealOutput`](@ref))
 """
-@component function ErrorRecovery(; name = nothing, arm_limit=1.9198621771937625, recovery_gain=-0.5, kwargs...)
+@component function ErrorRecovery(; name = nothing, var"arm_limit"=1.9198621771937625, var"recovery_gain"=-0.5, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -32,7 +32,7 @@ guard in the hardware control loop.
     @named model = ErrorRecovery()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -41,6 +41,10 @@ guard in the hardware control loop.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "arm_limit") && (arm_limit = pop!(__overrides, "arm_limit"))
+  haskey(__overrides, "recovery_gain") && (recovery_gain = pop!(__overrides, "recovery_gain"))
 
   ### Structural Parameters (functions)
 
@@ -57,10 +61,10 @@ guard in the hardware control loop.
   ### Symbolic Parameters
   __local__arm_limit = arm_limit
   append!(__params, @parameters (arm_limit::Real), [description = "Arm angle beyond which the corrective term takes over"])
-  __initial_conditions[arm_limit] = __local__arm_limit
+  __dyad_seed_parameter!(__initial_conditions, __bindings, arm_limit, __local__arm_limit)
   __local__recovery_gain = recovery_gain
   append!(__params, @parameters (recovery_gain::Real), [description = "Proportional gain applied to the arm angle when out of bounds"])
-  __initial_conditions[recovery_gain] = __local__recovery_gain
+  __dyad_seed_parameter!(__initial_conditions, __bindings, recovery_gain, __local__recovery_gain)
 
   ### Final Parameters (assignments)
 
@@ -79,31 +83,21 @@ guard in the hardware control loop.
   ### Components
   # Subcomponent abs_angle of type BlockComponents.Math.Abs
   abs_angle_overrides = __pop_subcomponent_overrides!(__overrides, "abs_angle")
-  push!(__systems, @named abs_angle = BlockComponents.Math.Abs(; abs_angle_overrides...))
+  push!(__systems, @named abs_angle = BlockComponents.Math.Abs(; __overrides = abs_angle_overrides))
   # Subcomponent out_of_bounds of type BlockComponents.Logical.GreaterThreshold
   out_of_bounds_overrides = __pop_subcomponent_overrides!(__overrides, "out_of_bounds")
-  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; out_of_bounds_overrides...))
-  __bindings[out_of_bounds.threshold] = arm_limit
-  # Now remove initial conditions in out_of_bounds that correspond to the bindings just added
-  __out_of_bounds_ics = ModelingToolkit.get_initial_conditions(out_of_bounds)
-  __no_namespace_out_of_bounds = ModelingToolkit.toggle_namespacing(out_of_bounds, false)
-  __out_of_bounds_threshold = Symbolics.unwrap(__no_namespace_out_of_bounds.threshold)::Symbolics.SymbolicT
-  delete!(__out_of_bounds_ics, __out_of_bounds_threshold)
+  push!(__systems, @named out_of_bounds = BlockComponents.Logical.GreaterThreshold(; threshold=arm_limit, __overrides = out_of_bounds_overrides))
+  __dyad_bind_final!(__bindings, out_of_bounds, Symbol[], :threshold, arm_limit)
   # Subcomponent recovery of type BlockComponents.Math.Gain
   recovery_overrides = __pop_subcomponent_overrides!(__overrides, "recovery")
-  push!(__systems, @named recovery = BlockComponents.Math.Gain(; recovery_overrides...))
-  __bindings[recovery.k] = recovery_gain
-  # Now remove initial conditions in recovery that correspond to the bindings just added
-  __recovery_ics = ModelingToolkit.get_initial_conditions(recovery)
-  __no_namespace_recovery = ModelingToolkit.toggle_namespacing(recovery, false)
-  __recovery_k = Symbolics.unwrap(__no_namespace_recovery.k)::Symbolics.SymbolicT
-  delete!(__recovery_ics, __recovery_k)
+  push!(__systems, @named recovery = BlockComponents.Math.Gain(; k=recovery_gain, __overrides = recovery_overrides))
+  __dyad_bind_final!(__bindings, recovery, Symbol[], :k, recovery_gain)
   # Subcomponent selector of type BlockComponents.Logical.Switch
   selector_overrides = __pop_subcomponent_overrides!(__overrides, "selector")
-  push!(__systems, @named selector = BlockComponents.Logical.Switch(; selector_overrides...))
+  push!(__systems, @named selector = BlockComponents.Logical.Switch(; __overrides = selector_overrides))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
 
@@ -121,6 +115,6 @@ guard in the hardware control loop.
   push!(__eqs, connect(selector.y, u))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export ErrorRecovery

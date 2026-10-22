@@ -21,8 +21,14 @@ using ModelingToolkit: @named
     @test dyn.nx == 4 && dyn.nu == 1 && dyn.nz == 0
     @test dyn.ad_backend === :forwarddiff
     @test furuta_mpc_dynamics() === dyn                # cached
-    # The named signals the controller is wired with are the model's states.
+    # Controller input names identify the model's state variables.
     @test all(haskey(dyn.signals, Symbol(s)) for s in QC.FURUTA_MPC_STATES)
+    energy = dyn.signals[:pendulum_energy_ratio]
+    for (angle, expected) in ((0.0, 0.0), (pi, 1.0))
+        values = Dict(dyn.signals[Symbol(s)] => v for (s, v) in
+                      zip(QC.FURUTA_MPC_STATES, [0.0, angle, 0.0, 0.0]))
+        @test QC.Symbolics.value(QC.Symbolics.substitute(energy, values; fold = Val(true))) ≈ expected
+    end
     # The symbolic backend cannot handle the multibody model; that is what the AD backend is for.
     @test_throws ArgumentError QC.furuta_mpc_dynamics(jacobian_backend = :symbolic)
 

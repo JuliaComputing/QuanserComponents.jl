@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   HardwareMeasurement(; name)
+   HardwareMeasurement(; name, __overrides)
 
 Reads the two encoders of the physical QUBE once per tick and places the
 measured angles on the clock of the partition it is connected to.
@@ -35,7 +35,7 @@ Clock-agnostic.
 | ------------ | ----------------------------------- | ------ |
 | `trig`         | Dependency token: the value of the encoder read, used only to order the reads below                         | --  |
 """
-@component function HardwareMeasurement(; name = nothing, kwargs...)
+@component function HardwareMeasurement(; name = nothing, __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -43,7 +43,7 @@ Clock-agnostic.
     @named model = HardwareMeasurement()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -78,8 +78,8 @@ Clock-agnostic.
 
   ### Variables (assignments)
   __ovr_trig = pop!(__overrides, "trig", nothing); isnothing(__ovr_trig) || push!(__eqs, trig ~ __ovr_trig)
-  __ovr_trig__initial = pop!(__overrides, "trig__initial", nothing); isnothing(__ovr_trig__initial) || (__initial_conditions[trig] = __ovr_trig__initial)
-  __ovr_trig__guess = pop!(__overrides, "trig__guess", nothing)
+  __ovr_trig__initial = pop!(__overrides, "trig.initial", nothing); isnothing(__ovr_trig__initial) || (__initial_conditions[trig] = __ovr_trig__initial)
+  __ovr_trig__guess = pop!(__overrides, "trig.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -87,10 +87,10 @@ Clock-agnostic.
   ### Components
   # Subcomponent sampletimesource of type DiscreteComponents.SampleTimeSource
   sampletimesource_overrides = __pop_subcomponent_overrides!(__overrides, "sampletimesource")
-  push!(__systems, @named sampletimesource = DiscreteComponents.SampleTimeSource(; sampletimesource_overrides...))
+  push!(__systems, @named sampletimesource = DiscreteComponents.SampleTimeSource(; __symbol_overrides(sampletimesource_overrides)...))
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_trig__guess) || (__guesses[trig] = __ovr_trig__guess)
@@ -106,6 +106,6 @@ Clock-agnostic.
   push!(__eqs, elbow_angle ~ hw_elbow(trig))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export HardwareMeasurement

@@ -5,7 +5,7 @@
 
 
 @doc Markdown.doc"""
-   VelocityStaircase(; name, w_min, w_max, n_levels, t_step, spacing)
+   VelocityStaircase(; name, w_min, w_max, n_levels, t_step, spacing, __overrides)
 
 Staircase velocity reference that sweeps a range of speeds and then repeats it in
 the other direction.
@@ -62,7 +62,7 @@ Clock-agnostic.
 | `dir`         | Current direction, +1 or -1                         | --  |
 | `advance`         | 1 on the tick a new step begins, else 0                         | --  |
 """
-@component function VelocityStaircase(; name = nothing, w_min=Float64(2.0), w_max=Float64(30.0), n_levels=Float64(6), t_step=Float64(2.0), spacing=Float64(2), kwargs...)
+@component function VelocityStaircase(; name = nothing, var"w_min"=Float64(2.0), var"w_max"=Float64(30.0), var"n_levels"=Float64(6), var"t_step"=Float64(2.0), var"spacing"=Float64(2), __overrides = Dict{String, Any}())
   isnothing(name) && throw(ArgumentError("""
     The `name` keyword must be provided. Please consider using the `@named` macro,
     like so:
@@ -70,7 +70,7 @@ Clock-agnostic.
     @named model = VelocityStaircase()
   """))
 
-  __overrides = __build_overrides(kwargs)
+  __overrides = Dict{String, Any}(__overrides)
   __params = Symbolics.SymbolicT[]
   __vars = Symbolics.SymbolicT[]
   __systems = System[]
@@ -79,6 +79,13 @@ Clock-agnostic.
   __initialization_eqs = Equation[]
   __eqs = Equation[]
   __bindings = Dict{Symbolics.SymbolicT, Symbolics.SymbolicT}()
+
+  ### Keyword argument overrides
+  haskey(__overrides, "w_min") && (w_min = pop!(__overrides, "w_min"))
+  haskey(__overrides, "w_max") && (w_max = pop!(__overrides, "w_max"))
+  haskey(__overrides, "n_levels") && (n_levels = pop!(__overrides, "n_levels"))
+  haskey(__overrides, "t_step") && (t_step = pop!(__overrides, "t_step"))
+  haskey(__overrides, "spacing") && (spacing = pop!(__overrides, "spacing"))
 
   ### Structural Parameters (functions)
 
@@ -95,19 +102,19 @@ Clock-agnostic.
   ### Symbolic Parameters
   __local__w_min = w_min
   append!(__params, @parameters (w_min::Real), [description = "Slowest speed in the sweep"])
-  __initial_conditions[w_min] = __local__w_min
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_min, __local__w_min)
   __local__w_max = w_max
   append!(__params, @parameters (w_max::Real), [description = "Fastest speed in the sweep"])
-  __initial_conditions[w_max] = __local__w_max
+  __dyad_seed_parameter!(__initial_conditions, __bindings, w_max, __local__w_max)
   __local__n_levels = n_levels
   append!(__params, @parameters (n_levels::Real), [description = "Number of speeds per direction"])
-  __initial_conditions[n_levels] = __local__n_levels
+  __dyad_seed_parameter!(__initial_conditions, __bindings, n_levels, __local__n_levels)
   __local__t_step = t_step
   append!(__params, @parameters (t_step::Real), [description = "Time held at each speed [s]"])
-  __initial_conditions[t_step] = __local__t_step
+  __dyad_seed_parameter!(__initial_conditions, __bindings, t_step, __local__t_step)
   __local__spacing = spacing
   append!(__params, @parameters (spacing::Real), [description = "Speed-distribution exponent: 2 clusters the levels at low speed, 1 spaces them evenly"])
-  __initial_conditions[spacing] = __local__spacing
+  __dyad_seed_parameter!(__initial_conditions, __bindings, spacing, __local__spacing)
 
   ### Final Parameters (assignments)
 
@@ -123,17 +130,17 @@ Clock-agnostic.
 
   ### Variables (assignments)
   __ovr_idx = pop!(__overrides, "idx", nothing); isnothing(__ovr_idx) || push!(__eqs, idx ~ __ovr_idx)
-  __ovr_idx__initial = pop!(__overrides, "idx__initial", nothing); isnothing(__ovr_idx__initial) || (__initial_conditions[idx] = __ovr_idx__initial)
-  __ovr_idx__guess = pop!(__overrides, "idx__guess", nothing)
+  __ovr_idx__initial = pop!(__overrides, "idx.initial", nothing); isnothing(__ovr_idx__initial) || (__initial_conditions[idx] = __ovr_idx__initial)
+  __ovr_idx__guess = pop!(__overrides, "idx.guess", nothing)
   __ovr_level = pop!(__overrides, "level", nothing); isnothing(__ovr_level) || push!(__eqs, level ~ __ovr_level)
-  __ovr_level__initial = pop!(__overrides, "level__initial", nothing); isnothing(__ovr_level__initial) || (__initial_conditions[level] = __ovr_level__initial)
-  __ovr_level__guess = pop!(__overrides, "level__guess", nothing)
+  __ovr_level__initial = pop!(__overrides, "level.initial", nothing); isnothing(__ovr_level__initial) || (__initial_conditions[level] = __ovr_level__initial)
+  __ovr_level__guess = pop!(__overrides, "level.guess", nothing)
   __ovr_dir = pop!(__overrides, "dir", nothing); isnothing(__ovr_dir) || push!(__eqs, dir ~ __ovr_dir)
-  __ovr_dir__initial = pop!(__overrides, "dir__initial", nothing); isnothing(__ovr_dir__initial) || (__initial_conditions[dir] = __ovr_dir__initial)
-  __ovr_dir__guess = pop!(__overrides, "dir__guess", nothing)
+  __ovr_dir__initial = pop!(__overrides, "dir.initial", nothing); isnothing(__ovr_dir__initial) || (__initial_conditions[dir] = __ovr_dir__initial)
+  __ovr_dir__guess = pop!(__overrides, "dir.guess", nothing)
   __ovr_advance = pop!(__overrides, "advance", nothing); isnothing(__ovr_advance) || push!(__eqs, advance ~ __ovr_advance)
-  __ovr_advance__initial = pop!(__overrides, "advance__initial", nothing); isnothing(__ovr_advance__initial) || (__initial_conditions[advance] = __ovr_advance__initial)
-  __ovr_advance__guess = pop!(__overrides, "advance__guess", nothing)
+  __ovr_advance__initial = pop!(__overrides, "advance.initial", nothing); isnothing(__ovr_advance__initial) || (__initial_conditions[advance] = __ovr_advance__initial)
+  __ovr_advance__guess = pop!(__overrides, "advance.guess", nothing)
 
   ### Constants
   __constants = Any[]
@@ -141,7 +148,7 @@ Clock-agnostic.
   ### Components
 
   ### Check there are no unmatched overrides
-  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded."))
+  isempty(__overrides) || throw(ArgumentError("overrides: [$(join(keys(__overrides), ", "))] don't match names found in model. These names may exist in the model but could have been conditionally excluded. Override keys are dotted paths as written in Dyad source (e.g. inner.rate)."))
 
   ### Guesses
   isnothing(__ovr_idx__guess) || (__guesses[idx] = __ovr_idx__guess)
@@ -165,6 +172,6 @@ Clock-agnostic.
   push!(__eqs, w_ref ~ dir * (w_min + (w_max - w_min) * (level / max(n_levels - 1, 1)) ^ spacing))
 
   # Return completely constructed System
-  return System(__eqs, t, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
+  return System(__eqs, ModelingToolkit.t_nounits, __vars, __params; systems=__systems, initial_conditions=__initial_conditions, guesses=__guesses, name, initialization_eqs=__initialization_eqs, bindings=__bindings, assertions=__assertions)
 end
 export VelocityStaircase
