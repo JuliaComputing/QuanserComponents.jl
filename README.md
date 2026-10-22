@@ -29,8 +29,8 @@ pkg> add ModelingToolkit MultibodyComponents SynchToolkit OrdinaryDiffEqDefault
 
 ### The simulation-only branch
 
-Those commands resolve `main` against General and DyadRegistry. The branch `simulation-only` is
-`main` as of the commit before the MPC work, with no MPCComponents dependency, and remains available:
+The installation uses General and DyadRegistry. The `simulation-only` branch provides the
+simulation models without an MPCComponents dependency:
 
 ```julia
 pkg> registry add https://github.com/JuliaComputing/DyadRegistry
@@ -274,27 +274,20 @@ is 0.3. The registry is added with
 pkg> registry add https://github.com/JuliaComputing/DyadRegistry
 ```
 
-The Synch stack is SynchJulia 0.8 and SynchToolkit 0.5.1 or later. SynchToolkit 0.5.1 has the
-`Latest` clock-crossing operator the multirate model needs (JuliaComputing/SynchToolkit.jl#199) and,
-through the clock rework of JuliaComputing/SynchToolkit.jl#186, the array clocked variables the MPC's
-outputs are. With 0.5.0, compiling `FurutaMPCHardware` fails inside `stkcompile` with
+The synchronous execution dependencies are SynchJulia 0.8 and SynchToolkit 0.5.1 or later
+within the 0.5 series. SynchToolkit provides clock crossing and clocked array variables for
+the multirate MPC model. DiscreteComponents 0.6 provides `AlphaBetaGammaFilter` for velocity
+estimation and `Latest` for clock crossing.
 
-```
-KeyError: key (control_system₊mpc₊u(t))[1] not found
-```
-
-DiscreteComponents is 0.6, which has both `AlphaBetaGammaFilter`, the velocity estimator of the
-multirate model (JuliaComputing/DiscreteComponents.jl#119), and `Latest`, its clock transition
-(JuliaComputing/DiscreteComponents.jl#121).
-
-`Manifest.toml` and `test/Manifest.toml` are checked in, resolved against these versions, so
+The checked-in `Manifest.toml` and `test/Manifest.toml` resolve these dependencies. Instantiate
+the package environment before running a hardware script:
 
 ```
 julia --project=path/to/QuanserComponents -e 'using Pkg; Pkg.instantiate()'   # the package
 julia --project=path/to/QuanserComponents/test test/hardware_mpc.jl           # the scripts
 ```
 
-is all it takes. The first `using` precompiles the multibody and acados trees, a few minutes.
+Initial package loading precompiles the multibody and acados dependencies.
 
 ## Layout
 

@@ -234,35 +234,42 @@ import DyadCompilerPasses
         end
     end
 
-    # `FurutaSwingupBase` must stay `partial` in dyad/swingup_experiment.dyad. Without it the
-    # compiler emits generated/FurutaSwingupBase_definition.jl, which redefines
-    # `FurutaSwingupBaseSpec` and adds a second, self-recursive `run_analysis` for it. The
-    # hand-written implementation is included later so it wins at runtime and everything
-    # still appears to work — but the overwrite disables precompilation of the whole
-    # package. This has been silently reintroduced twice by an editor round-trip, hence the
-    # guard.
-    @testset "the analysis bases stay partial" begin
+    @testset "the analysis bases forward to the hand-written specs" begin
         DI = QC.DyadInterface
-        @test length(methods(DI.run_analysis,
-                             (QC.FurutaSwingupBaseSpec,))) == 1
-        @test length(methods(DI.run_analysis,
-                             (QC.FurutaFrictionBaseSpec,))) == 1
-        # `QubeHardwareRunBase` is the root both analyses extend, so un-partialling it is the
-        # same hazard one level up: the compiler would emit a `QubeHardwareRunBaseSpec`
-        # struct, colliding with the dispatching function of that name in analysis_base.jl.
-        @test length(methods(DI.run_analysis,
-                             (QC.FurutaIdentificationBaseSpec,))) == 1
-        for base in ("FurutaSwingupBase", "FurutaFrictionBase", "FurutaIdentificationBase",
-                     "QubeHardwareRunBase")
-            @test !isfile(joinpath(pkgdir(QC), "generated",
-                                   "$(base)_definition.jl"))
+        for (gen, hand, mksys, custom) in (
+                (QC.FurutaSwingupBase__Spec, QC.FurutaSwingupBaseSpec,
+                 QC.FurutaSwingupExperiment__System, (; Q1 = [2.0, 3.0, 4.0, 5.0], Q2 = 5.0, Ts = 0.01)),
+                (QC.FurutaFrictionBase__Spec, QC.FurutaFrictionBaseSpec,
+                 QC.FurutaFrictionExperiment__System, (; settle = 0.77, w_max = 12.0, Ts = 0.01)),
+                (QC.FurutaIdentificationBase__Spec, QC.FurutaIdentificationBaseSpec,
+                 QC.FurutaIdentificationExperiment__System, (; traj_file = "x.csv", Ts = 0.01)))
+            @test length(methods(DI.run_analysis, (hand,))) == 1
+            @test gen <: QC.AbstractQubeHardwareRunBaseSpec
+            @test length(methods(DI.run_analysis, (gen,))) == 1
+            sys = mksys(; name = :analysis, custom...)
+            fwd = QC.__dyad_base_analysis_spec(gen(; __system = sys, model = sys, custom.Ts))
+            @test fwd isa hand
+            # Shared parameters arrive as keywords; derived parameters arrive through the system.
+            @test fwd.Ts == 0.01
+            for (k, v) in pairs(custom)
+                @test getfield(fwd, k) == v
+            end
         end
+        # `w_max_fit` is defined through `w_max` in the concrete friction analysis
+        sys = QC.FurutaFrictionExperiment__System(; name = :analysis, w_max = 12.0)
+        fwd = QC.__dyad_base_analysis_spec(QC.FurutaFrictionBase__Spec(; __system = sys, model = sys))
+        @test fwd.w_max_fit == 16.0
+        @test QC.QubeHardwareRunBaseSpec(; __system = sys, settle = 0.25).settle == 0.25
+        @test_throws ArgumentError QC.QubeHardwareRunBaseSpec(; __system = sys, nonsense = 1)
+        # The root carries only the shared parameters, which identify no analysis, unless the
+        # system it is handed has the parameters of one.
+        plain = ModelingToolkit.System(Equation[], ModelingToolkit.t_nounits; name = :plain)
+        @test_throws ArgumentError QC.__dyad_base_analysis_spec(
+            QC.QubeHardwareRunBase__Spec(; __system = plain, model = plain))
+        @test QC.__dyad_base_analysis_spec(
+            QC.QubeHardwareRunBase__Spec(; __system = sys, model = sys)) isa QC.FurutaFrictionBaseSpec
     end
 
-    # One generated entry point, two analyses: the Dyad compiler resolves an analysis' spec
-    # type to the *root* of its `extends` chain, so both analyses' generated code constructs
-    # `QubeHardwareRunBaseSpec`. It has to land on the right base spec, and say so rather than
-    # guess when it cannot tell.
     @testset "shared analysis base" begin
         @test QC.QubeHardwareRunBaseSpec(; Ts, Q1 = [1.0, 2, 3, 4], Q2 = 3.0) isa
               QC.FurutaSwingupBaseSpec
@@ -282,7 +289,7 @@ import DyadCompilerPasses
         # ... and the shared field block really is shared, not copied per analysis.
         shared = (:Ts, :run, :Tf, :umax, :arm_deg, :card_options, :backend, :export_c,
                   :output_dir, :log_file, :deploy_host, :deploy_dir, :live_plot,
-                  :live_plot_cmd, :live_plot_config, :model, :overrides)
+                  :live_plot_cmd, :live_plot_config, :model, :overrides, :__system)
         for f in shared, T in (QC.FurutaSwingupBaseSpec, QC.FurutaFrictionBaseSpec,
                                QC.FurutaIdentificationBaseSpec)
             @test hasfield(T, f)
@@ -585,11 +592,6 @@ import DyadCompilerPasses
     @testset "FurutaFrictionExperiment analysis" begin
         DI = QuanserComponents.DyadInterface
         RB = QuanserComponents.RecipesBase
-        # Same guard as FurutaSwingupBase: `partial` must survive `dyad format`.
-        @test length(methods(DI.run_analysis,
-                             (QuanserComponents.FurutaFrictionBaseSpec,))) == 1
-        @test !isfile(joinpath(pkgdir(QuanserComponents), "generated",
-                               "FurutaFrictionBase_definition.jl"))
 
         dir = mktempdir()
         logfile = joinpath(dir, "analysis.csv")
