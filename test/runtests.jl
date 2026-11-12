@@ -201,9 +201,8 @@ import DyadCompilerPasses
         @test isfile(joinpath(dir, "run_hardware.c"))
         @test isfile(joinpath(dir, "Makefile"))
         hsrc = read(joinpath(dir, "run_hardware.c"), String)
-        # The loop is a checked-in C file copied verbatim, so it refers to the controller
-        # only through macros; the mangled symbols live in the generated config header.
-        @test occursin("QUBE_STEP(", hsrc)
+        # Keep program-specific symbols in the generated header.
+        @test occursin("qube_tick(&state)", hsrc)
         @test occursin("qube_hw_open(QUBE_HW_MODE_HIL, QUBE_ARM0)", hsrc)
         @test !occursin("hil_read_encoder", hsrc)
         @test !occursin(r.mangled, hsrc)          # nothing controller-specific baked in
@@ -212,13 +211,22 @@ import DyadCompilerPasses
         @test occursin("#define QUBE_STEP  $(r.mangled)_step", cfg)
         @test occursin("#define QUBE_RESET $(r.mangled)_reset", cfg)
         @test occursin("#define QUBE_MEM   $(r.mangled)_mem", cfg)
-        @test occursin("#define QUBE_OUT   $(r.mangled)_out", cfg)
-        @test occursin("gains_words[]", cfg) && occursin("auto_words[]", cfg)
-        # The loop knows nothing about *which* program it runs: it never reads the node's
-        # output struct, and the log it opens is the one the model's `DataLogger` was built
-        # with. That is what lets the same checked-in harness serve the friction experiment
-        # too (see the friction C-export testset below).
-        @test !occursin("QUBE_OUT_", cfg) && !occursin("QUBE_OUT_", hsrc)
+        @test occursin("static TuningGains qube_gains = {", cfg)
+        @test occursin("static AutoPars qube_auto = {", cfg)
+        @test occursin("QUBE_STEP(true, &qube_gains, &qube_auto, &out1,", cfg)
+        @test !occursin("QUBE_OUT", cfg) && !occursin("QUBE_OUT", hsrc)
+        @test_throws ArgumentError QC._c_initializer(NaN)
+        @test QC._c_initializer(typemin(Int64)) == "INT64_MIN"
+        @test QC._c_initializer(Int32(-7)) == "-7"
+        @test QC._c_initializer(-0.0f0) == "-0.0f"
+        @test QC._c_initializer(-Inf32) == "-INFINITY"
+        for x in (0.1, -0.0, nextfloat(0.0), floatmax(Float64))
+            @test parse(Float64, QC._c_initializer(x)) === x
+        end
+        @test parse(Float32, chop(QC._c_initializer(0.1f0))) === 0.1f0
+        # Fields without data have no C member.
+        @test QC._c_initializer((a = nothing, b = 1.5, c = (1.0f0, 2.0f0))) ==
+              "{ 1.5, { { 1.0f, 2.0f } } }"
         @test !occursin("fopen", hsrc)
         @test occursin("qube_log_open(QUBE_LOG_FILE, QUBE_LOG_HEADER, QUBE_LOG_NCOLS)", hsrc)
         @test occursin("#define QUBE_LOG_FILE   \"run_hardware.csv\"", cfg)

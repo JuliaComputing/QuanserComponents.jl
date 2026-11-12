@@ -359,11 +359,8 @@ end
 Construct the `TuningGains` and `AutoPars` parameter objects of a compiled program, with `gains`
 overriding the model's resolved values field by field (a `nothing` leaves the model's value).
 
-These objects are what the node's `step` is handed, in this process by [`ProgramRuntime`](@ref)
-and as raw bytes in the exported C by `export_program_c`: their in-memory field bytes are
-exactly what the exported C reads at its baked-in `fieldoffset`s. The spec's `check` runs on
-the final values, so a warning about an unworkable tunable is given whichever way the program
-is run.
+[`ProgramRuntime`](@ref) passes these objects to the node; `export_program_c` embeds them
+as initialized C structs. Both paths run the spec's `check` on the final tunable values.
 
 `stkcompile` evaluates a runtime module in a newer world than this frame, but nothing here has
 to know that: a `ParametersStruct` is callable with the `CompiledNode`, and does its own
