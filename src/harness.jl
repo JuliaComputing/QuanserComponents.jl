@@ -97,15 +97,6 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
     end
     emit_c_harness(dir; gen.Ts, Tf, arm_deg, card_options, mangled, gen.log, traj,
                    p.gains, p.auto)
-    # `export_c` copies `synchjulia.h` out of the package depot, which is read-only, and
-    # preserves its mode. Everything here is a build output, so leave nothing unwritable:
-    # otherwise a later export or `scp` into the same directory cannot replace it. Only the
-    # user-write bit is added, so an executable stays executable.
-    for f in readdir(dir; join = true)
-        isfile(f) || continue
-        m = filemode(f)
-        (m & 0o200) == 0 && chmod(f, m | 0o200)
-    end
     files = sort!(filter(f -> isfile(joinpath(dir, f)), readdir(dir)))
     return (; dir, mangled, files, p.gains, p.auto)
 end
@@ -396,9 +387,7 @@ function deploy_c_harness(dir; host, remote_dir = "furuta_c", ssh = `ssh`, scp =
         error("deploy_c_harness: $dir is missing $(join(missing_files, ", ")) — \
                run the export first")
     @info "Creating remote dir"
-    # Clear the destinations too. An earlier deploy may have left `synchjulia.h` mode 444 (it
-    # originates in the read-only package depot), and `scp` cannot reopen such a file for
-    # writing — it fails mid-transfer with "Permission denied".
+    # Remove destinations so `scp` can replace read-only files.
     files = [HARNESS_FILES..., extra_harness_files(dir)...]
     remote_files = join(("$remote_dir/$f" for f in files), " ")
     run(`$ssh $host "mkdir -p $remote_dir && rm -f $remote_files"`)
