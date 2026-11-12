@@ -274,10 +274,9 @@ is 0.3. The registry is added with
 pkg> registry add https://github.com/JuliaComputing/DyadRegistry
 ```
 
-The synchronous execution dependencies are SynchJulia 0.8 and SynchToolkit 0.5.1 or later
-within the 0.5 series. SynchToolkit provides clock crossing and clocked array variables for
-the multirate MPC model. DiscreteComponents 0.6 provides `AlphaBetaGammaFilter` for velocity
-estimation and `Latest` for clock crossing.
+Synchronous execution requires SynchJulia 0.9 and SynchToolkit 0.6. SynchToolkit provides
+clock crossing and clocked arrays for multirate MPC. DiscreteComponents 0.6 provides
+`AlphaBetaGammaFilter` for velocity estimation and `Latest` for clock crossing.
 
 The checked-in `Manifest.toml` and `test/Manifest.toml` resolve these dependencies. Instantiate
 the package environment before running a hardware script:
