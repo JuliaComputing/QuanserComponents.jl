@@ -2,11 +2,7 @@
 # deployment to another machine, live plotting, and `run_on_target`, which picks between running
 # in process and running as C the way an analysis' parameters ask.
 #
-# Nothing here knows which program it is carrying. That became possible once the log moved
-# inside the program (`DataLogger`): the harness no longer has to name the node's outputs, so
-# `run_hardware.c` is a bare timing loop parameterized by nothing but the mangled node
-# symbols, the period, the duration and the log's identity — which every program supplies
-# alike through its `ProgramLog`.
+# The program handles I/O and logging; the generated header configures the timing loop.
 
 using Printf: @printf
 
@@ -18,19 +14,33 @@ export export_program_c, emit_c_harness, compile_c_harness, run_c_harness,
 # ---------------------------------------------------------------------------
 ## C export
 # ---------------------------------------------------------------------------
-# Raw little-endian bytes of a runtime parameter object (`TuningGains`/`AutoPars`), packed
-# into 64-bit words. Both are mutable structs whose fields are stored inline, so
-# `pointer_from_objref` points at the flat field-data region the exported C reads via its
-# baked-in `fieldoffset`s. Packing to `uint64_t` guarantees the 8-byte alignment the C
-# pointer casts require (the data region is a whole number of 8-byte fields; pad defensively).
-function _param_words(obj)
-    n = sizeof(typeof(obj))
-    npad = cld(n, 8) * 8
-    bytes = zeros(UInt8, npad)
-    GC.@preserve obj bytes begin
-        unsafe_copyto!(pointer(bytes), Ptr{UInt8}(pointer_from_objref(obj)), n)
-    end
-    return reinterpret(UInt64, bytes)
+# Positional initializers avoid mangled field names; NTuples wrap an `elements` array.
+# Fields without data have no C member and are skipped.
+function _c_initializer(x)
+    x isa Bool && return x ? "true" : "false"
+    x isa Union{Int8, Int16, Int32, Int64} &&
+        return x == typemin(x) ? "INT$(8sizeof(x))_MIN" : string(x)
+    x isa Union{UInt8, UInt16, UInt32, UInt64} && return string(x) * "U"
+    x isa Float64 && return _c_float(x, "")
+    x isa Float32 && return _c_float(x, "f")
+    T = typeof(x)
+    # a mutable struct qualifies too: plain-data fields are stored inline
+    (isstructtype(T) && !_no_data(T) && all(isbitstype, fieldtypes(T))) ||
+        throw(ArgumentError("cannot write a C initializer for a value of type $T"))
+    inits = [_c_initializer(getfield(x, i)) for i in 1:fieldcount(T) if !_no_data(fieldtype(T, i))]
+    x isa NTuple && return "{ { " * join(inits, ", ") * " } }"
+    return "{ " * join(inits, ", ") * " }"
+end
+
+# Whether C has no member for a field of type `T`: a singleton, or an immutable struct of those.
+_no_data(T) = Base.issingletontype(T) ||
+    (isstructtype(T) && !ismutabletype(T) && fieldcount(T) > 0 && all(_no_data, fieldtypes(T)))
+
+# Shortest round-trip decimals keep the exact bits in C literals.
+function _c_float(x::AbstractFloat, suffix)
+    isnan(x) && throw(ArgumentError("cannot write NaN as a C parameter constant"))
+    isinf(x) && return x > 0 ? "INFINITY" : "-INFINITY"
+    return string(x) * suffix
 end
 
 # Files an export writes that the target needs in order to build and run.
@@ -52,9 +62,8 @@ Export a compiled program as standalone C into `dir`: the SynchToolkit node (`to
 `qube_log.c` for the log, copied from `csrc/`), and a runnable control loop (`run_hardware.c`,
 `Makefile`) — see [`emit_c_harness`](@ref).
 
-`gains` overrides the runtime-settable parameters field by field, exactly as when running
-in-process; the resulting struct bytes are what gets embedded. `Tf`, `arm_deg` and
-`card_options` are baked into the harness.
+`gains` overrides runtime-settable parameters field by field, as in-process.
+The harness embeds these values as initialized C structs, along with `Tf`, `arm_deg` and `card_options`.
 
 The exported `top.c` contains `extern double qube_hw_measure(double arg1);` and friends plus
 named call sites, so the node performs its own encoder reads, motor writes and log rows, and
@@ -65,11 +74,6 @@ Returns `(; dir, mangled, files, gains, auto)`, where `mangled` is the base symb
 the emitted `<mangled>_step` / `<mangled>_reset` functions.
 """
 function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, gains = (;))
-    # A multirate node takes one boolean per clock, so both the mangled symbol below and
-    # `csrc/run_hardware.c`'s single `QUBE_STEP(true, ...)` would have to grow a tick per clock
-    # and a divisor counter in the loop. Nothing needs that yet -- the only multirate program is
-    # the MPC, which runs on the Julia backend because its prediction model has no symbolic form
-    # to render -- so this refuses rather than emitting a harness that cannot call its own node.
     length(gen.divisors) == 1 ||
         throw(ArgumentError("export_program_c: this program has $(length(gen.divisors)) clocks, \
                              and the C harness drives a single clock tick. Export a single-rate \
@@ -93,47 +97,25 @@ function export_program_c(gen, dir; Tf, arm_deg = 0.0, card_options = nothing, g
     end
     emit_c_harness(dir; gen.Ts, Tf, arm_deg, card_options, mangled, gen.log, traj,
                    p.gains, p.auto)
-    # `export_c` copies `synchjulia.h` out of the package depot, which is read-only, and
-    # preserves its mode. Everything here is a build output, so leave nothing unwritable:
-    # otherwise a later export or `scp` into the same directory cannot replace it. Only the
-    # user-write bit is added, so an executable stays executable.
-    for f in readdir(dir; join = true)
-        isfile(f) || continue
-        m = filemode(f)
-        (m & 0o200) == 0 && chmod(f, m | 0o200)
-    end
     files = sort!(filter(f -> isfile(joinpath(dir, f)), readdir(dir)))
     return (; dir, mangled, files, p.gains, p.auto)
 end
 
-# How the exported node declares its two parameter-block arguments, read out of `top.h`.
-#
-# SynchJulia >= 0.8 declares a parameter block whose layout is C-representable as a typed
-# pointer (`TuningGains *`) where 0.6 emitted an opaque `int64_t`. The bytes are the same --
-# the pointer points where the integer did -- so only the *cast* in the emitted config has to
-# follow the header. It cannot be hardcoded either way: whether a block qualifies depends on
-# its fields, so two programs can differ, and an integer-to-pointer cast is a constraint
-# violation that GCC 14 rejects outright rather than warning about.
-#
-# Returns the two type spellings with the parameter names stripped, ready to paste into a cast:
-# `TuningGains *gains` gives `"TuningGains *"`, `int64_t gains` gives `"int64_t"`.
-function _step_param_types(dir, mangled)
+# Expected ABI: clock tick, two parameter pointers, output pointers, state pointer.
+function _step_signature(dir, mangled)
     header = joinpath(dir, "top.h")
     isfile(header) ||
-        error("emit_c_harness: $header does not exist. The node has to be exported into `dir` \
-               first (`SynchJulia.export_c`), since the emitted config has to match how its \
-               header declares the parameter blocks.")
-    m = match(Regex("\\b" * mangled * "_step\\s*\\(([^)]*)\\)"), read(header, String))
-    m === nothing &&
-        error("emit_c_harness: no `$(mangled)_step` prototype in $header")
+        error("emit_c_harness: $header does not exist; export the node into `dir` first")
+    m = match(Regex("\\bvoid\\s+" * mangled * "_step\\s*\\(([^)]*)\\)"), read(header, String))
+    m === nothing && error("emit_c_harness: no `void $(mangled)_step(...)` prototype in $header")
     params = strip.(split(m.captures[1], ','))
-    length(params) >= 3 ||
-        error("emit_c_harness: `$(mangled)_step` declares $(length(params)) parameters, \
-               expected at least 3 (the clock tick, the gains and the auto parameters)")
-    # Drop the parameter name, keeping a `*` if the parameter is a pointer.
-    strip_name(p) = strip(replace(p, r"\s*\*?\s*[A-Za-z_][A-Za-z0-9_]*\s*$" =>
-                                     t -> occursin('*', t) ? " *" : ""))
-    return strip_name(params[2]), strip_name(params[3])
+    pointee(p) = match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\*\s*[A-Za-z_][A-Za-z0-9_]*$", p)
+    blocks = map(pointee, params[2:min(3, end)])
+    outputs = map(pointee, params[4:end-1])
+    (length(params) >= 4 && all(!isnothing, blocks) && all(!isnothing, outputs)) ||
+        error("emit_c_harness: unexpected `$(mangled)_step` prototype in $header: \
+               ($(join(params, ", ")))")
+    return (; gains = blocks[1][1], auto = blocks[2][1], outputs = [o[1] for o in outputs])
 end
 
 """
@@ -142,30 +124,14 @@ end
 Write `run_hardware_config.h` into `dir` and copy `csrc/run_hardware.c` and `csrc/Makefile`
 alongside it, next to the exported `top.c`/`top.h` and the C the node calls into.
 
-The control loop itself is a checked-in C file, not a string built here: only the values that
-depend on the compiled program are generated, as a small header the loop includes. Those are
-the mangled node symbols (`_step`/`_reset`/`_mem`/`_out`), the sample time, the run duration,
-the arm's start-up angle, the card options, the log's file name, header and column count, and
-the parameter blocks. Keeping the C in a real file means it gets editor tooling and cannot
-acquire escaping bugs from being embedded in Julia.
-
-The loop is only timing: `qube_hw_open(QUBE_HW_MODE_HIL, ...)` (home the arm and let the
-pendulum hang before starting), `qube_log_open` for the program to write its rows into, then
-every `Ts` seconds a single `_step` call, which reads the encoders, computes, writes the motor
-and logs the row itself. The `gains`/`auto` parameter objects are serialized to raw bytes and
-embedded so `_step` sees the exact byte layout it was compiled against. How the node's header
-declares those two parameters is read back out of `top.h`, so the node has to have been exported
-into `dir` before this is called -- SynchJulia spells a parameter block either as an opaque
-`int64_t` or as a typed pointer depending on its fields, and the cast has to match.
-
-Note what is *not* here any more: the loop does not read the node's output struct at all, so
-it needs no knowledge of the program's outputs and serves any program built for this rig.
+The header defines program-specific settings, the initialized parameter structs and `qube_tick`,
+which calls the node with scratch storage for its outputs. Export the node into `dir`
+first; parameter and output types are read from `top.h`.
 """
 function emit_c_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLog,
                         traj::Union{Nothing, ProgramTrajectory} = nothing,
                         arm_deg = 0.0, card_options = nothing)
-    words(obj) = join(("0x" * string(w; base = 16, pad = 16) * "ULL" for w in _param_words(obj)), ", ")
-    gains_ty, auto_ty = _step_param_types(dir, mangled)
+    sig = _step_signature(dir, mangled)
     config = """
     /* Auto-generated by QuanserComponents.emit_c_harness — do not edit by hand.
      * Everything here depends on the compiled program; run_hardware.c is a normal
@@ -173,13 +139,13 @@ function emit_c_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLog,
     #ifndef RUN_HARDWARE_CONFIG_H
     #define RUN_HARDWARE_CONFIG_H
 
-    #include <stdint.h>
+    #include <math.h>
+    #include "top.h"
 
     /* Mangled entry points of the generated node. */
     #define QUBE_STEP  $(mangled)_step
     #define QUBE_RESET $(mangled)_reset
     #define QUBE_MEM   $(mangled)_mem
-    #define QUBE_OUT   $(mangled)_out
 
     #define QUBE_TS $(Float64(Ts))            /* sample time [s]  */
     #define QUBE_TF $(Float64(Tf))            /* run duration [s] */
@@ -204,16 +170,15 @@ function emit_c_harness(dir; Ts, Tf, mangled, gains, auto, log::ProgramLog,
     #define QUBE_TRAJ_FILE   \"$(traj.file)\"
     #define QUBE_TRAJ_COLUMN $(traj.column)""")
 
-    /* Parameter blocks that the generated `_step` reads as opaque pointers: the raw bytes
-     * of the Julia TuningGains (the runtime-settable parameters) and AutoPars (all other
-     * model constants), serialized so the byte offsets match top.c exactly. */
-    static const uint64_t gains_words[] = { $(words(gains)) };
-    static const uint64_t auto_words[]  = { $(words(auto)) };
-    /* How the node's own header spells those two parameters; see `_step_param_types`. */
-    #define QUBE_GAINS_ARG $(gains_ty)
-    #define QUBE_AUTO_ARG  $(auto_ty)
-    #define GAINS_PTR ((QUBE_GAINS_ARG)(uintptr_t)gains_words)
-    #define AUTO_PTR  ((QUBE_AUTO_ARG)(uintptr_t)auto_words)
+    /* Not const: the node takes its parameter blocks by plain pointer. */
+    static $(sig.gains) qube_gains = $(_c_initializer(gains));
+    static $(sig.auto) qube_auto = $(_c_initializer(auto));
+
+    /* Outputs are discarded because the program handles its own logging. */
+    static inline void qube_tick(QUBE_MEM *self) {
+    $(join(("    $(ty) out$(i);" for (i, ty) in enumerate(sig.outputs)), "\n"))
+        QUBE_STEP(true, &qube_gains, &qube_auto, $(join(("&out$(i)" for i in eachindex(sig.outputs)), ", ")), self);
+    }
 
     #endif /* RUN_HARDWARE_CONFIG_H */
     """
@@ -422,9 +387,7 @@ function deploy_c_harness(dir; host, remote_dir = "furuta_c", ssh = `ssh`, scp =
         error("deploy_c_harness: $dir is missing $(join(missing_files, ", ")) — \
                run the export first")
     @info "Creating remote dir"
-    # Clear the destinations too. An earlier deploy may have left `synchjulia.h` mode 444 (it
-    # originates in the read-only package depot), and `scp` cannot reopen such a file for
-    # writing — it fails mid-transfer with "Permission denied".
+    # Remove destinations so `scp` can replace read-only files.
     files = [HARNESS_FILES..., extra_harness_files(dir)...]
     remote_files = join(("$remote_dir/$f" for f in files), " ")
     run(`$ssh $host "mkdir -p $remote_dir && rm -f $remote_files"`)
@@ -561,11 +524,9 @@ machine or -- with a `deploy_host` -- on the machine the QUBE is attached to, fr
 is fetched back into `output_dir`. The other way of running a program on the rig is
 [`run_inprocess!`](@ref); an analysis chooses between the two through [`run_on_target`](@ref).
 
-`gains` overrides the runtime-settable parameters, baked into the harness as struct bytes. With
-`live_plot` a viewer is started on the log while the run is in progress -- for a remote run the
-log is streamed back during the run for that purpose, so the viewer watches this run rather than
-the copy fetched afterwards. See [`launch_live_plot`](@ref) for `live_plot_cmd` and
-`live_plot_config`.
+`gains` overrides runtime-settable parameters embedded as initialized C structs.
+With `live_plot`, a viewer follows the log during execution; remote logs are streamed locally.
+See [`launch_live_plot`](@ref) for `live_plot_cmd` and `live_plot_config`.
 """
 function run_c!(gen::CompiledProgram; Tf, output_dir = "furuta_c", arm_deg = 0.0,
                 card_options::Union{Nothing, AbstractString} = nothing,
