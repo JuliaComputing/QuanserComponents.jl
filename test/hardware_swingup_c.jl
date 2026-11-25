@@ -1,6 +1,7 @@
 # The exported binary talks to the board itself through qube_hw.c, so nothing here
 # needs QuanserInterface: this script only exports, builds, runs and plots.
 using QuanserComponents
+using SynchJuliaC          # C export
 using DelimitedFiles
 using StaticArrays
 using Plots

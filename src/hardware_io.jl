@@ -85,10 +85,10 @@ function _c_compiler()
         p = Sys.which(c)
         p === nothing || return p
     end
-    # SynchJulia ships clang through a Clang_unified_jll extension; use it if
-    # the extension is loaded (it is whenever the `:c` backend is available).
+    # SynchJuliaC ships clang (MinGW on Windows); use it when it is loaded.
+    has_c_backend() || return nothing
     try
-        return SynchJulia.cc()
+        return Base.invokelatest(synchjuliac_cc)
     catch
         return nothing
     end
@@ -118,7 +118,7 @@ function build_qube_hw!(; hil::Bool = quanser_sdk_flags().found, force::Bool = f
     end
     cc = _c_compiler()
     cc === nothing && error("""
-        No C compiler found (tried cc, gcc, clang and SynchJulia's Clang_unified_jll).
+        No C compiler found (tried cc, gcc, clang and SynchJuliaC's clang).
         One is needed to build $QUBE_HW_SRC, the hardware I/O the generated
         controller calls into.""")
     sdk = quanser_sdk_flags(; quanser_dir)

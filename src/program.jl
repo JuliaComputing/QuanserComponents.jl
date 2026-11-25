@@ -359,11 +359,8 @@ end
 Construct the `TuningGains` and `AutoPars` parameter objects of a compiled program, with `gains`
 overriding the model's resolved values field by field (a `nothing` leaves the model's value).
 
-These objects are what the node's `step` is handed, in this process by [`ProgramRuntime`](@ref)
-and as raw bytes in the exported C by `export_program_c`: their in-memory field bytes are
-exactly what the exported C reads at its baked-in `fieldoffset`s. The spec's `check` runs on
-the final values, so a warning about an unworkable tunable is given whichever way the program
-is run.
+[`ProgramRuntime`](@ref) passes these objects to the node; `export_program_c` embeds them
+as initialized C structs. Both paths run the spec's `check` on the final tunable values.
 
 `stkcompile` evaluates a runtime module in a newer world than this frame, but nothing here has
 to know that: a `ParametersStruct` is callable with the `CompiledNode`, and does its own
@@ -429,13 +426,22 @@ ProgramRuntime{names}(exe::E, gains::G, auto::A, log, traj, Ts,
                       divisors::NTuple{K, Int} = (1,)) where {names, K, E, G, A} =
     ProgramRuntime{names, K, E, G, A}(exe, gains, auto, log, traj, Float64(Ts), divisors, Ref(0))
 
+# The SynchJulia back-end a program backend name stands for. The names stay Symbols because
+# the analyses take them as their `backend` String parameter.
+function synch_backend(backend::Symbol)
+    backend === :julia && return SynchJulia.JuliaBackend()
+    backend === :c || throw(ArgumentError("backend must be :julia or :c, got $(repr(backend))"))
+    require_c_backend("backend = :c")
+    return Base.invokelatest(c_backend)
+end
+
 function ProgramRuntime(gen::CompiledProgram; backend::Symbol = :julia, gains...)
     backend in gen.spec.backends ||
         throw(ArgumentError("the program $(gen.spec.name) runs on the \
                              $(join(repr.(gen.spec.backends), ", ")) backend only, not \
                              $(repr(backend)); see its `program_spec`"))
     p = build_parameter_structs(gen; gains)
-    exe = SynchJulia.SynchExecutable(gen.compiled; backend)
+    exe = SynchJulia.SynchExecutable(gen.compiled; backend = synch_backend(backend))
     return ProgramRuntime{gen.spec.output_names}(exe, p.gains, p.auto, gen.log, gen.traj,
                                                  gen.Ts, gen.divisors)
 end

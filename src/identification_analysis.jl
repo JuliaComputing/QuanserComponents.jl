@@ -34,9 +34,9 @@ struct FurutaIdentificationSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: Ab
 end
 
 function DyadInterface.run_analysis(spec::FurutaIdentificationBaseSpec)
-    # Rejects a misspelled `backend` here rather than after the program has been compiled,
-    # which is the expensive half. `run_on_target` reads it off the spec again.
-    program_backend(spec)
+    # Rejects a misspelled `backend`, or a C run without the C back-end, before anything is
+    # written or compiled.
+    check_analysis_spec(spec)
     mkpath(spec.output_dir)
     log_file = program_log_path(spec, IDENTIFICATION_LOG_FILE)
     traj = identification_traj(spec.traj_file, spec.traj_column)

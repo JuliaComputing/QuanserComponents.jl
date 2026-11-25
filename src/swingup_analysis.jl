@@ -38,9 +38,9 @@ struct FurutaSwingupSolution{SP <: AbstractQubeHardwareRunBaseSpec} <: AbstractA
 end
 
 function DyadInterface.run_analysis(spec::FurutaSwingupBaseSpec)
-    # Rejects a misspelled `backend` here rather than after the program has been compiled,
-    # which is the expensive half. `run_on_target` reads it off the spec again.
-    program_backend(spec)
+    # Rejects a misspelled `backend`, or a C run without the C back-end, before anything is
+    # written or compiled.
+    check_analysis_spec(spec)
     mkpath(spec.output_dir)
     # `design_lqr` costs a couple of minutes, so it stays switched off until asked for; the
     # controller then keeps the tuned gain baked into the model.
