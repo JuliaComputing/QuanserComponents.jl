@@ -44,7 +44,7 @@ have_hil() || build_qube_hw!(; hil = true, force = true)
 @time "compile FurutaHardware" gen = compile_program(FurutaHardware; Ts, log_file = logfile)
 ctrl = ProgramRuntime(gen; backend = :julia)
 # For the C backend instead (identical control signal, ~the same speed here since
-# the hot path is the same C either way):
+# the hot path is the same C either way; needs `using SynchJuliaC`):
 # ctrl = ProgramRuntime(gen; backend = :c)
 
 # `D` is the log the *program* wrote, one row per tick, in SWINGUP_LOG_COLUMNS order:

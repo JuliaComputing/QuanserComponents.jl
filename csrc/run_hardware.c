@@ -1,18 +1,5 @@
-/* Standalone control loop for an exported QUBE program.
- *
- * The program does its own encoder reads, motor writes and log rows (through qube_hw.c and
- * qube_log.c, the same implementations the Julia backend calls), so this is only timing:
- * open the device, open the log for the program to write into, tick the clock every Ts.
- *
- * Nothing here knows which program it is running. The node's outputs are never read — the
- * program logs what it wants logged, in the columns its own DataLogger was built with — so
- * the same loop serves the swing-up controller, the friction experiment, or anything else
- * built for this rig. What does depend on the program — the mangled node symbols, the
- * serialized parameter blocks, the sample time, the run duration and the log's identity —
- * arrives through run_hardware_config.h, which
- * `QuanserComponents.emit_hardware_harness` generates next to this file. That keeps this a
- * normal C file: editable, clang-format-able, and compilable in place rather than a Julia
- * string. Build with `make`. */
+/* The program handles I/O and logging; this harness schedules its clock ticks.
+ * Generate run_hardware_config.h with QuanserComponents.emit_c_harness; build with make. */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,10 +81,7 @@ int main(void) {
         double dt = tsub(start, prev);    /* achieved period since previous step [s] */
         prev = start;
 
-        /* One call: reads both encoders, computes, writes the motor voltage and appends a
-         * row to the log. The returned output struct is deliberately unused. */
-        QUBE_OUT out = QUBE_STEP(true, GAINS_PTR, AUTO_PTR, &state);
-        (void)out;
+        qube_tick(&state);
 
         clock_gettime(CLOCK_MONOTONIC, &done);
         double exec = tsub(done, start);  /* body duration [s] */

@@ -3,6 +3,22 @@ using DiscreteComponents
 using MultibodyComponents
 using LinearAlgebra
 
+# The C back-end (`backend = :c`), C export and SynchJuliaC's C compiler are defined by
+# QuanserComponentsSynchJuliaCExt, which loads with SynchJuliaC. Without it, programs run on
+# the Julia back-end only. The extension may load after the calling task's world, so its methods
+# are called through `invokelatest`.
+function c_backend end
+function synchjuliac_export_c end
+function synchjuliac_mangle end
+function synchjuliac_cc end
+has_c_backend() = Base.get_extension(@__MODULE__, :QuanserComponentsSynchJuliaCExt) !== nothing
+function require_c_backend(what)
+    has_c_backend() ||
+        error("$what needs SynchJulia's C back-end: add SynchJuliaC to the environment \
+               and load it (`using SynchJuliaC`)")
+    return nothing
+end
+
 # Spec bases for the analyses. Both `FurutaSwingupExperiment` and `FurutaFrictionExperiment` extend the
 # partial analysis `QubeHardwareRunBase`, and the Dyad compiler resolves an analysis' spec type
 # to the root of that chain, so the generated definitions

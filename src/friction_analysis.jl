@@ -97,9 +97,9 @@ end
 ran(sol::FurutaFrictionSolution) = sol.hwrun.ran
 
 function DyadInterface.run_analysis(spec::FurutaFrictionBaseSpec)
-    # Rejects a misspelled `backend` here rather than after the program has been compiled,
-    # which is the expensive half. `run_on_target` reads it off the spec again.
-    program_backend(spec)
+    # Rejects a misspelled `backend`, or a C run without the C back-end, before anything is
+    # written or compiled.
+    check_analysis_spec(spec)
     mkpath(spec.output_dir)
     # One full up-and-down sweep unless asked otherwise. Anything shorter truncates the
     # reference schedule, which costs the fit its highest speeds or one whole direction.

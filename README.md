@@ -103,6 +103,8 @@ program needs beyond its constructor declared once in the model's `ProgramSpec`,
 is put on the rig by one of three functions, each named for how it runs the program:
 
 ```julia
+using Pkg; Pkg.add("SynchJuliaC")   # once: the C back-end, for `backend = :c` and C export
+using QuanserComponents, SynchJuliaC
 gen  = compile_program(FurutaHardware; Ts = 0.005)
 ctrl = ProgramRuntime(gen; backend = :c, umax = 5.0)   # :julia or :c; the tunables by name
 run_inprocess!(ctrl; Tf = 10)                          # a Julia timing loop ticks the node here
@@ -274,10 +276,10 @@ is 0.3. The registry is added with
 pkg> registry add https://github.com/JuliaComputing/DyadRegistry
 ```
 
-The synchronous execution dependencies are SynchJulia 0.8 and SynchToolkit 0.5.1 or later
-within the 0.5 series. SynchToolkit provides clock crossing and clocked array variables for
-the multirate MPC model. DiscreteComponents 0.6 provides `AlphaBetaGammaFilter` for velocity
-estimation and `Latest` for clock crossing.
+Synchronous execution requires SynchJulia 0.10 and SynchToolkit 0.6. The C back-end
+(`backend = :c`) and C export also need SynchJuliaC 0.10, loaded with `using SynchJuliaC`.
+SynchToolkit provides clock crossing and clocked arrays for multirate MPC. DiscreteComponents
+0.6 provides `AlphaBetaGammaFilter` for velocity estimation and `Latest` for clock crossing.
 
 The checked-in `Manifest.toml` and `test/Manifest.toml` resolve these dependencies. Instantiate
 the package environment before running a hardware script:
